@@ -29,11 +29,19 @@ public:
                              TensorView &dout_dx) const;
   void row_sum(const TensorView &x, TensorView &out_1xC) const;
 
-  void matmul(const TensorView &a, const TensorView &b, TensorView &out) const;
-  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+  void gemm(const TensorView &a, const TensorView &b, TensorView &out) const;
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                               TensorView &out) const;
-  void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                               TensorView &out) const;
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) const;
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) const;
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) const;
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) const;
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) const;
   void transpose(const TensorView &x, TensorView &out) const;
   void layernorm(const TensorView &x, const TensorView &gamma_1xC,
                  const TensorView &beta_1xC, TensorView &out) const;
@@ -66,14 +74,14 @@ public:
   void finish_exec_context_iteration() const;
   void start_exec_context_group() const;
   void finish_exec_context_group() const;
-  void matmul_exec_context(const TensorView &a, const TensorView &b,
-                           TensorView &out) const;
-  void matmul_left_transposed_exec_context(const TensorView &a,
-                                          const TensorView &b,
-                                          TensorView &out) const;
-  void matmul_right_transposed_exec_context(const TensorView &a,
-                                           const TensorView &b,
-                                           TensorView &out) const;
+  void gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                 TensorView &out) const;
+  void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) const;
+  void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) const;
   void scaled_causal_softmax_rows_exec_context(const TensorView &scores,
                                                float scale,
                                                TensorView &out) const;

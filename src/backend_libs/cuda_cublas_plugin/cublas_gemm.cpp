@@ -163,270 +163,186 @@ bool regular_prefix_stride_f32(const TensorView &view, uint64_t prefix_count,
   return true;
 }
 
-bool all_contiguous_f32_row_major(const TensorView &a, const TensorView &b,
-                                  const TensorView &out) {
-  return is_cuda_f32_contiguous_row_major(a) &&
-         is_cuda_f32_contiguous_row_major(b) &&
-         is_cuda_f32_contiguous_row_major(out);
-}
-
-bool is_ranked_batch_gemm(const TensorView &a, const TensorView &b,
-                          const TensorView &out) {
-  return a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank();
-}
-
-bool is_contiguous_ranked_batch_gemm(const TensorView &a, const TensorView &b,
-                                     const TensorView &out) {
-  return is_ranked_batch_gemm(a, b, out) &&
-         all_contiguous_f32_row_major(a, b, out);
-}
-
-bool is_contiguous_ranked_matmul_with_matrix_rhs(const TensorView &a,
-                                                 const TensorView &b,
-                                                 const TensorView &out) {
-  return a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank() &&
-         all_contiguous_f32_row_major(a, b, out);
-}
-
-bool is_contiguous_ranked_left_transposed_reduce(const TensorView &a,
-                                                 const TensorView &b,
-                                                 const TensorView &out) {
-  return a.rank() >= 3 && b.rank() == a.rank() && out.rank() == 2 &&
-         all_contiguous_f32_row_major(a, b, out);
-}
-
-bool is_contiguous_ranked_right_transposed_reduce(const TensorView &a,
-                                                  const TensorView &b,
-                                                  const TensorView &out) {
-  return a.rank() >= 3 && b.rank() == 2 && out.rank() == 2 &&
-         all_contiguous_f32_row_major(a, b, out);
-}
-
 } // namespace
 
-void cublas_matmul(cublasHandle_t handle, const TensorView &a,
-                   const TensorView &b, TensorView &out) {
-    require_cuda_f32_row_major(a, "matmul(a)");
-    require_cuda_f32_row_major(b, "matmul(b)");
-    require_cuda_f32_row_major(out, "matmul(out)");
-    if (is_contiguous_ranked_matmul_with_matrix_rhs(a, b, out)) {
-      const GemmShape shape = matmul_ranked_matrix_rhs_shape(a, b);
-      run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
-               {b.f32(), shape.out_cols, 0},
-               {a.f32(), shape.shared_dim, 0}, {out.f32(), shape.out_cols, 0},
-               "cublasSgemm(matmul ranked x matrix)");
-      return;
-    }
-    if (is_contiguous_ranked_batch_gemm(a, b, out)) {
-      const int batch_count = static_cast<int>(logical_prefix_count(a, 2));
-      const GemmShape shape = matmul_ranked_batch_shape(a, b);
-      const GemmStrides strides = matmul_contiguous_strides(shape);
-      run_strided_batched_gemm(
-          handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
-          {b.f32(), shape.out_cols, strides.b},
-          {a.f32(), shape.shared_dim, strides.a},
-          {out.f32(), shape.out_cols, strides.out}, batch_count,
-          "cublasSgemmStridedBatched(matmul ranked)");
-      return;
-    }
-    if (is_ranked_batch_gemm(a, b, out)) {
-      if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul would return without cublasSgemm for zero-sized ranked tensors");
-      }
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
-      const GemmShape shape = matmul_ranked_batch_shape(a, b);
-      const int a_leading_dim = leading_dim_f32(a);
-      const int b_leading_dim = leading_dim_f32(b);
-      const int out_leading_dim = leading_dim_f32(out);
-      long long int stride_a = 0;
-      long long int stride_b = 0;
-      long long int stride_out = 0;
-      if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
-          regular_prefix_stride_f32(b, prefix_count, stride_b) &&
-          regular_prefix_stride_f32(out, prefix_count, stride_out)) {
-        run_strided_batched_gemm(
-            handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
-            {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
-            {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
-            {prefix_matrix_ptr(out, 0), out_leading_dim, stride_out},
-            static_cast<int>(prefix_count),
-            "cublasSgemmStridedBatched(matmul ranked non-contiguous)");
-        return;
-      }
-      if (!fallback_to_prefix_loop) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul irregular ranked layout is not supported");
-      }
-      for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-        run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
-                 {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
-                 {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
-                 {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
-                 "cublasSgemm(matmul ranked non-contiguous)");
-      }
-      return;
-    }
-    if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: matmul would return without cublasSgemm for zero-sized tensors");
-    }
-    const GemmShape shape = matmul_tensor_shape(a, b);
-    // Row-major C = A * B is the same memory layout as column-major C^T = B^T * A^T.
-    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
-             {b.f32(), leading_dim_f32(b), 0},
-             {a.f32(), leading_dim_f32(a), 0},
-             {out.f32(), leading_dim_f32(out), 0}, "cublasSgemm(matmul)");
-  }
-
-void cublas_matmul_left_transposed(cublasHandle_t handle, const TensorView &a,
-                                   const TensorView &b, TensorView &out) {
-    require_cuda_f32_row_major(a, "matmul_left_transposed(a)");
-    require_cuda_f32_row_major(b, "matmul_left_transposed(b)");
-    require_cuda_f32_row_major(out, "matmul_left_transposed(out)");
-    if (is_contiguous_ranked_left_transposed_reduce(a, b, out)) {
-      const GemmShape shape = left_transposed_ranked_reduce_shape(a, b);
-      run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
-               {b.f32(), shape.out_cols, 0}, {a.f32(), shape.out_rows, 0},
-               {out.f32(), shape.out_cols, 0},
-               "cublasSgemm(matmul_left_transposed ranked reduce)");
-      return;
-    }
-    if (is_contiguous_ranked_batch_gemm(a, b, out)) {
-      const int batch_count = static_cast<int>(logical_prefix_count(a, 2));
-      const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
-      const GemmStrides strides = left_transposed_contiguous_strides(shape);
-      run_strided_batched_gemm(
-          handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
-          {b.f32(), shape.out_cols, strides.b},
-          {a.f32(), shape.out_rows, strides.a},
-          {out.f32(), shape.out_cols, strides.out}, batch_count,
-          "cublasSgemmStridedBatched(matmul_left_transposed ranked)");
-      return;
-    }
-    if (is_ranked_batch_gemm(a, b, out)) {
-      if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul_left_transposed would return without cublasSgemm for zero-sized ranked tensors");
-      }
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
-      const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
-      const int a_leading_dim = leading_dim_f32(a);
-      const int b_leading_dim = leading_dim_f32(b);
-      const int out_leading_dim = leading_dim_f32(out);
-      long long int stride_a = 0;
-      long long int stride_b = 0;
-      long long int stride_out = 0;
-      if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
-          regular_prefix_stride_f32(b, prefix_count, stride_b) &&
-          regular_prefix_stride_f32(out, prefix_count, stride_out)) {
-        run_strided_batched_gemm(
-            handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
-            {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
-            {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
-            {prefix_matrix_ptr(out, 0), out_leading_dim, stride_out},
-            static_cast<int>(prefix_count),
-            "cublasSgemmStridedBatched(matmul_left_transposed ranked non-contiguous)");
-        return;
-      }
-      if (!fallback_to_prefix_loop) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul_left_transposed irregular ranked layout is not supported");
-      }
-      for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-        run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
-                 {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
-                 {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
-                 {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
-                 "cublasSgemm(matmul_left_transposed ranked non-contiguous)");
-      }
-      return;
-    }
-    if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: matmul_left_transposed would return without cublasSgemm for zero-sized tensors");
-    }
-    const GemmShape shape = left_transposed_tensor_shape(a, b);
-    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
-             {b.f32(), leading_dim_f32(b), 0},
-             {a.f32(), leading_dim_f32(a), 0},
-             {out.f32(), leading_dim_f32(out), 0},
-             "cublasSgemm(matmul_left_transposed)");
-  }
-
-void cublas_matmul_right_transposed(cublasHandle_t handle, const TensorView &a,
-                                    const TensorView &b, TensorView &out) {
-    require_cuda_f32_row_major(a, "matmul_right_transposed(a)");
-    require_cuda_f32_row_major(b, "matmul_right_transposed(b)");
-    require_cuda_f32_row_major(out, "matmul_right_transposed(out)");
-    if (is_contiguous_ranked_right_transposed_reduce(a, b, out)) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: matmul_right_transposed ranked reduce would use custom kernel instead of cublasSgemm");
-    }
-    if (is_contiguous_ranked_matmul_with_matrix_rhs(a, b, out)) {
-      const GemmShape shape = right_transposed_ranked_matrix_rhs_shape(a, b);
-      run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
-               {b.f32(), shape.shared_dim, 0},
-               {a.f32(), shape.shared_dim, 0}, {out.f32(), shape.out_cols, 0},
-               "cublasSgemm(matmul_right_transposed ranked x matrix)");
-      return;
-    }
-    if (is_contiguous_ranked_batch_gemm(a, b, out)) {
-      const int batch_count = static_cast<int>(logical_prefix_count(a, 2));
-      const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
-      const GemmStrides strides = right_transposed_contiguous_strides(shape);
-      run_strided_batched_gemm(
-          handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
-          {b.f32(), shape.shared_dim, strides.b},
-          {a.f32(), shape.shared_dim, strides.a},
-          {out.f32(), shape.out_cols, strides.out}, batch_count,
-          "cublasSgemmStridedBatched(matmul_right_transposed ranked)");
-      return;
-    }
-    if (is_ranked_batch_gemm(a, b, out)) {
-      if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_rows(b) == 0) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul_right_transposed would return without cublasSgemm for zero-sized ranked tensors");
-      }
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
-      const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
-      const int a_leading_dim = leading_dim_f32(a);
-      const int b_leading_dim = leading_dim_f32(b);
-      const int out_leading_dim = leading_dim_f32(out);
-      long long int stride_a = 0;
-      long long int stride_b = 0;
-      long long int stride_out = 0;
-      if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
-          regular_prefix_stride_f32(b, prefix_count, stride_b) &&
-          regular_prefix_stride_f32(out, prefix_count, stride_out)) {
-        run_strided_batched_gemm(
-            handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
-            {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
-            {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
-            {prefix_matrix_ptr(out, 0), out_leading_dim, stride_out},
-            static_cast<int>(prefix_count),
-            "cublasSgemmStridedBatched(matmul_right_transposed ranked non-contiguous)");
-        return;
-      }
-      if (!fallback_to_prefix_loop) {
-        throw std::runtime_error(
-            "cuda_cublas_plugin: matmul_right_transposed irregular ranked layout is not supported");
-      }
-      for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-        run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
-                 {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
-                 {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
-                 {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
-                 "cublasSgemm(matmul_right_transposed ranked non-contiguous)");
-      }
-      return;
-    }
-    if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_rows(b) == 0) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: matmul_right_transposed would return without cublasSgemm for zero-sized tensors");
-    }
+void cublas_gemm(cublasHandle_t handle, const TensorView &a,
+                 const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm(a)");
+  require_cuda_f32_row_major(b, "gemm(b)");
+  require_cuda_f32_row_major(out, "gemm(out)");
+  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
     throw std::runtime_error(
-        "cuda_cublas_plugin: matmul_right_transposed would use custom kernel instead of cublasSgemm");
+        "cuda_cublas_plugin: gemm would return without cublasSgemm for zero-sized tensors");
   }
+  const GemmShape shape = matmul_tensor_shape(a, b);
+  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+           {b.f32(), leading_dim_f32(b), 0},
+           {a.f32(), leading_dim_f32(a), 0},
+           {out.f32(), leading_dim_f32(out), 0}, "cublasSgemm(gemm)");
+}
+
+void cublas_gemm_ranked_matrix_rhs(cublasHandle_t handle, const TensorView &a,
+                                   const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_ranked_matrix_rhs(a)");
+  require_cuda_f32_row_major(b, "gemm_ranked_matrix_rhs(b)");
+  require_cuda_f32_row_major(out, "gemm_ranked_matrix_rhs(out)");
+  const GemmShape shape = matmul_ranked_matrix_rhs_shape(a, b);
+  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+           {b.f32(), shape.out_cols, 0},
+           {a.f32(), shape.shared_dim, 0}, {out.f32(), shape.out_cols, 0},
+           "cublasSgemm(gemm_ranked_matrix_rhs)");
+}
+
+void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
+                                     const TensorView &a,
+                                     const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_ranked_matrix_rhs_t(a)");
+  require_cuda_f32_row_major(b, "gemm_ranked_matrix_rhs_t(b)");
+  require_cuda_f32_row_major(out, "gemm_ranked_matrix_rhs_t(out)");
+  const GemmShape shape = right_transposed_ranked_matrix_rhs_shape(a, b);
+  run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+           {b.f32(), shape.shared_dim, 0},
+           {a.f32(), shape.shared_dim, 0}, {out.f32(), shape.out_cols, 0},
+           "cublasSgemm(gemm_ranked_matrix_rhs_t)");
+}
+
+void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
+                                     const TensorView &a,
+                                     const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_ranked_reduce_lhs_t(a)");
+  require_cuda_f32_row_major(b, "gemm_ranked_reduce_lhs_t(b)");
+  require_cuda_f32_row_major(out, "gemm_ranked_reduce_lhs_t(out)");
+  const GemmShape shape = left_transposed_ranked_reduce_shape(a, b);
+  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+           {b.f32(), shape.out_cols, 0}, {a.f32(), shape.out_rows, 0},
+           {out.f32(), shape.out_cols, 0},
+           "cublasSgemm(gemm_ranked_reduce_lhs_t)");
+}
+
+void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
+                         const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_batched(a)");
+  require_cuda_f32_row_major(b, "gemm_batched(b)");
+  require_cuda_f32_row_major(out, "gemm_batched(out)");
+  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched would return without cublasSgemm for zero-sized tensors");
+  }
+  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const GemmShape shape = matmul_ranked_batch_shape(a, b);
+  const int a_leading_dim = leading_dim_f32(a);
+  const int b_leading_dim = leading_dim_f32(b);
+  const int out_leading_dim = leading_dim_f32(out);
+  long long int stride_a = 0;
+  long long int stride_b = 0;
+  long long int stride_out = 0;
+  if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
+      regular_prefix_stride_f32(b, prefix_count, stride_b) &&
+      regular_prefix_stride_f32(out, prefix_count, stride_out)) {
+    run_strided_batched_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+                             {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
+                             {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
+                             {prefix_matrix_ptr(out, 0), out_leading_dim,
+                              stride_out},
+                             static_cast<int>(prefix_count),
+                             "cublasSgemmStridedBatched(gemm_batched)");
+    return;
+  }
+  if (!fallback_to_prefix_loop) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched irregular ranked layout is not supported");
+  }
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+             {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
+             {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
+             {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
+             "cublasSgemm(gemm_batched prefix)");
+  }
+}
+
+void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
+                               const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_batched_lhs_t(a)");
+  require_cuda_f32_row_major(b, "gemm_batched_lhs_t(b)");
+  require_cuda_f32_row_major(out, "gemm_batched_lhs_t(out)");
+  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched_lhs_t would return without cublasSgemm for zero-sized tensors");
+  }
+  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
+  const int a_leading_dim = leading_dim_f32(a);
+  const int b_leading_dim = leading_dim_f32(b);
+  const int out_leading_dim = leading_dim_f32(out);
+  long long int stride_a = 0;
+  long long int stride_b = 0;
+  long long int stride_out = 0;
+  if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
+      regular_prefix_stride_f32(b, prefix_count, stride_b) &&
+      regular_prefix_stride_f32(out, prefix_count, stride_out)) {
+    run_strided_batched_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+                             {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
+                             {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
+                             {prefix_matrix_ptr(out, 0), out_leading_dim,
+                              stride_out},
+                             static_cast<int>(prefix_count),
+                             "cublasSgemmStridedBatched(gemm_batched_lhs_t)");
+    return;
+  }
+  if (!fallback_to_prefix_loop) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched_lhs_t irregular ranked layout is not supported");
+  }
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+             {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
+             {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
+             {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
+             "cublasSgemm(gemm_batched_lhs_t prefix)");
+  }
+}
+
+void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
+                               const TensorView &b, TensorView &out) {
+  require_cuda_f32_row_major(a, "gemm_batched_rhs_t(a)");
+  require_cuda_f32_row_major(b, "gemm_batched_rhs_t(b)");
+  require_cuda_f32_row_major(out, "gemm_batched_rhs_t(out)");
+  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_rows(b) == 0) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched_rhs_t would return without cublasSgemm for zero-sized tensors");
+  }
+  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
+  const int a_leading_dim = leading_dim_f32(a);
+  const int b_leading_dim = leading_dim_f32(b);
+  const int out_leading_dim = leading_dim_f32(out);
+  long long int stride_a = 0;
+  long long int stride_b = 0;
+  long long int stride_out = 0;
+  if (regular_prefix_stride_f32(a, prefix_count, stride_a) &&
+      regular_prefix_stride_f32(b, prefix_count, stride_b) &&
+      regular_prefix_stride_f32(out, prefix_count, stride_out)) {
+    run_strided_batched_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+                             {prefix_matrix_ptr(b, 0), b_leading_dim, stride_b},
+                             {prefix_matrix_ptr(a, 0), a_leading_dim, stride_a},
+                             {prefix_matrix_ptr(out, 0), out_leading_dim,
+                              stride_out},
+                             static_cast<int>(prefix_count),
+                             "cublasSgemmStridedBatched(gemm_batched_rhs_t)");
+    return;
+  }
+  if (!fallback_to_prefix_loop) {
+    throw std::runtime_error(
+        "cuda_cublas_plugin: gemm_batched_rhs_t irregular ranked layout is not supported");
+  }
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+             {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
+             {prefix_matrix_ptr(a, prefix), a_leading_dim, 0},
+             {prefix_matrix_ptr(out, prefix), out_leading_dim, 0},
+             "cublasSgemm(gemm_batched_rhs_t prefix)");
+  }
+}
 
 } // namespace cuda_cublas_plugin

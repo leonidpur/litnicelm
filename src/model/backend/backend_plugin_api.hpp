@@ -62,14 +62,26 @@ struct BackendApiV1 {
                                 const BackendTensorView *dout_dx);
   void (*row_sum)(void *backend, const BackendTensorView *x,
                   const BackendTensorView *out_1xC);
-  void (*matmul)(void *backend, const BackendTensorView *a,
-                 const BackendTensorView *b, const BackendTensorView *out);
-  void (*matmul_left_transposed)(void *backend, const BackendTensorView *a,
+  void (*gemm)(void *backend, const BackendTensorView *a,
+               const BackendTensorView *b, const BackendTensorView *out);
+  void (*gemm_ranked_matrix_rhs)(void *backend, const BackendTensorView *a,
                                  const BackendTensorView *b,
                                  const BackendTensorView *out);
-  void (*matmul_right_transposed)(void *backend, const BackendTensorView *a,
-                                  const BackendTensorView *b,
-                                  const BackendTensorView *out);
+  void (*gemm_ranked_matrix_rhs_t)(void *backend, const BackendTensorView *a,
+                                   const BackendTensorView *b,
+                                   const BackendTensorView *out);
+  void (*gemm_ranked_reduce_lhs_t)(void *backend, const BackendTensorView *a,
+                                   const BackendTensorView *b,
+                                   const BackendTensorView *out);
+  void (*gemm_batched)(void *backend, const BackendTensorView *a,
+                       const BackendTensorView *b,
+                       const BackendTensorView *out);
+  void (*gemm_batched_lhs_t)(void *backend, const BackendTensorView *a,
+                             const BackendTensorView *b,
+                             const BackendTensorView *out);
+  void (*gemm_batched_rhs_t)(void *backend, const BackendTensorView *a,
+                             const BackendTensorView *b,
+                             const BackendTensorView *out);
   void (*transpose)(void *backend, const BackendTensorView *x,
                     const BackendTensorView *out);
   void (*layernorm_forward)(void *backend, const BackendTensorView *x,
@@ -115,13 +127,13 @@ struct BackendApiV1 {
   void (*finish_exec_context_iteration)(void *backend);
   void (*start_exec_context_group)(void *backend);
   void (*finish_exec_context_group)(void *backend);
-  void (*matmul_exec_context)(void *backend, const BackendTensorView *a,
-                              const BackendTensorView *b,
-                              const BackendTensorView *out);
-  void (*matmul_left_transposed_exec_context)(
+  void (*gemm_batched_exec_context)(void *backend, const BackendTensorView *a,
+                                    const BackendTensorView *b,
+                                    const BackendTensorView *out);
+  void (*gemm_batched_lhs_t_exec_context)(
       void *backend, const BackendTensorView *a, const BackendTensorView *b,
       const BackendTensorView *out);
-  void (*matmul_right_transposed_exec_context)(
+  void (*gemm_batched_rhs_t_exec_context)(
       void *backend, const BackendTensorView *a, const BackendTensorView *b,
       const BackendTensorView *out);
   void (*scaled_causal_softmax_rows_exec_context)(

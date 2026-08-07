@@ -121,26 +121,59 @@ void plugin_row_sum(void *backend, const BackendTensorView *x,
   backend_from_opaque(backend).row_sum(to_tensor_view(*x), out_view);
 }
 
-void plugin_matmul(void *backend, const BackendTensorView *a,
-                   const BackendTensorView *b, const BackendTensorView *out) {
+void plugin_gemm(void *backend, const BackendTensorView *a,
+                 const BackendTensorView *b, const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul(to_tensor_view(*a), to_tensor_view(*b),
+  backend_from_opaque(backend).gemm(to_tensor_view(*a), to_tensor_view(*b),
                                     out_view);
 }
 
-void plugin_matmul_left_transposed(void *backend, const BackendTensorView *a,
+void plugin_gemm_ranked_matrix_rhs(void *backend, const BackendTensorView *a,
                                    const BackendTensorView *b,
                                    const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul_left_transposed(
+  backend_from_opaque(backend).gemm_ranked_matrix_rhs(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_matmul_right_transposed(void *backend, const BackendTensorView *a,
-                                    const BackendTensorView *b,
-                                    const BackendTensorView *out) {
+void plugin_gemm_ranked_matrix_rhs_t(void *backend, const BackendTensorView *a,
+                                     const BackendTensorView *b,
+                                     const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul_right_transposed(
+  backend_from_opaque(backend).gemm_ranked_matrix_rhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_ranked_reduce_lhs_t(void *backend,
+                                     const BackendTensorView *a,
+                                     const BackendTensorView *b,
+                                     const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).gemm_ranked_reduce_lhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched(void *backend, const BackendTensorView *a,
+                         const BackendTensorView *b,
+                         const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).gemm_batched(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_lhs_t(void *backend, const BackendTensorView *a,
+                               const BackendTensorView *b,
+                               const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).gemm_batched_lhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_rhs_t(void *backend, const BackendTensorView *a,
+                               const BackendTensorView *b,
+                               const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).gemm_batched_rhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
@@ -268,28 +301,27 @@ void plugin_finish_exec_context_group(void *backend) {
   backend_from_opaque(backend).finish_exec_context_group();
 }
 
-void plugin_matmul_exec_context(void *backend, const BackendTensorView *a,
-                                const BackendTensorView *b,
-                                const BackendTensorView *out) {
+void plugin_gemm_batched_exec_context(void *backend, const BackendTensorView *a,
+                                      const BackendTensorView *b,
+                                      const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul_exec_context(to_tensor_view(*a),
-                                                   to_tensor_view(*b),
-                                                   out_view);
-}
-
-void plugin_matmul_right_transposed_exec_context(
-    void *backend, const BackendTensorView *a, const BackendTensorView *b,
-    const BackendTensorView *out) {
-  TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul_right_transposed_exec_context(
+  backend_from_opaque(backend).gemm_batched_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_matmul_left_transposed_exec_context(
+void plugin_gemm_batched_rhs_t_exec_context(
     void *backend, const BackendTensorView *a, const BackendTensorView *b,
     const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  backend_from_opaque(backend).matmul_left_transposed_exec_context(
+  backend_from_opaque(backend).gemm_batched_rhs_t_exec_context(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_lhs_t_exec_context(
+    void *backend, const BackendTensorView *a, const BackendTensorView *b,
+    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).gemm_batched_lhs_t_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
@@ -377,9 +409,13 @@ const BackendApiV1 kBackendApi = {
     &plugin_relu_backward,
     &plugin_relu_backward_inplace,
     &plugin_row_sum,
-    &plugin_matmul,
-    &plugin_matmul_left_transposed,
-    &plugin_matmul_right_transposed,
+    &plugin_gemm,
+    &plugin_gemm_ranked_matrix_rhs,
+    &plugin_gemm_ranked_matrix_rhs_t,
+    &plugin_gemm_ranked_reduce_lhs_t,
+    &plugin_gemm_batched,
+    &plugin_gemm_batched_lhs_t,
+    &plugin_gemm_batched_rhs_t,
     &plugin_transpose,
     &plugin_layernorm_forward,
     &plugin_layernorm_backward,
@@ -397,9 +433,9 @@ const BackendApiV1 kBackendApi = {
     &plugin_finish_exec_context_iteration,
     &plugin_start_exec_context_group,
     &plugin_finish_exec_context_group,
-    &plugin_matmul_exec_context,
-    &plugin_matmul_left_transposed_exec_context,
-    &plugin_matmul_right_transposed_exec_context,
+    &plugin_gemm_batched_exec_context,
+    &plugin_gemm_batched_lhs_t_exec_context,
+    &plugin_gemm_batched_rhs_t_exec_context,
     &plugin_scaled_causal_softmax_rows_exec_context,
     &plugin_softmax_backward_causal_rows_exec_context,
     &plugin_softmax_backward_causal_rows,

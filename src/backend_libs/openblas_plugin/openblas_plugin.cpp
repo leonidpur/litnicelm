@@ -220,26 +220,94 @@ public:
     cpu_backend_.row_sum(x, out_1xC);
   }
 
-  void matmul(const TensorView &a, const TensorView &b, TensorView &out) override {
-    if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank() &&
-        is_batched_blas_compatible_f32_row_major(a) &&
-        is_blas_compatible_f32_row_major(b) &&
-        is_batched_blas_compatible_f32_row_major(out)) {
-      const int m = static_cast<int>(logical_prefix_count(a, 2) *
-                                     static_cast<uint64_t>(a.dim(a.rank() - 2)));
-      const int k = static_cast<int>(a.dim(a.rank() - 1));
-      const int n = static_cast<int>(b.dim(1));
-      const int lda = leading_dim_f32(a);
-      const int ldb = leading_dim_f32(b);
-      const int ldc = leading_dim_f32(out);
-      cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1.0f,
-                  static_cast<const float *>(a.data()), lda,
-                  static_cast<const float *>(b.data()), ldb, 0.0f,
-                  static_cast<float *>(out.data()), ldc);
+  void gemm(const TensorView &a, const TensorView &b,
+            TensorView &out) override {
+    if (!is_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_blas_compatible_f32_row_major(out)) {
+      warn_cpu_fallback("gemm");
+      cpu_backend_.gemm(a, b, out);
       return;
     }
-    if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank() &&
-        is_batched_blas_compatible_f32_row_major(a) &&
+
+    const int m = static_cast<int>(a.shape().dim(0));
+    const int k = static_cast<int>(a.shape().dim(1));
+    const int n = static_cast<int>(b.shape().dim(1));
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
+
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1.0f,
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
+  }
+
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
+                              TensorView &out) override {
+    if (!is_batched_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_batched_blas_compatible_f32_row_major(out)) {
+      warn_cpu_fallback("gemm_ranked_matrix_rhs");
+      cpu_backend_.gemm_ranked_matrix_rhs(a, b, out);
+      return;
+    }
+    const int m = static_cast<int>(logical_prefix_count(a, 2) *
+                                   static_cast<uint64_t>(a.dim(a.rank() - 2)));
+    const int k = static_cast<int>(a.dim(a.rank() - 1));
+    const int n = static_cast<int>(b.dim(1));
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1.0f,
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
+  }
+
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
+    if (!is_batched_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_batched_blas_compatible_f32_row_major(out)) {
+      warn_cpu_fallback("gemm_ranked_matrix_rhs_t");
+      cpu_backend_.gemm_ranked_matrix_rhs_t(a, b, out);
+      return;
+    }
+    const int m = static_cast<int>(logical_prefix_count(a, 2) *
+                                   static_cast<uint64_t>(a.dim(a.rank() - 2)));
+    const int k = static_cast<int>(a.dim(a.rank() - 1));
+    const int n = static_cast<int>(b.dim(0));
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, m, n, k, 1.0f,
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
+  }
+
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
+    if (!is_contiguous_f32_row_major(a) || !is_contiguous_f32_row_major(b) ||
+        !is_contiguous_f32_row_major(out)) {
+      warn_cpu_fallback("gemm_ranked_reduce_lhs_t");
+      cpu_backend_.gemm_ranked_reduce_lhs_t(a, b, out);
+      return;
+    }
+    const int m = static_cast<int>(a.dim(a.rank() - 1));
+    const int k = static_cast<int>(logical_prefix_count(a, 2) *
+                                   static_cast<uint64_t>(a.dim(a.rank() - 2)));
+    const int n = static_cast<int>(b.dim(b.rank() - 1));
+    cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
+                static_cast<const float *>(a.data()), m,
+                static_cast<const float *>(b.data()), n, 0.0f,
+                static_cast<float *>(out.data()), n);
+  }
+
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) override {
+    if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
       const uint64_t prefix_count = logical_prefix_count(a, 2);
@@ -262,44 +330,13 @@ public:
       }
       return;
     }
-    if (!is_blas_compatible_f32_row_major(a) ||
-        !is_blas_compatible_f32_row_major(b) ||
-        !is_blas_compatible_f32_row_major(out)) {
-      warn_cpu_fallback("matmul");
-      cpu_backend_.matmul(a, b, out);
-      return;
-    }
-
-    const int m = static_cast<int>(a.shape().dim(0));
-    const int k = static_cast<int>(a.shape().dim(1));
-    const int n = static_cast<int>(b.shape().dim(1));
-    const int lda = leading_dim_f32(a);
-    const int ldb = leading_dim_f32(b);
-    const int ldc = leading_dim_f32(out);
-
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), lda,
-                static_cast<const float *>(b.data()), ldb, 0.0f,
-                static_cast<float *>(out.data()), ldc);
+    warn_cpu_fallback("gemm_batched");
+    cpu_backend_.gemm_batched(a, b, out);
   }
 
-  void matmul_left_transposed(const TensorView &a, const TensorView &b,
-                              TensorView &out) override {
-    if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == 2 &&
-        is_contiguous_f32_row_major(a) && is_contiguous_f32_row_major(b) &&
-        is_contiguous_f32_row_major(out)) {
-      const int m = static_cast<int>(a.dim(a.rank() - 1));
-      const int k = static_cast<int>(logical_prefix_count(a, 2) *
-                                     static_cast<uint64_t>(a.dim(a.rank() - 2)));
-      const int n = static_cast<int>(b.dim(b.rank() - 1));
-      cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
-                  static_cast<const float *>(a.data()), m,
-                  static_cast<const float *>(b.data()), n, 0.0f,
-                  static_cast<float *>(out.data()), n);
-      return;
-    }
-    if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank() &&
-        is_batched_blas_compatible_f32_row_major(a) &&
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
       const uint64_t prefix_count = logical_prefix_count(a, 2);
@@ -322,48 +359,13 @@ public:
       }
       return;
     }
-    if (!is_blas_compatible_f32_row_major(a) ||
-        !is_blas_compatible_f32_row_major(b) ||
-        !is_blas_compatible_f32_row_major(out)) {
-      warn_cpu_fallback("matmul_left_transposed");
-      cpu_backend_.matmul_left_transposed(a, b, out);
-      return;
-    }
-
-    const int m = static_cast<int>(a.shape().dim(1));
-    const int k = static_cast<int>(a.shape().dim(0));
-    const int n = static_cast<int>(b.shape().dim(1));
-    const int lda = leading_dim_f32(a);
-    const int ldb = leading_dim_f32(b);
-    const int ldc = leading_dim_f32(out);
-
-    cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), lda,
-                static_cast<const float *>(b.data()), ldb, 0.0f,
-                static_cast<float *>(out.data()), ldc);
+    warn_cpu_fallback("gemm_batched_lhs_t");
+    cpu_backend_.gemm_batched_lhs_t(a, b, out);
   }
 
-  void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                               TensorView &out) override {
-    if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank() &&
-        is_batched_blas_compatible_f32_row_major(a) &&
-        is_blas_compatible_f32_row_major(b) &&
-        is_batched_blas_compatible_f32_row_major(out)) {
-      const int m = static_cast<int>(logical_prefix_count(a, 2) *
-                                     static_cast<uint64_t>(a.dim(a.rank() - 2)));
-      const int k = static_cast<int>(a.dim(a.rank() - 1));
-      const int n = static_cast<int>(b.dim(0));
-      const int lda = leading_dim_f32(a);
-      const int ldb = leading_dim_f32(b);
-      const int ldc = leading_dim_f32(out);
-      cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, m, n, k, 1.0f,
-                  static_cast<const float *>(a.data()), lda,
-                  static_cast<const float *>(b.data()), ldb, 0.0f,
-                  static_cast<float *>(out.data()), ldc);
-      return;
-    }
-    if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank() &&
-        is_batched_blas_compatible_f32_row_major(a) &&
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
       const uint64_t prefix_count = logical_prefix_count(a, 2);
@@ -386,25 +388,8 @@ public:
       }
       return;
     }
-    if (!is_blas_compatible_f32_row_major(a) ||
-        !is_blas_compatible_f32_row_major(b) ||
-        !is_blas_compatible_f32_row_major(out)) {
-      warn_cpu_fallback("matmul_right_transposed");
-      cpu_backend_.matmul_right_transposed(a, b, out);
-      return;
-    }
-
-    const int m = static_cast<int>(a.shape().dim(0));
-    const int k = static_cast<int>(a.shape().dim(1));
-    const int n = static_cast<int>(b.shape().dim(0));
-    const int lda = leading_dim_f32(a);
-    const int ldb = leading_dim_f32(b);
-    const int ldc = leading_dim_f32(out);
-
-    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), lda,
-                static_cast<const float *>(b.data()), ldb, 0.0f,
-                static_cast<float *>(out.data()), ldc);
+    warn_cpu_fallback("gemm_batched_rhs_t");
+    cpu_backend_.gemm_batched_rhs_t(a, b, out);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
@@ -491,24 +476,22 @@ public:
         "openblas_plugin: exec context group is not supported");
   }
 
-  void matmul_exec_context(const TensorView &, const TensorView &,
-                           TensorView &) override {
+  void gemm_batched_exec_context(const TensorView &, const TensorView &,
+                                 TensorView &) override {
     throw std::runtime_error(
-        "openblas_plugin: exec context matmul is not supported");
+        "openblas_plugin: exec context batched gemm is not supported");
   }
 
-  void matmul_right_transposed_exec_context(const TensorView &,
-                                           const TensorView &,
-                                           TensorView &) override {
+  void gemm_batched_rhs_t_exec_context(const TensorView &, const TensorView &,
+                                       TensorView &) override {
     throw std::runtime_error(
-        "openblas_plugin: exec context right-transposed matmul is not supported");
+        "openblas_plugin: exec context rhs-transposed batched gemm is not supported");
   }
 
-  void matmul_left_transposed_exec_context(const TensorView &,
-                                          const TensorView &,
-                                          TensorView &) override {
+  void gemm_batched_lhs_t_exec_context(const TensorView &, const TensorView &,
+                                       TensorView &) override {
     throw std::runtime_error(
-        "openblas_plugin: exec context left-transposed matmul is not supported");
+        "openblas_plugin: exec context lhs-transposed batched gemm is not supported");
   }
 
   void scaled_causal_softmax_rows_exec_context(
@@ -681,26 +664,59 @@ void plugin_row_sum(void *backend, const BackendTensorView *x,
   to_openblas_backend(backend).row_sum(to_tensor_view(*x), out_view);
 }
 
-void plugin_matmul(void *backend, const BackendTensorView *a,
-                   const BackendTensorView *b, const BackendTensorView *out) {
+void plugin_gemm(void *backend, const BackendTensorView *a,
+                 const BackendTensorView *b, const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul(to_tensor_view(*a), to_tensor_view(*b),
-                                      out_view);
+  to_openblas_backend(backend).gemm(to_tensor_view(*a), to_tensor_view(*b),
+                                    out_view);
 }
 
-void plugin_matmul_left_transposed(void *backend, const BackendTensorView *a,
+void plugin_gemm_ranked_matrix_rhs(void *backend, const BackendTensorView *a,
                                    const BackendTensorView *b,
                                    const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul_left_transposed(
+  to_openblas_backend(backend).gemm_ranked_matrix_rhs(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_matmul_right_transposed(void *backend, const BackendTensorView *a,
-                                    const BackendTensorView *b,
-                                    const BackendTensorView *out) {
+void plugin_gemm_ranked_matrix_rhs_t(void *backend, const BackendTensorView *a,
+                                     const BackendTensorView *b,
+                                     const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul_right_transposed(
+  to_openblas_backend(backend).gemm_ranked_matrix_rhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_ranked_reduce_lhs_t(void *backend,
+                                     const BackendTensorView *a,
+                                     const BackendTensorView *b,
+                                     const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_ranked_reduce_lhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched(void *backend, const BackendTensorView *a,
+                         const BackendTensorView *b,
+                         const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_batched(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_lhs_t(void *backend, const BackendTensorView *a,
+                               const BackendTensorView *b,
+                               const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_batched_lhs_t(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_rhs_t(void *backend, const BackendTensorView *a,
+                               const BackendTensorView *b,
+                               const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_batched_rhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
@@ -827,28 +843,27 @@ void plugin_finish_exec_context_group(void *backend) {
   to_openblas_backend(backend).finish_exec_context_group();
 }
 
-void plugin_matmul_exec_context(void *backend, const BackendTensorView *a,
-                                const BackendTensorView *b,
-                                const BackendTensorView *out) {
+void plugin_gemm_batched_exec_context(void *backend, const BackendTensorView *a,
+                                      const BackendTensorView *b,
+                                      const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul_exec_context(to_tensor_view(*a),
-                                                   to_tensor_view(*b),
-                                                   out_view);
-}
-
-void plugin_matmul_right_transposed_exec_context(
-    void *backend, const BackendTensorView *a, const BackendTensorView *b,
-    const BackendTensorView *out) {
-  TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul_right_transposed_exec_context(
+  to_openblas_backend(backend).gemm_batched_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_matmul_left_transposed_exec_context(
+void plugin_gemm_batched_rhs_t_exec_context(
     void *backend, const BackendTensorView *a, const BackendTensorView *b,
     const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_openblas_backend(backend).matmul_left_transposed_exec_context(
+  to_openblas_backend(backend).gemm_batched_rhs_t_exec_context(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_gemm_batched_lhs_t_exec_context(
+    void *backend, const BackendTensorView *a, const BackendTensorView *b,
+    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_batched_lhs_t_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
@@ -934,9 +949,13 @@ const BackendApiV1 kBackendApi = {
     &plugin_relu_backward,
     &plugin_relu_backward_inplace,
     &plugin_row_sum,
-    &plugin_matmul,
-    &plugin_matmul_left_transposed,
-    &plugin_matmul_right_transposed,
+    &plugin_gemm,
+    &plugin_gemm_ranked_matrix_rhs,
+    &plugin_gemm_ranked_matrix_rhs_t,
+    &plugin_gemm_ranked_reduce_lhs_t,
+    &plugin_gemm_batched,
+    &plugin_gemm_batched_lhs_t,
+    &plugin_gemm_batched_rhs_t,
     &plugin_transpose,
     &plugin_layernorm_forward,
     &plugin_layernorm_backward,
@@ -954,9 +973,9 @@ const BackendApiV1 kBackendApi = {
     &plugin_finish_exec_context_iteration,
     &plugin_start_exec_context_group,
     &plugin_finish_exec_context_group,
-    &plugin_matmul_exec_context,
-    &plugin_matmul_left_transposed_exec_context,
-    &plugin_matmul_right_transposed_exec_context,
+    &plugin_gemm_batched_exec_context,
+    &plugin_gemm_batched_lhs_t_exec_context,
+    &plugin_gemm_batched_rhs_t_exec_context,
     &plugin_scaled_causal_softmax_rows_exec_context,
     &plugin_softmax_backward_causal_rows_exec_context,
     &plugin_softmax_backward_causal_rows,

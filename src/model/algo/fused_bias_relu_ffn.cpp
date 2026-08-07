@@ -23,9 +23,9 @@ void FusedBiasReluFFN::forward(const TensorView &x, TensorView &out) {
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
 
-  ops_.matmul(x, W1, h);
+  ops_.gemm_ranked_matrix_rhs(x, W1, h);
   ops_.add_bias_relu_rowwise(h, b1, a);
-  ops_.matmul(a, W2, out);
+  ops_.gemm_ranked_matrix_rhs(a, W2, out);
   ops_.add_bias_rowwise(out, b2, out);
 
   cache_x_ = x;
@@ -49,14 +49,14 @@ void FusedBiasReluFFN::backward(const TensorView &dout, TensorView &dx) {
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
   TensorView dW2 = gradientStore_->grad_for_param(W2);
-  ops_.matmul_left_transposed(cache_a_, dout, dW2);
+  ops_.gemm_ranked_reduce_lhs_t(cache_a_, dout, dW2);
   diagnostics_->bk_ffn_dW2(idx_, dW2);
   TensorView db2 = gradientStore_->grad_for_param(b2);
   ops_.row_sum(dout, db2);
   diagnostics_->bk_ffn_db2(idx_, db2);
 
   TensorView da = tensorStore_.temp_ffn_da(idx_, batch_size, seq_len);
-  ops_.matmul_right_transposed(dout, W2, da);
+  ops_.gemm_ranked_matrix_rhs_t(dout, W2, da);
   diagnostics_->bk_ffn_da(idx_, da);
 
   TensorView dh = tensorStore_.temp_ffn_dh(idx_, batch_size, seq_len);
@@ -64,13 +64,13 @@ void FusedBiasReluFFN::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_ffn_dh(idx_, dh);
 
   TensorView dW1 = gradientStore_->grad_for_param(W1);
-  ops_.matmul_left_transposed(cache_x_, dh, dW1);
+  ops_.gemm_ranked_reduce_lhs_t(cache_x_, dh, dW1);
   diagnostics_->bk_ffn_dW1(idx_, dW1);
   TensorView db1 = gradientStore_->grad_for_param(b1);
   ops_.row_sum(dh, db1);
   diagnostics_->bk_ffn_db1(idx_, db1);
 
-  ops_.matmul_right_transposed(dh, W1, dx);
+  ops_.gemm_ranked_matrix_rhs_t(dh, W1, dx);
   diagnostics_->bk_ffn_dx(idx_, dx);
   observer_->on_ffn_end(idx_);
 }

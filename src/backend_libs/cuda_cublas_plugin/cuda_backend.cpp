@@ -249,19 +249,39 @@ public:
     launch_row_sum(x, out_1xC);
   }
 
-  void matmul(const TensorView &a, const TensorView &b,
-              TensorView &out) override {
-    cublas_matmul(handle_, a, b, out);
+  void gemm(const TensorView &a, const TensorView &b,
+            TensorView &out) override {
+    cublas_gemm(handle_, a, b, out);
   }
 
-  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                               TensorView &out) override {
-    cublas_matmul_left_transposed(handle_, a, b, out);
+    cublas_gemm_ranked_matrix_rhs(handle_, a, b, out);
   }
 
-  void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                               TensorView &out) override {
-    cublas_matmul_right_transposed(handle_, a, b, out);
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
+    cublas_gemm_ranked_matrix_rhs_t(handle_, a, b, out);
+  }
+
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
+    cublas_gemm_ranked_reduce_lhs_t(handle_, a, b, out);
+  }
+
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) override {
+    cublas_gemm_batched(handle_, a, b, out);
+  }
+
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    cublas_gemm_batched_lhs_t(handle_, a, b, out);
+  }
+
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    cublas_gemm_batched_rhs_t(handle_, a, b, out);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
@@ -459,21 +479,21 @@ public:
     ++exec_lane_index_;
   }
 
-  void matmul_exec_context(const TensorView &a, const TensorView &b,
-                           TensorView &out) override {
-    cublas_matmul(active_exec_lane().cublas, a, b, out);
+  void gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                 TensorView &out) override {
+    cublas_gemm_batched(active_exec_lane().cublas, a, b, out);
   }
 
-  void matmul_left_transposed_exec_context(const TensorView &a,
-                                          const TensorView &b,
-                                          TensorView &out) override {
-    cublas_matmul_left_transposed(active_exec_lane().cublas, a, b, out);
+  void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override {
+    cublas_gemm_batched_lhs_t(active_exec_lane().cublas, a, b, out);
   }
 
-  void matmul_right_transposed_exec_context(const TensorView &a,
-                                           const TensorView &b,
-                                           TensorView &out) override {
-    cublas_matmul_right_transposed(active_exec_lane().cublas, a, b, out);
+  void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override {
+    cublas_gemm_batched_rhs_t(active_exec_lane().cublas, a, b, out);
   }
 
   void scaled_causal_softmax_rows_exec_context(

@@ -65,7 +65,7 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
                                               "Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
-  ops_.matmul(x, Wqkv, qkv);
+  ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
 
   TensorView Q = qkv.subcols(0, model_dim);
@@ -88,12 +88,12 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
     TensorView context_h = context.subcols(col0, dh);
     TensorView weights_h = cached_weights.select(0, h);
 
-    ops_.matmul_right_transposed(Qh, Kh, scores);
+    ops_.gemm_batched_rhs_t(Qh, Kh, scores);
     ops_.scaled_causal_softmax_rows(scores, scale, weights_h);
-    ops_.matmul(weights_h, Vh, context_h);
+    ops_.gemm_batched(weights_h, Vh, context_h);
   }
 
-  ops_.matmul(context, Wo, out);
+  ops_.gemm_ranked_matrix_rhs(context, Wo, out);
   ops_.add_bias_rowwise(out, bo, out);
 
   cache_x_ = x;
@@ -126,14 +126,14 @@ void SelfAttentionFusedInplace::backward(const TensorView &dout,
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
   TensorView dWo = gradientStore_->grad_for_param(Wo);
-  ops_.matmul_left_transposed(cache_context_, dout, dWo);
+  ops_.gemm_ranked_reduce_lhs_t(cache_context_, dout, dWo);
   diagnostics_->bk_attn_dWo(idx_, dWo);
   TensorView dbo = gradientStore_->grad_for_param(bo);
   ops_.row_sum(dout, dbo);
   diagnostics_->bk_attn_dbo(idx_, dbo);
 
   TensorView dcontext = tensorStore_.temp_attn_dcontext(idx_, batch_size, seq_len);
-  ops_.matmul_right_transposed(dout, Wo, dcontext);
+  ops_.gemm_ranked_matrix_rhs_t(dout, Wo, dcontext);
   diagnostics_->bk_attn_dcontext(idx_, dcontext);
 
   TensorView dqkv = tensorStore_.temp_attn_dqkv(idx_, batch_size, seq_len);
@@ -164,29 +164,29 @@ void SelfAttentionFusedInplace::backward(const TensorView &dout,
     TensorView dhead = dcontext.subcols(col0, dh);
     TensorView weights_h = cached_weights.select(0, h);
 
-    ops_.matmul_right_transposed(dhead, Vh, dweights);
+    ops_.gemm_batched_rhs_t(dhead, Vh, dweights);
     diagnostics_->bk_attn_dweights(idx_, h, dweights);
-    ops_.matmul_left_transposed(weights_h, dhead, dVh);
+    ops_.gemm_batched_lhs_t(weights_h, dhead, dVh);
     diagnostics_->bk_attn_dVh(idx_, h, dVh);
 
     ops_.softmax_backward_causal_rows(weights_h, dweights, dscores);
     diagnostics_->bk_attn_dscores_softmax_backward(idx_, h, dscores);
     diagnostics_->bk_attn_dscores_masked(idx_, h, dscores);
 
-    ops_.matmul(dscores, Kh, dQh);
+    ops_.gemm_batched(dscores, Kh, dQh);
     ops_.mul_scalar(dQh, scale, dQh);
     diagnostics_->bk_attn_dQh(idx_, h, dQh);
 
-    ops_.matmul_left_transposed(dscores, Qh, dKh);
+    ops_.gemm_batched_lhs_t(dscores, Qh, dKh);
     ops_.mul_scalar(dKh, scale, dKh);
     diagnostics_->bk_attn_dKh(idx_, h, dKh);
   }
 
-  ops_.matmul_right_transposed(dqkv, Wqkv, dx);
+  ops_.gemm_ranked_matrix_rhs_t(dqkv, Wqkv, dx);
   diagnostics_->bk_attn_dx(idx_, dx);
 
   TensorView dWqkv = gradientStore_->grad_for_param(Wqkv);
-  ops_.matmul_left_transposed(cache_x_, dqkv, dWqkv);
+  ops_.gemm_ranked_reduce_lhs_t(cache_x_, dqkv, dWqkv);
   diagnostics_->bk_attn_dWqkv(idx_, dWqkv);
   TensorView dbqkv = gradientStore_->grad_for_param(bqkv);
   ops_.row_sum(dqkv, dbqkv);
