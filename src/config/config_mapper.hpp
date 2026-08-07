@@ -7,4 +7,5 @@
 #include "yaml_parser.hpp"
 
 void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg);
+Config make_default_config();
 void validate_config(const Config &cfg);

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -77,6 +78,59 @@ std::pair<int32_t, int32_t> parse_i32_pair_or_throw(const std::string &v,
   const std::string a = string_utils::trim_copy(s.substr(0, comma));
   const std::string b = string_utils::trim_copy(s.substr(comma + 1));
   return {parse_i32_or_throw(a, k), parse_i32_or_throw(b, k)};
+}
+
+const std::vector<std::string> &required_keys() {
+  static const std::vector<std::string> keys = {
+      "conf.version",
+      "device",
+      "transformer_layers",
+      "parameter_bytes",
+      "optimizer_bytes",
+      "arena_alignment",
+      "max_steps",
+      "model.n_layers",
+      "model.n_heads",
+      "model.d_model",
+      "model.d_ff",
+      "model.window_capacity",
+      "memory.alignment_bytes",
+      "paths.model_file",
+      "paths.journal_file",
+      "tokenizer.type",
+      "tokenizer.target_vocab_size",
+      "tokenizer.training_corpus",
+      "tokenizer.artifacts_dir",
+      "tokenizer.bpe_vocab_file",
+      "tokenizer.bpe_merges_file",
+      "tokenizer.run_validation",
+      "tokenizer.bpe_validation_num_threads",
+      "tokenizer.bpe_validation_sample_rate",
+      "tokenization.input_corpus",
+      "tokenization.output_binary",
+      "tokenization.chunk_size_mb",
+      "training.learning_rate",
+      "training.beta1",
+      "training.beta2",
+      "training.eps",
+      "training.weight_decay",
+      "training.incremental",
+      "training.dry_run",
+      "training.num_epochs_train",
+      "training.num_epochs_dry_run",
+      "training.save_interval_epochs",
+      "training.grad_clip",
+      "training.window_training",
+      "training.batch_size",
+      "inference.window_inference",
+      "logging.show_bpe",
+      "logging.show_train",
+      "logging.show_inference",
+      "logging.report_every_n_steps",
+      "reporting.verbose_epoch_index",
+      "reporting.verbose_init",
+  };
+  return keys;
 }
 
 bool map_root_fields(const std::string &key, const std::string &value, Config &cfg) {
@@ -321,6 +375,7 @@ bool map_logging_fields(const std::string &key, const std::string &value, Config
 } // namespace
 
 void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
+  std::unordered_set<std::string> seen;
   for (const auto &entry : entries) {
     const bool mapped =
         map_root_fields(entry.key, entry.value, cfg) ||
@@ -334,8 +389,15 @@ void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
         map_logging_fields(entry.key, entry.value, cfg);
 
     if (!mapped) {
-      std::cerr << "Warning: Config::load_from_file: unknown key at line "
-                << entry.lineno << ": " << entry.key << "\n";
+      throw std::runtime_error("Config::load_from_file: unknown key at line " +
+                               std::to_string(entry.lineno) + ": " + entry.key);
+    }
+    seen.insert(entry.key);
+  }
+
+  for (const auto &key : required_keys()) {
+    if (seen.find(key) == seen.end()) {
+      throw std::runtime_error("Config::load_from_file: required key missing: " + key);
     }
   }
 }

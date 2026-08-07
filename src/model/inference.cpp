@@ -63,7 +63,13 @@ struct InferRuntime {
   ReportSink *sink = nullptr;
 
   InferRuntime(const std::string &config_path, ReportSink *sink_in)
-      : cfg(Config::load_from_file(config_path)),
+      : cfg([&]() {
+          Config loaded = Config::load_from_file(config_path);
+          auto resolved_tokenizer = TokenizerFactory::create(loaded, sink_in);
+          loaded.model.target_vocab_size =
+              static_cast<uint32_t>(resolved_tokenizer->vocab_size());
+          return loaded;
+        }()),
         backend(make_device_backend(cfg.device)),
         tokenizer(TokenizerFactory::create(cfg, sink_in)),
         param_layout(build_param_layout(cfg)),

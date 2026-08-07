@@ -56,8 +56,16 @@ void Trainer::on_gradient_ready(const std::string &name, TensorView &param,
   bool use_wd = (name.find("_b") == std::string::npos &&
                  name.find("_beta") == std::string::npos &&
                  name.find("_gamma") == std::string::npos);
-
+  /*
+  if (sink_ != nullptr && name == "lm_head_w") {
+    sink_->report_optimizer_state(0, name, param, grad, m, v, step, use_wd);
+  }
+    */
   opt_.step(cfg_.training, param, grad, m, v, step, use_wd);
+  /*
+  if (sink_ != nullptr && name == "lm_head_w") {
+    sink_->report_optimizer_state(1, name, param, grad, m, v, step, use_wd);
+  }*/
 }
 
 double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
@@ -89,7 +97,8 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
 
 void Trainer::train(IDataLoader &loader) {
   TrainingState state{};
-  session_controller_.training_loop_start(state, sink_, data_arena_, adam_state_);
+  session_controller_.training_loop_start(state, tensorFactory_, sink_,
+                                          data_arena_, adam_state_);
 
   for (uint32_t e = 1; session_controller_.should_continue(e); ++e) {
     session_controller_.on_epoch_start(e);
@@ -97,15 +106,15 @@ void Trainer::train(IDataLoader &loader) {
     TrainBatch batch{};
     uint32_t n = 0;
     double sum_loss = 0.0;
-    std::cout << "\n===\n" << std::flush;
+    //std::cout << "\n===\n" << std::flush;
     while (loader.next(batch)) {
-      if(state.global_step%33==0)
-        std::cout << "@" << std::flush;
+      //if(state.global_step%33==0)
+      //  std::cout << "@" << std::flush;
       const double loss = train_one_batch(batch, state);
       sum_loss += loss;
       n += 1;
-      if(state.global_step%33==0)
-        std::cout << "#" << std::flush;
+      //if(state.global_step%33==0)
+      //  std::cout << "#" << std::flush;
       state.global_step += 1;
     }
 
@@ -121,49 +130,70 @@ void Trainer::train(IDataLoader &loader) {
 }
 
 int train_entry_point(const Config &cfg, const Command &cmd) {
-  TrainerValidationUtils::validate_training_context(cfg);
-  TrainerValidationUtils::validate_vocab_contract_or_throw(cfg);
-  TrainingReportSink training_sink(cfg.logging);
+  Config runtime_cfg = cfg;
+  TrainerValidationUtils::validate_training_context(runtime_cfg);
+  std::cout << "[Trainer] Training context validated.\n";
+  auto tokenizer = TokenizerFactory::create(runtime_cfg, nullptr);
+  runtime_cfg.model.target_vocab_size = static_cast<uint32_t>(tokenizer->vocab_size());
+  TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
+  TrainingReportSink training_sink(runtime_cfg.logging);
 
-  training_sink.report_training_start(cfg);
+  training_sink.report_training_start(runtime_cfg);
 
-  const std::string selected_input_path = cfg.tokenization.output_binary;
+  const std::string selected_input_path = runtime_cfg.tokenization.output_binary;
   std::cout << "[Trainer] Dataset file to load: " << selected_input_path << "\n";
   if (selected_input_path.empty()) {
     throw std::runtime_error("run_train_mode: tokenization.output_binary is required");
   }
 
-  NamedLayout param_layout = build_param_layout(cfg);
-  NamedLayout temp_layout = build_temp_layout(cfg);
-  training_sink.report_init_config(cfg, param_layout);
+  std::cout << "[Trainer] Training runtime initialization done.\n";
+  //////////////////////////
+  // Asset construction
+  //////////////////////////
+  std::unique_ptr<DeviceBackend> backend = make_device_backend(runtime_cfg.device);
+
+  NamedLayout param_layout = build_param_layout(runtime_cfg);
+  NamedLayout temp_layout = build_temp_layout(runtime_cfg);
+  training_sink.report_init_config(runtime_cfg, param_layout, temp_layout);
+  
   const uint64_t param_bytes = param_layout.total_bytes();
+  Arena param_arena(*backend, runtime_cfg.device, param_bytes,
+                    runtime_cfg.memory.alignment_bytes);
+  
+  Arena adam_arena(*backend, runtime_cfg.device, param_bytes * 2,
+                   runtime_cfg.memory.alignment_bytes);
+  
   const uint64_t temp_bytes = temp_layout.total_bytes();
-  std::unique_ptr<DeviceBackend> backend = make_device_backend(cfg.device);
-
-  Arena param_arena(*backend, cfg.device, param_bytes, cfg.memory.alignment_bytes);
-  Arena adam_arena(*backend, cfg.device, param_bytes * 2,
-                   cfg.memory.alignment_bytes);
-  Arena temp_arena(*backend, cfg.device, temp_bytes, cfg.memory.alignment_bytes);
-  ArenaView data_view{param_arena.ptr(), param_arena.size_bytes(), cfg.device};
-  AdamStateView adam_view{adam_arena.ptr(), adam_arena.size_bytes(), cfg.device};
+  Arena temp_arena(*backend, runtime_cfg.device, temp_bytes,
+                   runtime_cfg.memory.alignment_bytes);
+  
+  
+  ArenaView data_view{param_arena.ptr(), param_arena.size_bytes(), runtime_cfg.device};
+  AdamStateView adam_view{adam_arena.ptr(), adam_arena.size_bytes(), runtime_cfg.device};
+  
   training_sink.report_init_topology(param_layout, data_view.base, data_view.bytes,
-                                     adam_view.base, adam_view.bytes);
+                                     adam_view.base, adam_view.bytes,
+                                     temp_arena.ptr(), temp_arena.size_bytes());
 
-  TensorFactory tensors(cfg, param_layout, data_view.base, data_view.bytes,
+  TensorFactory tensors(runtime_cfg, param_layout, data_view.base, data_view.bytes,
                         data_view.device, temp_layout, temp_arena.ptr(),
                         temp_arena.size_bytes());
-  training_sink.report_tensor_factory_topology(cfg, tensors);
-  Ops ops(cfg.device);
-  OptimizerAdamW opt(cfg.device);
-  Transformer model(cfg, tensors, ops, &training_sink);
+  
+  training_sink.report_tensor_factory_topology(runtime_cfg, tensors);
+  Ops ops(runtime_cfg.device);
+  OptimizerAdamW opt(runtime_cfg.device);
+  Transformer model(runtime_cfg, tensors, ops, &training_sink);
 
   TextDataset loader(tensors, selected_input_path, Device::CPU,
-                     cfg.training.window_training, cfg.training.batch_size,
+                     runtime_cfg.training.window_training,
+                     runtime_cfg.training.batch_size,
                      /*shuffle_blocks=*/true, &training_sink);
-  TrainerValidationUtils::print_dataset_stats(cfg, loader);
+  TrainerValidationUtils::print_dataset_stats(runtime_cfg, loader);
+  std::cout << "\n[Trainer] Engine, memory arenas, tensor factory, model, optimizer, and dataset are initialized.\n\n";
 
-  Trainer trainer(cfg, tensors, ops, opt, model, data_view, adam_view, *backend,
+  Trainer trainer(runtime_cfg, tensors, ops, opt, model, data_view, adam_view, *backend,
                   cmd, cmd.runtime_flags, &training_sink);
   trainer.train(loader);
+
   return 0;
 }

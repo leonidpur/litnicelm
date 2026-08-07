@@ -9,6 +9,9 @@ int main(int argc, char **argv) {
   try {
     // 1. Path from CLI
     const Command cmd = CliParser::parse(argc, argv);
+    if (cmd.config_path.empty()) {
+      throw std::runtime_error("--config <config.yaml> is required");
+    }
     std::cout << "[Step 1] CLI parsed. Config path: " << cmd.config_path << "\n";
 
     // 2. YAML Parse
@@ -19,6 +22,8 @@ int main(int argc, char **argv) {
     if (const char *p = std::getenv("ENV_PREFIX")) {
       std::cout << "[Step 3] Applying ENV overrides with prefix: " << p << "\n";
       cfg.apply_env_overrides(p);
+    } else {
+      std::cout << "[Step 3] ENV_PREFIX not set. No ENV overrides applied.\n";
     }
 
     // 4. CLI Overrides
