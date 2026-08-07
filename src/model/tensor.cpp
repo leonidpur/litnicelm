@@ -5,19 +5,34 @@
 
 std::string TensorView::debug_string() const {
   std::ostringstream oss;
-  oss << "TensorView(" << device_name(dev_) << "," << dtype_name(dt_) << ", "
-      << shape_.r << "x" << shape_.c << ", bytes=" << bytes()
-      << ", stride_r=" << stride_r_bytes_ << ", stride_c=" << stride_c_bytes_
-      << ", contiguous=" << (is_contiguous_row_major() ? "yes" : "no") << ")";
+  oss << "TensorView(" << device_name(dev_) << "," << dtype_name(dt_)
+      << ", shape=[";
+  for (size_t i = 0; i < shape_.rank(); ++i) {
+    if (i != 0) {
+      oss << "x";
+    }
+    oss << shape_.dim(i);
+  }
+  oss << "], bytes=" << bytes() << ", strides=[";
+  for (size_t i = 0; i < shape_.rank(); ++i) {
+    if (i != 0) {
+      oss << "/";
+    }
+    oss << stride_bytes(i);
+  }
+  oss << "], contiguous=" << (is_contiguous_row_major() ? "yes" : "no")
+      << ")";
   return oss.str();
 }
 
-Tensor Tensor::make_cpu(DType dt, Shape2D shape) {
+Tensor Tensor::make_cpu(DType dt, Shape shape) {
   Tensor t;
   t.owns_ = true;
 
-  if (shape.r < 0 || shape.c < 0) {
-    throw std::runtime_error("Tensor::make_cpu negative shape");
+  for (size_t i = 0; i < shape.rank(); ++i) {
+    if (shape.dim(i) < 0) {
+      throw std::runtime_error("Tensor::make_cpu negative shape");
+    }
   }
 
   const uint64_t b = nbytes(shape, dt);
@@ -30,14 +45,14 @@ Tensor Tensor::make_cpu(DType dt, Shape2D shape) {
   return t;
 }
 
-Tensor Tensor::wrap(Device dev, DType dt, void *data, Shape2D shape,
+Tensor Tensor::wrap(Device dev, DType dt, void *data, Shape shape,
                     int64_t stride_c_bytes) {
   if (!data) {
     throw std::runtime_error("Tensor::wrap null data");
   }
   Tensor t;
   t.owns_ = false;
-  t.view_ = TensorView(dev, dt, data, shape, stride_c_bytes);
+  t.view_ = TensorView(dev, dt, data, shape, stride_c_bytes, 0);
   return t;
 }
 

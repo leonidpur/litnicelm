@@ -8,6 +8,8 @@
 
 enum class Stage : uint8_t {
   ROOT = 0,
+  BATCH_STEP,
+  BATCH_LOAD,
   TRAIN_STEP,
   INFER_STEP,
   FORWARD,

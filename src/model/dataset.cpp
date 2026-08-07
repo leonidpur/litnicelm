@@ -1,4 +1,5 @@
 #include "dataset.hpp"
+#include "backend/device_backend.hpp"
 #include "training_report_sink.hpp"
 #include <utils/assert.hpp>
 
@@ -16,42 +17,62 @@ constexpr uint32_t kDatasetVersion = 1u;
 constexpr size_t kDatasetHeaderBytes = sizeof(uint32_t) * 3;
 } // namespace
 
-void DatasetCPU::fill_batch(const int32_t *tokens, uint64_t ids_begin,
-                            uint64_t tgt_begin, uint64_t block_span,
-                            TensorFactory &tensor_factory, Device device,
+void DatasetCPU::fill_batch(const int32_t *tokens,
+                            const std::vector<uint64_t> &window_starts,
+                            uint64_t first_window_index, uint32_t batch_size,
+                            uint32_t seq_len,
+                            TensorFactory &tensor_factory,
+                            DeviceBackend &device_backend, Device device,
                             TrainBatch &out) const {
-  const int64_t rows = static_cast<int64_t>(block_span);
-  const Shape2D shp{rows, 1};
-
+  (void)device_backend;
   (void)device;
-  TensorView ids_t = tensor_factory.temp_ds_ids(shp.r);
-  TensorView tgt_t = tensor_factory.temp_ds_targets(shp.r);
+  TensorView ids_t = tensor_factory.temp_ds_ids();
+  TensorView tgt_t = tensor_factory.temp_ds_targets();
 
-  auto *ids_ptr = reinterpret_cast<int32_t *>(ids_t.data());
-  auto *tgt_ptr = reinterpret_cast<int32_t *>(tgt_t.data());
-
-  std::memcpy(ids_ptr, tokens + ids_begin,
-              static_cast<size_t>(block_span) * sizeof(int32_t));
-  std::memcpy(tgt_ptr, tokens + tgt_begin,
-              static_cast<size_t>(block_span) * sizeof(int32_t));
+  for (uint32_t b = 0; b < batch_size; ++b) {
+    const uint64_t start = window_starts.at(first_window_index + b);
+    auto *ids_row = reinterpret_cast<int32_t *>(
+        reinterpret_cast<uint8_t *>(ids_t.data()) + b * ids_t.stride_bytes(0));
+    auto *tgt_row = reinterpret_cast<int32_t *>(
+        reinterpret_cast<uint8_t *>(tgt_t.data()) + b * tgt_t.stride_bytes(0));
+    std::memcpy(ids_row, tokens + start,
+                static_cast<size_t>(seq_len) * sizeof(int32_t));
+    std::memcpy(tgt_row, tokens + start + 1,
+                static_cast<size_t>(seq_len) * sizeof(int32_t));
+  }
 
   out.ids = ids_t;
   out.targets = tgt_t;
 }
 
-void DatasetGPU::fill_batch(const int32_t *tokens, uint64_t ids_begin,
-                            uint64_t tgt_begin, uint64_t block_span,
-                            TensorFactory &tensor_factory, Device device,
+void DatasetGPU::fill_batch(const int32_t *tokens,
+                            const std::vector<uint64_t> &window_starts,
+                            uint64_t first_window_index, uint32_t batch_size,
+                            uint32_t seq_len,
+                            TensorFactory &tensor_factory,
+                            DeviceBackend &device_backend, Device device,
                             TrainBatch &out) const {
-  (void)tokens;
-  (void)ids_begin;
-  (void)tgt_begin;
-  (void)block_span;
-  (void)tensor_factory;
-  (void)device;
-  (void)out;
-  throw std::runtime_error(
-      "TextDataset::next: GPU backend path not implemented");
+  if (device != Device::GPU) {
+    throw std::runtime_error(
+        "DatasetGPU::fill_batch requires GPU device tensors");
+  }
+
+  TensorView ids_t = tensor_factory.temp_ds_ids();
+  TensorView tgt_t = tensor_factory.temp_ds_targets();
+  const uint64_t row_bytes = static_cast<uint64_t>(seq_len) * sizeof(int32_t);
+
+  for (uint32_t b = 0; b < batch_size; ++b) {
+    const uint64_t start = window_starts.at(first_window_index + b);
+    auto *ids_row = reinterpret_cast<uint8_t *>(ids_t.data()) +
+                    b * ids_t.stride_bytes(0);
+    auto *tgt_row = reinterpret_cast<uint8_t *>(tgt_t.data()) +
+                    b * tgt_t.stride_bytes(0);
+    device_backend.copy_host2device(ids_row, tokens + start, row_bytes);
+    device_backend.copy_host2device(tgt_row, tokens + start + 1, row_bytes);
+  }
+
+  out.ids = ids_t;
+  out.targets = tgt_t;
 }
 
 bool TextDataset::ends_with(const std::string &s, const std::string &suffix) {
@@ -141,12 +162,19 @@ DatasetHeader TextDataset::read_header_or_throw(const std::string &path) {
   return header;
 }
 
-TextDataset::TextDataset(TensorFactory &tensor_factory, const std::string &dataset_path,
-                         Device device, uint32_t seq_len, uint32_t batch_size,
-                         bool shuffle_blocks, TrainingReportSink *report_sink)
-    : tensorFactory_(tensor_factory),
+TextDataset::TextDataset(TensorFactory &tensor_factory,
+                         DeviceBackend &device_backend,
+                         const std::string &dataset_path, Device device,
+                         uint32_t seq_len, uint32_t window_stride,
+                         uint32_t batch_size,
+                         bool shuffle_blocks, TrainingReportSink *report_sink,
+                         ITrainingObserver *load_observer)
+    : IDataLoader(load_observer),
+      tensorFactory_(tensor_factory),
+      device_backend_(&device_backend),
       device_(device),
       seq_len_(seq_len),
+      window_stride_(window_stride),
       batch_size_(batch_size),
       shuffle_blocks_(shuffle_blocks),
       report_sink_(report_sink) {
@@ -157,6 +185,8 @@ TextDataset::TextDataset(TensorFactory &tensor_factory, const std::string &datas
   }
 
   REQUIRE_DEBUG(seq_len_ > 0, [&]() { return "TextDataset: seq_len must be > 0"; });
+  REQUIRE_DEBUG(window_stride_ > 0,
+                [&]() { return "TextDataset: window_stride must be > 0"; });
   REQUIRE_DEBUG(batch_size_ > 0, [&]() { return "TextDataset: batch_size must be > 0"; });
 
   if (!ends_with(dataset_path, ".bin")) {
@@ -237,17 +267,31 @@ uint32_t TextDataset::max_token_id() const {
 void TextDataset::build_blocks_() {
   block_starts_.clear();
 
-  const uint64_t block_span =
-      static_cast<uint64_t>(batch_size_) * static_cast<uint64_t>(seq_len_);
-  const uint64_t min_needed = block_span + 1;
+  const uint64_t min_needed = static_cast<uint64_t>(seq_len_) + 1;
   const uint64_t N = num_tokens_;
-  for (uint64_t start = 0; start + min_needed <= N; start += block_span) {
+  const uint64_t stride = static_cast<uint64_t>(window_stride_);
+  for (uint64_t start = 0; start + min_needed <= N; start += stride) {
     block_starts_.push_back(start);
   }
 
   if (block_starts_.empty()) {
     throw std::runtime_error(
-        "TextDataset: no full blocks fit; reduce batch_size or seq_len");
+        "TextDataset: no full blocks fit: "
+        "num_tokens=" + std::to_string(N) +
+        ", batch_size=" + std::to_string(batch_size_) +
+        ", seq_len=" + std::to_string(seq_len_) +
+        ", min_needed=seq_len+1=" + std::to_string(min_needed) +
+        ", window_stride=" + std::to_string(window_stride_) +
+        ". Need at least num_tokens >= seq_len + 1.");
+  }
+  const uint64_t full_batch_windows =
+      (block_starts_.size() / batch_size_) * batch_size_;
+  block_starts_.resize(static_cast<size_t>(full_batch_windows));
+  if (block_starts_.empty()) {
+    throw std::runtime_error(
+        "TextDataset: not enough windows for one full batch: windows=" +
+        std::to_string(full_batch_windows) +
+        ", batch_size=" + std::to_string(batch_size_));
   }
 }
 
@@ -266,23 +310,26 @@ void TextDataset::reset_epoch() {
   maybe_shuffle_blocks_();
 }
 
-bool TextDataset::next(TrainBatch &out) {
-  if (block_index_ >= block_starts_.size()) {
+bool TextDataset::next_impl(TrainBatch &out) {
+  if (block_index_ + batch_size_ > block_starts_.size()) {
     return false;
   }
 
-  const uint64_t start = block_starts_[block_index_++];
   const uint64_t block_span =
       static_cast<uint64_t>(batch_size_) * static_cast<uint64_t>(seq_len_);
-  const uint64_t ids_begin = start;
-  const uint64_t tgt_begin = start + 1;
-  REQUIRE_DEBUG(tgt_begin + block_span <= num_tokens_, [&]() {
-    return "TextDataset::next: mapped token read would exceed dataset size";
-  });
+  const uint64_t first_window_index = block_index_;
+  const uint64_t first_start = block_starts_[static_cast<size_t>(first_window_index)];
+  for (uint32_t b = 0; b < batch_size_; ++b) {
+    const uint64_t start = block_starts_[static_cast<size_t>(first_window_index + b)];
+    REQUIRE_DEBUG(start + static_cast<uint64_t>(seq_len_) < num_tokens_, [&]() {
+      return "TextDataset::next: mapped token read would exceed dataset size";
+    });
+  }
+  block_index_ += batch_size_;
 
   if (report_sink_ != nullptr && fetch_report_count_ < fetch_report_limit_) {
     TrainingFetchReportData data{};
-    data.start_index = start;
+    data.start_index = first_start;
     data.batch_size = batch_size_;
     data.seq_len = seq_len_;
     data.total_tokens = block_span;
@@ -290,7 +337,7 @@ bool TextDataset::next(TrainBatch &out) {
     fetch_report_count_ += 1;
   }
 
-  backend_->fill_batch(tokens_, ids_begin, tgt_begin, block_span, tensorFactory_,
-                       device_, out);
+  backend_->fill_batch(tokens_, block_starts_, first_window_index, batch_size_,
+                       seq_len_, tensorFactory_, *device_backend_, device_, out);
   return true;
 }

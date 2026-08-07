@@ -11,26 +11,75 @@
 #include <cctype>
 #include <filesystem>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 namespace {
+namespace fs = std::filesystem;
+
 std::string resolve_bpe_artifacts_dir(const Config &cfg) {
   if (!cfg.tokenizer.bpe_artifacts_dir.empty()) {
     return cfg.tokenizer.bpe_artifacts_dir;
   }
   if (!cfg.tokenizer.bpe_vocab_file.empty()) {
-    return std::filesystem::path(cfg.tokenizer.bpe_vocab_file)
-        .parent_path()
-        .string();
+    return fs::path(cfg.tokenizer.bpe_vocab_file).parent_path().string();
   }
   if (!cfg.tokenizer.bpe_merges_file.empty()) {
-    return std::filesystem::path(cfg.tokenizer.bpe_merges_file)
-        .parent_path()
-        .string();
+    return fs::path(cfg.tokenizer.bpe_merges_file).parent_path().string();
   }
   return "";
+}
+
+std::string tokenizer_load_failure_message(const std::string &type,
+                                           const std::string &artifacts_dir) {
+  std::ostringstream oss;
+  oss << "TokenizerFactory: failed to load tokenizer plugin artifacts from: "
+      << artifacts_dir;
+
+  if (artifacts_dir.empty()) {
+    return oss.str();
+  }
+
+  std::error_code ec;
+  const fs::path dir(artifacts_dir);
+  if (!fs::exists(dir, ec)) {
+    oss << " (artifacts_dir does not exist)";
+    return oss.str();
+  }
+  if (!fs::is_directory(dir, ec)) {
+    oss << " (artifacts_dir is not a directory)";
+    return oss.str();
+  }
+
+  if (type == "only_seen_chars" || type == "char_seen" || type == "seen_chars") {
+    const fs::path artifact = dir / "char_seen.json";
+    if (!fs::exists(artifact, ec)) {
+      oss << " (missing artifact file: " << artifact.string() << ")";
+    } else {
+      oss << " (artifact file exists but could not be loaded: "
+          << artifact.string() << ")";
+    }
+    return oss.str();
+  }
+
+  if (type == "bpe" || type == "sentencepiece" || type == "spm") {
+#if LITNICEGPT_HAVE_SENTENCEPIECE
+    const fs::path model = dir / "spm.model";
+    if (!fs::exists(model, ec)) {
+      oss << " (missing artifact file: " << model.string() << ")";
+    } else {
+      oss << " (artifact file exists but could not be loaded: "
+          << model.string() << ")";
+    }
+#else
+    oss << " (SentencePiece support is not available in this build)";
+#endif
+    return oss.str();
+  }
+
+  return oss.str();
 }
 } // namespace
 
@@ -103,8 +152,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg,
               << " from " << artifacts_dir << "\n";
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(
-          "TokenizerFactory: failed to load tokenizer plugin artifacts from: " +
-          artifacts_dir);
+          tokenizer_load_failure_message(type, artifacts_dir));
     }
     return tok;
   }
@@ -125,8 +173,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg,
               << " from " << artifacts_dir << "\n";
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(
-          "TokenizerFactory: failed to load tokenizer plugin artifacts from: " +
-          artifacts_dir);
+          tokenizer_load_failure_message(type, artifacts_dir));
     }
     return tok;
   }

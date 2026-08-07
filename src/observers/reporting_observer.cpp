@@ -18,10 +18,16 @@ void ReportingObserver::init_config_ready(const Config &cfg,
 
 void ReportingObserver::init_topology_ready(const NamedLayout &param_layout,
                                             void *param_base, uint64_t param_size,
+                                            void *grad_base, uint64_t grad_size,
                                             void *adam_base, uint64_t adam_size,
                                             void *temp_base, uint64_t temp_size) {
-  sink_.report_init_topology(param_layout, param_base, param_size, adam_base,
-                             adam_size, temp_base, temp_size);
+  sink_.report_init_topology(param_layout, param_base, param_size, grad_base,
+                             grad_size, adam_base, adam_size, temp_base,
+                             temp_size);
+}
+
+void ReportingObserver::memory_usage_ready(const TrainingMemoryUsage &usage) {
+  sink_.report_memory_usage(usage);
 }
 
 void ReportingObserver::tensor_factory_topology_ready(
@@ -30,10 +36,10 @@ void ReportingObserver::tensor_factory_topology_ready(
 }
 
 void ReportingObserver::batch_step_ready(uint32_t batch_size,
-                                         uint32_t window_training,
+                                         uint32_t seq_len,
                                          uint32_t token_rows,
                                          uint32_t vocab_size) {
-  sink_.report_batch_step(batch_size, window_training, token_rows, vocab_size);
+  sink_.report_batch_step(batch_size, seq_len, token_rows, vocab_size);
 }
 
 void ReportingObserver::probe_loss_ready(const TensorView &loss_scalar,

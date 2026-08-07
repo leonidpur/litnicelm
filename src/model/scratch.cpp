@@ -23,7 +23,7 @@ Scratch::Scratch(Arena &arena, Device dev)
 
 void Scratch::reset() { offset_ = 0; }
 
-TensorView Scratch::alloc_f32(Device dev, Shape2D shape) {
+TensorView Scratch::alloc_f32(Device dev, Shape shape) {
   if (dev != device_) {
     throw std::runtime_error("Scratch: device mismatch");
   }

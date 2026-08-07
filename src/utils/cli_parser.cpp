@@ -16,6 +16,14 @@ uint32_t parse_u32_or_throw(const std::string &s, const std::string &flag_name) 
   }
 }
 
+float parse_f32_or_throw(const std::string &s, const std::string &flag_name) {
+  try {
+    return std::stof(s);
+  } catch (...) {
+    throw std::runtime_error(flag_name + " requires a valid float");
+  }
+}
+
 bool parse_bool_or_throw(const std::string &s, const std::string &flag_name) {
   if (s == "true" || s == "1") {
     return true;
@@ -166,14 +174,139 @@ void parse_train_args(const std::vector<std::string> &args, Command &cmd) {
   if (positional.size() > 2) {
     throw std::runtime_error(
         "Too many train arguments. Usage: ./build/litnicegpt train --config <config.yaml> "
-        "[window_training] [batch_size] [--probe a,b] [--epochs N] [--logit] "
+        "[train_seq_len] [batch_size] [--probe a,b] [--epochs N] [--logit] "
         "[--incremental|--no-incremental] [--epoch_report_every N]");
   }
   if (!positional.empty()) {
-    cmd.window_training_override = parse_u32_or_throw(positional[0], "window_training");
+    cmd.train_seq_len_override = parse_u32_or_throw(positional[0], "train_seq_len");
   }
   if (positional.size() > 1) {
     cmd.batch_size_override = parse_u32_or_throw(positional[1], "batch_size");
+  }
+}
+
+void parse_infer_args(const std::vector<std::string> &args, Command &cmd,
+                      bool allow_prompt_positional) {
+  std::vector<std::string> positional;
+  positional.reserve(args.size());
+
+  for (size_t i = 0; i < args.size(); ++i) {
+    const std::string &arg = args[i];
+    if (arg == "--prompt") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--prompt requires a value");
+      }
+      cmd.has_prompt_override = true;
+      cmd.prompt = args[++i];
+      continue;
+    }
+    constexpr const char *kPromptPrefix = "--prompt=";
+    if (arg.rfind(kPromptPrefix, 0) == 0) {
+      cmd.has_prompt_override = true;
+      cmd.prompt = arg.substr(std::string(kPromptPrefix).size());
+      continue;
+    }
+    if (arg == "--max_new") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--max_new requires a value");
+      }
+      cmd.has_max_new_override = true;
+      cmd.max_new_override = parse_u32_or_throw(args[++i], "--max_new");
+      continue;
+    }
+    constexpr const char *kMaxNewPrefix = "--max_new=";
+    if (arg.rfind(kMaxNewPrefix, 0) == 0) {
+      cmd.has_max_new_override = true;
+      cmd.max_new_override =
+          parse_u32_or_throw(arg.substr(std::string(kMaxNewPrefix).size()),
+                             "--max_new");
+      continue;
+    }
+    if (arg == "--temp") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--temp requires a value");
+      }
+      cmd.has_temp_override = true;
+      cmd.temp_override = parse_f32_or_throw(args[++i], "--temp");
+      continue;
+    }
+    constexpr const char *kTempPrefix = "--temp=";
+    if (arg.rfind(kTempPrefix, 0) == 0) {
+      cmd.has_temp_override = true;
+      cmd.temp_override =
+          parse_f32_or_throw(arg.substr(std::string(kTempPrefix).size()),
+                             "--temp");
+      continue;
+    }
+    if (arg == "--top_k") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--top_k requires a value");
+      }
+      cmd.has_top_k_override = true;
+      cmd.top_k_override = parse_u32_or_throw(args[++i], "--top_k");
+      continue;
+    }
+    constexpr const char *kTopKPrefix = "--top_k=";
+    if (arg.rfind(kTopKPrefix, 0) == 0) {
+      cmd.has_top_k_override = true;
+      cmd.top_k_override =
+          parse_u32_or_throw(arg.substr(std::string(kTopKPrefix).size()),
+                             "--top_k");
+      continue;
+    }
+    if (arg == "--top_p") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--top_p requires a value");
+      }
+      cmd.has_top_p_override = true;
+      cmd.top_p_override = parse_f32_or_throw(args[++i], "--top_p");
+      continue;
+    }
+    constexpr const char *kTopPPrefix = "--top_p=";
+    if (arg.rfind(kTopPPrefix, 0) == 0) {
+      cmd.has_top_p_override = true;
+      cmd.top_p_override =
+          parse_f32_or_throw(arg.substr(std::string(kTopPPrefix).size()),
+                             "--top_p");
+      continue;
+    }
+    if (arg == "--seed") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--seed requires a value");
+      }
+      cmd.has_seed_override = true;
+      cmd.seed_override = parse_u32_or_throw(args[++i], "--seed");
+      continue;
+    }
+    constexpr const char *kSeedPrefix = "--seed=";
+    if (arg.rfind(kSeedPrefix, 0) == 0) {
+      cmd.has_seed_override = true;
+      cmd.seed_override =
+          parse_u32_or_throw(arg.substr(std::string(kSeedPrefix).size()),
+                             "--seed");
+      continue;
+    }
+    if (arg.rfind("--", 0) == 0) {
+      throw std::runtime_error("Unknown flag: " + arg);
+    }
+    positional.push_back(arg);
+  }
+
+  if (!allow_prompt_positional) {
+    if (!positional.empty()) {
+      throw std::runtime_error("This target does not accept positional arguments");
+    }
+    return;
+  }
+  if (positional.size() > 1) {
+    throw std::runtime_error("infer/inspect accepts at most one positional prompt argument");
+  }
+  if (!positional.empty()) {
+    if (cmd.has_prompt_override) {
+      throw std::runtime_error("Use either --prompt or one positional prompt, not both");
+    }
+    cmd.has_prompt_override = true;
+    cmd.prompt = positional[0];
   }
 }
 } // namespace
@@ -187,27 +320,27 @@ void CliParser::print_usage() {
   std::cout
       << "Usage:\n"
       << "  Train (default):\n"
-      << "    ./build/litnicegpt train --config <config.yaml> [window_training] [batch_size] "
+      << "    ./build/litnicegpt train --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
-      << "    ./build/litnicegpt --config <config.yaml> [window_training] [batch_size] "
+      << "    ./build/litnicegpt --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Dry run:\n"
-      << "    ./build/litnicegpt dry_run --config <config.yaml> [window_training] [batch_size] "
+      << "    ./build/litnicegpt dry_run --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Inference:\n"
-      << "    ./build/litnicegpt infer --config <config.yaml> [prompt]\n"
+      << "    ./build/litnicegpt infer --config <config.yaml> "
+         "[--prompt TEXT] [--max_new N] [--temp X] [--top_k K] [--top_p P] [--seed N]\n"
       << "  Inspect next-token distribution:\n"
-      << "    ./build/litnicegpt inspect --config <config.yaml> [prompt]\n"
+      << "    ./build/litnicegpt inspect --config <config.yaml> "
+         "[--prompt TEXT] [--max_new N] [--temp X] [--top_k K] [--top_p P] [--seed N]\n"
       << "  Interactive inference:\n"
       << "    ./build/litnicegpt inferloop --config <config.yaml>\n"
-      << "  Backup:\n"
-      << "    ./build/litnicegpt --backup --config <config.yaml> [input] [backup_root]\n"
       << "  Train tokenizer artifacts:\n"
       << "    ./build/litnicegpt tokenizer_training --config <config.yaml>\n"
       << "    ./build/litnicegpt --tokenizer_training --config <config.yaml>\n"
@@ -223,7 +356,7 @@ Command CliParser::parse(int argc, char **argv) {
   Command cmd{};
   cmd.target = Command::Target::TRAIN;
   cmd.config_path.clear();
-  cmd.window_training_override = 0;
+  cmd.train_seq_len_override = 0;
   cmd.batch_size_override = 0;
   cmd.has_incremental_override = false;
   cmd.incremental_override = false;
@@ -237,9 +370,18 @@ Command CliParser::parse(int argc, char **argv) {
   cmd.runtime_flags.logit = false;
   cmd.runtime_flags.epoch_report_every = 0;
   cmd.num_epochs_override = 0;
+  cmd.has_prompt_override = false;
   cmd.prompt.clear();
-  cmd.backup_input.clear();
-  cmd.backup_root.clear();
+  cmd.has_max_new_override = false;
+  cmd.max_new_override = 0;
+  cmd.has_temp_override = false;
+  cmd.temp_override = 0.0f;
+  cmd.has_top_k_override = false;
+  cmd.top_k_override = 0;
+  cmd.has_top_p_override = false;
+  cmd.top_p_override = 0.0f;
+  cmd.has_seed_override = false;
+  cmd.seed_override = 0;
 
   size_t arg_start = 1;
   if (argc > 1) {
@@ -263,9 +405,6 @@ Command CliParser::parse(int argc, char **argv) {
       arg_start = 2;
     } else if (candidate == "inferloop") {
       cmd.target = Command::Target::INFERLOOP;
-      arg_start = 2;
-    } else if (candidate == "--backup") {
-      cmd.target = Command::Target::BACKUP;
       arg_start = 2;
     } else if (candidate == "dry_run" || candidate == "--dry_run") {
       cmd.target = Command::Target::DRY_RUN;
@@ -297,25 +436,16 @@ Command CliParser::parse(int argc, char **argv) {
   switch (cmd.target) {
   case Command::Target::TOKENIZER_TRAINING:
   case Command::Target::TOKENIZE:
-  case Command::Target::INFERLOOP:
     if (!args.empty()) {
       throw std::runtime_error("This target does not accept positional arguments");
     }
     break;
   case Command::Target::INFER:
   case Command::Target::INSPECT:
-    if (args.size() > 1) {
-      throw std::runtime_error("infer/inspect accepts at most one prompt argument");
-    }
-    cmd.prompt = args.empty() ? "" : args[0];
+    parse_infer_args(args, cmd, /*allow_prompt_positional=*/true);
     break;
-  case Command::Target::BACKUP:
-    if (args.size() != 2) {
-      throw std::runtime_error(
-          "Usage: ./build/litnicegpt --backup --config <config.yaml> [input] [backup_root]");
-    }
-    cmd.backup_input = args[0];
-    cmd.backup_root = args[1];
+  case Command::Target::INFERLOOP:
+    parse_infer_args(args, cmd, /*allow_prompt_positional=*/false);
     break;
   case Command::Target::DRY_RUN:
   case Command::Target::TRAIN:

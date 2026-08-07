@@ -12,7 +12,7 @@ public:
 
   void reset();
 
-  TensorView alloc_f32(Device dev, Shape2D shape);
+  TensorView alloc_f32(Device dev, Shape shape);
 
   uint64_t used_bytes() const { return offset_; }
   uint64_t capacity_bytes() const { return arena_.size_bytes(); }

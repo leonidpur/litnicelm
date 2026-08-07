@@ -1,6 +1,7 @@
 #pragma once
 
 #include <config.hpp>
+#include "gradient_factory.hpp"
 #include "training_observer.hpp"
 #include <report_interface.hpp>
 #include "ops.hpp"
@@ -12,12 +13,14 @@
 #include <string>
 #include <vector>
 
+class TrainingDiagnosticsController;
+
 // Decoder-only GPT-style transformer:
 //
-//  X = tok_embed(ids) + pos_embed(0..T-1)
+//  X = tok_embed(ids[B,S]) + pos_embed(0..S-1), broadcast over batch
 //  for l in layers: X = layer_l(X)
 //  X = LN_f(X)
-//  logits = X * lm_head_w            // [T, V]
+//  logits = X * lm_head_w            // [B, S, V]
 //
 // Notes:
 // - This is "pure math": no CPU/GPU branching here.
@@ -30,20 +33,18 @@
 //     lm_head_w      [D, V]
 class Transformer {
 public:
-  using ParamUpdater =
-      std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
-
-  Transformer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
+  Transformer(const Config &cfg, TensorFactory &tensor_factory,
+              GradientFactory *gradient_factory, Ops &ops,
               ReportSink *sink = nullptr);
   void set_observer(ITrainingObserver *observer);
+  void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
-  // ids: [T] int32/int64 (whatever your TensorFactory/Ops embedding expects)
-  // logits: [T, V] (same device/dtype as weights)
-  // last_hidden (optional): receives final normalized hidden [T, D].
+  // ids: [B, S] semantically. Inference may use batch size 1.
+  // logits: [B, S, V]
+  // last_hidden (optional): receives final normalized hidden [B, S, D].
   void forward(const TensorView &ids, TensorView &logits,
                TensorView *last_hidden = nullptr);
   void backward(const TensorView &ids, const TensorView &dlogits,
-                const ParamUpdater &update_param,
                 const RuntimeFlags::ProbeFlags &probe);
 
 private:
@@ -51,7 +52,9 @@ private:
 
   const Config &cfg_;
   TensorFactory &tensorFactory_;
+  GradientFactory *gradientFactory_ = nullptr;
   Ops &ops_;
+  TrainingDiagnosticsController *diagnostics_ = nullptr;
 
   std::vector<TransformerLayer> layers_;
   TensorView cache_x0_;

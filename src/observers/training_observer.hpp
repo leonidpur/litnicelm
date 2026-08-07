@@ -4,9 +4,19 @@
 #include <string>
 
 struct Config;
+class DeviceBackend;
 class NamedLayout;
+class ReportSink;
 class TensorFactory;
 class TensorView;
+struct AdamStateView;
+struct ArenaView;
+struct TrainingMemoryUsage;
+
+struct TrainingState {
+  uint64_t global_step = 0;
+  uint32_t epoch = 0;
+};
 
 class ITrainingObserver {
 public:
@@ -20,26 +30,32 @@ public:
     (void)temp_layout;
   }
   virtual void init_topology_ready(const NamedLayout &param_layout, void *param_base,
-                                   uint64_t param_size, void *adam_base,
+                                   uint64_t param_size, void *grad_base,
+                                   uint64_t grad_size, void *adam_base,
                                    uint64_t adam_size, void *temp_base,
                                    uint64_t temp_size) {
     (void)param_layout;
     (void)param_base;
     (void)param_size;
+    (void)grad_base;
+    (void)grad_size;
     (void)adam_base;
     (void)adam_size;
     (void)temp_base;
     (void)temp_size;
+  }
+  virtual void memory_usage_ready(const TrainingMemoryUsage &usage) {
+    (void)usage;
   }
   virtual void tensor_factory_topology_ready(const Config &cfg,
                                              const TensorFactory &tensor_factory) {
     (void)cfg;
     (void)tensor_factory;
   }
-  virtual void batch_step_ready(uint32_t batch_size, uint32_t window_training,
+  virtual void batch_step_ready(uint32_t batch_size, uint32_t seq_len,
                                 uint32_t token_rows, uint32_t vocab_size) {
     (void)batch_size;
-    (void)window_training;
+    (void)seq_len;
     (void)token_rows;
     (void)vocab_size;
   }
@@ -67,22 +83,55 @@ public:
     (void)pos_emb;
   }
 
-  virtual void on_training_start() {}
-  virtual void on_training_end(uint64_t global_step, uint32_t epoch) {
-    (void)global_step;
-    (void)epoch;
+  virtual void on_training_start(TrainingState &state,
+                                 TensorFactory &tensor_factory,
+                                 uint64_t steps_per_epoch,
+                                 DeviceBackend &device_backend,
+                                 ReportSink *sink,
+                                 const ArenaView &data_arena,
+                                 const AdamStateView &adam_state) {
+    (void)state;
+    (void)tensor_factory;
+    (void)steps_per_epoch;
+    (void)device_backend;
+    (void)sink;
+    (void)data_arena;
+    (void)adam_state;
+  }
+  virtual void on_training_end(const TrainingState &state, ReportSink *sink) {
+    (void)state;
+    (void)sink;
   }
 
   virtual void on_epoch_start(uint32_t epoch) { (void)epoch; }
-  virtual void on_epoch_end(uint32_t epoch, float mean_loss,
-                            uint64_t global_step) {
+  virtual bool on_epoch_end(uint32_t epoch, float mean_loss,
+                            TrainingState &state,
+                            DeviceBackend &device_backend,
+                            ReportSink *sink,
+                            const ArenaView &data_arena,
+                            const AdamStateView &adam_state) {
     (void)epoch;
     (void)mean_loss;
-    (void)global_step;
+    (void)state;
+    (void)device_backend;
+    (void)sink;
+    (void)data_arena;
+    (void)adam_state;
+    return true;
   }
 
   virtual void on_batch_start(uint64_t global_step) { (void)global_step; }
   virtual void on_batch_end(uint64_t global_step, double loss) {
+    (void)global_step;
+    (void)loss;
+  }
+  virtual void on_batch_load_start(uint64_t global_step) { (void)global_step; }
+  virtual void on_batch_load_end(uint64_t global_step, bool has_batch) {
+    (void)global_step;
+    (void)has_batch;
+  }
+  virtual void on_train_step_start(uint64_t global_step) { (void)global_step; }
+  virtual void on_train_step_end(uint64_t global_step, double loss) {
     (void)global_step;
     (void)loss;
   }
@@ -110,11 +159,6 @@ public:
     (void)epoch;
   }
   virtual void on_checkpoint_save_end(bool ok) { (void)ok; }
-
-  virtual void finalize(uint64_t global_step, uint32_t epoch) {
-    (void)global_step;
-    (void)epoch;
-  }
 };
 
 inline ITrainingObserver &default_training_observer() {

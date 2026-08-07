@@ -1,0 +1,108 @@
+conf:
+  version: "1"
+
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
+backend:
+  #library: ""
+  #library: "./build/liblitnice_backend_cpu.so"
+  library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build-debug/liblitnice_backend_openblas_plugin.so"
+  #library: "./build-debug/liblitnice_backend_cublas_plugin.so"
+  #library: "./build/liblitnice_backend_cublas_plugin.so"
+  #library: "./build/liblitnice_backend_cpu.so"
+
+tokenizer:
+  # Factory-facing tokenizer implementation id.
+  # Preferred values: "sentencepiece", "character", "only_seen_chars"
+  type: "only_seen_chars"
+  target_vocab_size: 128
+
+  # Preferred normalized plugin config.
+  training_corpus: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/corpus/syntetic1_stage_006_t0096.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/artifacts/syntetic1_stage_006_t0096"
+  bpe_vocab_file: ""
+  bpe_merges_file: ""
+
+  # Plugin/validation settings.
+  bpe_validation_num_threads: 1
+  bpe_validation_sample_rate: 50
+  run_validation: true
+  
+  # Future shape:
+  # params:
+  #   model_type: "bpe"
+  #   character_coverage: 1.0
+  # validation:
+  #   enabled: true
+  #   num_threads: 1
+  #   sample_rate: 50
+
+tokenization:
+  input_corpus: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/corpus/syntetic1_stage_006_t0096.txt"
+  output_binary: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/tokenized/syntetic1_stage_006_t0096.bin"
+  chunk_size_mb: 64
+
+memory:
+  alignment_bytes: 64
+
+model:
+  n_layers: 2
+  n_heads: 2
+  d_model: 32
+  d_ff: 64
+  max_seq_len: 8
+
+training:
+  train_seq_len: 8
+  window_stride: 1
+  batch_size: 1 # 16-32: stable gradients without requiring massive RAM.
+  #####  
+  num_epochs_train: 1600 # Small models need many passes to memorize single-author style.
+  num_epochs_dry_run: 2
+  save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
+  patience_epochs: 0
+  #####
+  learning_rate: 0.001
+  beta1: 0.9
+  beta2: 0.999
+  eps: 0.00000001
+  weight_decay: 0.01
+  incremental: false
+  dry_run: false
+  grad_clip: 1.0
+  target_loss: 0.1
+  min_delta: 0.0
+  min_epochs: 0
+  stop_on_nonfinite_loss: true
+
+paths:
+  model_file_latest: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/checkpoints/syntetic1_stage_006_t0096_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/checkpoints/syntetic1_stage_006_t0096_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicegpt/syntetic1_stages/journals/syntetic1_stage_006_t0096.txt"
+
+inference:
+  prompt: ""
+  max_new: 64
+  temp: 1.0
+  top_k: 0
+  top_p: 1.0
+  seed: 12345
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1
+  epoch_report_every: 13
+
+reporting:
+  # k: start epoch index, m: duration (-1 for till the end)
+  # [k, m] -> [-1, 0] disables educational reports. Not used yet.
+  verbose_epoch_index: [0, 1]
+  # If true, provide deep-dives during memory allocation and tensor setup.
+  verbose_init: true

@@ -32,14 +32,14 @@ void OptimizerAdamWCPU::step(const TrainingConfig &tc, TensorView &params,
   require_f32_cpu_contig(m, "step(m)");
   require_f32_cpu_contig(v, "step(v)");
 
-  require(params.shape().r == grads.shape().r && params.shape().c == grads.shape().c,
+  require(params.rank() == grads.rank() && params.numel() == grads.numel(),
           "params/grads shape mismatch");
-  require(params.shape().r == m.shape().r && params.shape().c == m.shape().c,
+  require(params.rank() == m.rank() && params.numel() == m.numel(),
           "params/m shape mismatch");
-  require(params.shape().r == v.shape().r && params.shape().c == v.shape().c,
+  require(params.rank() == v.rank() && params.numel() == v.numel(),
           "params/v shape mismatch");
 
-  const int64_t n = params.shape().r * params.shape().c;
+  const int64_t n = static_cast<int64_t>(params.numel());
   require(n >= 0, "invalid element count");
 
   const float lr = tc.learning_rate;

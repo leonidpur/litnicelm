@@ -2,16 +2,17 @@
 
 #include <stdexcept>
 
-OptimizerAdamW::OptimizerAdamW(Device device) : device_(device) {
-  if (device_ != Device::CPU) {
-    throw std::runtime_error("OptimizerAdamW: GPU backend not implemented");
+OptimizerAdamW::OptimizerAdamW(DeviceBackend &backend) : backend_(&backend) {
+  if (backend_ == nullptr) {
+    throw std::runtime_error("OptimizerAdamW: backend is null");
   }
 }
 
 void OptimizerAdamW::step(const TrainingConfig &tc, TensorView &params,
                           const TensorView &grads, TensorView &m, TensorView &v,
                           uint64_t step, bool apply_weight_decay) const {
-  cpu_.step(tc, params, grads, m, v, step, apply_weight_decay);
+  backend_->adamw_step(params, grads, m, v, step, tc.learning_rate, tc.beta1,
+                       tc.beta2, tc.weight_decay, apply_weight_decay);
 }
 
 void OptimizerAdamW::step(uint64_t step, float learning_rate, float beta1,

@@ -46,6 +46,10 @@ const char *stage_name(Stage stage) {
   switch (stage) {
   case Stage::ROOT:
     return "root";
+  case Stage::BATCH_STEP:
+    return "batch_step";
+  case Stage::BATCH_LOAD:
+    return "batch_load";
   case Stage::TRAIN_STEP:
     return "train_step";
   case Stage::INFER_STEP:
