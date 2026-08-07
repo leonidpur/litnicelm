@@ -30,10 +30,16 @@ public:
   void report_fetch(const TrainingFetchReportData &data);
   void report_batch_step(uint32_t batch_cfg, uint32_t window_cfg,
                          uint32_t batch_flat_t, uint32_t logit_dim_v);
-  void report_init_config(const Config &cfg, const NamedLayout &layout);
-  void report_init_topology(const NamedLayout &layout, void *param_base,
+  void report_optimizer_state(int phase, const std::string &name,
+                              const TensorView &param, const TensorView &grad,
+                              const TensorView &m, const TensorView &v,
+                              uint64_t step, bool use_weight_decay);
+  void report_init_config(const Config &cfg, const NamedLayout &param_layout,
+                          const NamedLayout &temp_layout);
+  void report_init_topology(const NamedLayout &param_layout, void *param_base,
                             uint64_t param_size, void *adam_base,
-                            uint64_t adam_size);
+                            uint64_t adam_size, void *temp_base,
+                            uint64_t temp_size);
   void report_tensor_factory_topology(const Config &cfg,
                                       const TensorFactory &tensors);
 

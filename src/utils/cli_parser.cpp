@@ -117,7 +117,18 @@ void CliParser::print_usage() {
 }
 
 Command CliParser::parse(int argc, char **argv) {
-  Command cmd;
+  Command cmd{};
+  cmd.target = Command::Target::TRAIN;
+  cmd.config_path.clear();
+  cmd.window_training_override = 0;
+  cmd.batch_size_override = 0;
+  cmd.runtime_flags.do_probe = false;
+  cmd.runtime_flags.logit = false;
+  cmd.runtime_flags.print_mod = 100;
+  cmd.num_epochs_override = 0;
+  cmd.prompt.clear();
+  cmd.backup_input.clear();
+  cmd.backup_root.clear();
 
   size_t arg_start = 1;
   if (argc > 1) {

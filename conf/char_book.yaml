@@ -1,3 +1,13 @@
+conf:
+  version: "1"
+
+device: cpu
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
 tokenizer:
   # Factory-facing tokenizer implementation id.
   # Preferred values: "sentencepiece", "character", "only_seen_chars"
@@ -7,7 +17,8 @@ tokenizer:
   # Preferred normalized plugin config.
   training_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
   artifacts_dir: "/mnt/ext_ssd/litnicegpt/data"
-  chunk_size_mb: 64
+  bpe_vocab_file: ""
+  bpe_merges_file: ""
 
   # Plugin/validation settings.
   bpe_validation_num_threads: 1
@@ -28,6 +39,9 @@ tokenization:
   output_binary: "/mnt/ext_ssd/litnicegpt/data/tokenized_dataset.bin"
   chunk_size_mb: 64
 
+memory:
+  alignment_bytes: 64
+
 model:
   n_layers: 2
   n_heads: 2
@@ -36,13 +50,19 @@ model:
   window_capacity: 8
 
 training:
+  learning_rate: 0.002
+  beta1: 0.9
+  beta2: 0.999
+  eps: 0.00000001
+  weight_decay: 0.01
   incremental: false
+  dry_run: false
+  num_epochs_train: 70 # Small models need many passes to memorize single-author style.
+  num_epochs_dry_run: 2
+  save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
+  grad_clip: 1.0
   window_training: 4
   batch_size: 2 # 16-32: stable gradients without requiring massive RAM.
-  num_epochs_train: 120 # Small models need many passes to memorize single-author style.
-  num_epochs_dry_run: 2
-  learning_rate: 0.002
-  save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
 
 paths:
   model_file: "/mnt/ext_ssd/litnicegpt/data/char_book.ckpt"
@@ -50,6 +70,12 @@ paths:
 
 inference:
   window_inference: 64
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1
 
 reporting:
   # k: start epoch index, m: duration (-1 for till the end)

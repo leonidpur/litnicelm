@@ -23,8 +23,7 @@ public:
   Trainer(const Config &cfg, TensorFactory &tensors, Ops &ops,
           OptimizerAdamW &opt, Transformer &model, const ArenaView &data_arena,
           const AdamStateView &adam_state, DeviceBackend &device_backend,
-          const Command &cmd,
-          const RuntimeFlags &runtime_flags = RuntimeFlags(),
+          const Command &cmd, const RuntimeFlags &runtime_flags,
           TrainingReportSink *sink = nullptr);
 
   // Train for the epoch count selected by TrainingSessionController.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "checkpoint.hpp"
+#include "tensor_factory.hpp"
 
 #include <config.hpp>
 #include <report_interface.hpp>
@@ -18,7 +19,8 @@ class TrainingSessionController {
 public:
   explicit TrainingSessionController(const Config &cfg, const Command &cmd);
 
-  void training_loop_start(TrainingState &state, ReportSink *sink,
+  bool training_loop_start(TrainingState &state, TensorFactory &tensors,
+                           ReportSink *sink,
                            const ArenaView &data_arena,
                            const AdamStateView &adam_state);
   bool should_continue(uint32_t epoch) const;

@@ -10,83 +10,83 @@ enum class Device : uint8_t {
 };
 
 struct TrainingConfig {
-  float learning_rate = 1e-3f;
-  float beta1 = 0.9f;
-  float beta2 = 0.999f;
-  float eps = 1e-8f;
-  float weight_decay = 0.01f;
-  bool incremental = false;
-  bool dry_run = false;
-  uint32_t num_epochs_train = 1;
-  uint32_t num_epochs_dry_run = 1;
-  uint32_t save_interval_epochs = 1;
-  float grad_clip = 1.0f;
-  uint32_t window_training = 128;
-  uint32_t batch_size = 1;
+  float learning_rate;
+  float beta1;
+  float beta2;
+  float eps;
+  float weight_decay;
+  bool incremental;
+  bool dry_run;
+  uint32_t num_epochs_train;
+  uint32_t num_epochs_dry_run;
+  uint32_t save_interval_epochs;
+  float grad_clip;
+  uint32_t window_training;
+  uint32_t batch_size;
 };
 
 struct PathsConfig {
-  std::string model_file = "checkpoints/model.ckpt";
-  std::string journal_file = "journal/journal.txt";
+  std::string model_file;
+  std::string journal_file;
 };
 
 struct TokenizerConfig {
-  std::string type = "character";
-  uint32_t target_vocab_size = 256;
+  std::string type;
+  uint32_t target_vocab_size;
   std::string bpe_corpus_file;
   std::string bpe_artifacts_dir;
   std::string bpe_vocab_file;
   std::string bpe_merges_file;
-  bool run_validation = true;
-  int32_t bpe_validation_num_threads = 0;
-  uint32_t bpe_validation_sample_rate = 100;
+  bool run_validation;
+  int32_t bpe_validation_num_threads;
+  uint32_t bpe_validation_sample_rate;
 };
 
 struct TokenizationConfig {
   std::string input_corpus;
   std::string output_binary;
-  uint32_t chunk_size_mb = 64;
+  uint32_t chunk_size_mb;
 };
 
 struct InferenceConfig {
-  uint32_t window_inference = 64;
+  uint32_t window_inference;
 };
 
 struct LoggingConfig {
-  bool show_bpe = true;
-  bool show_train = true;
-  bool show_inference = true;
-  int32_t report_every_n_steps = 1;
+  bool show_bpe;
+  bool show_train;
+  bool show_inference;
+  int32_t report_every_n_steps;
 };
 
 struct ReportingConfig {
-  std::vector<int32_t> verbose_epoch_index{-1, 0};
-  bool verbose_init = false;
+  std::vector<int32_t> verbose_epoch_index;
+  bool verbose_init;
 };
 
 struct ModelConfig {
-  uint32_t n_layers = 2;
-  uint32_t n_heads = 4;
-  uint32_t d_model = 32;
-  uint32_t d_ff = 64;
-  uint32_t target_vocab_size = 256;
-  uint32_t window_capacity = 128;
+  uint32_t n_layers;
+  uint32_t n_heads;
+  uint32_t d_model;
+  uint32_t d_ff;
+  uint32_t target_vocab_size;
+  uint32_t window_capacity;
 };
 
 struct MemoryConfig {
-  uint64_t alignment_bytes = 64;
+  uint64_t alignment_bytes;
 };
 
 struct Command;
 
 struct Config {
-  std::string conf_version = "1";
-  Device device = Device::CPU;
-  uint32_t transformer_layers = 0;
-  uint64_t parameter_bytes = 0;
-  uint64_t optimizer_bytes = 0;
-  uint32_t arena_alignment = 64;
-  uint64_t max_steps = 1;
+  std::string conf_version;
+  Device device;
+  uint32_t transformer_layers;
+  uint64_t parameter_bytes;
+  uint64_t optimizer_bytes;
+  uint32_t arena_alignment;
+  uint64_t max_steps;
   ModelConfig model;
   MemoryConfig memory;
   PathsConfig paths;
@@ -105,9 +105,9 @@ struct Config {
 };
 
 struct RuntimeFlags {
-  bool do_probe = false;
-  bool logit = false;
-  uint32_t print_mod = 100;
+  bool do_probe;
+  bool logit;
+  uint32_t print_mod;
 };
 
 struct Command {
@@ -122,13 +122,13 @@ struct Command {
     BACKUP,
   };
 
-  Target target = Target::TRAIN;
-  std::string config_path = "./config.yaml";
+  Target target;
+  std::string config_path;
 
-  uint32_t window_training_override = 0;
-  uint32_t batch_size_override = 0;
-  RuntimeFlags runtime_flags{};
-  uint32_t num_epochs_override = 0;
+  uint32_t window_training_override;
+  uint32_t batch_size_override;
+  RuntimeFlags runtime_flags;
+  uint32_t num_epochs_override;
 
   std::string prompt;
   std::string backup_input;

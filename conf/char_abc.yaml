@@ -1,3 +1,13 @@
+conf:
+  version: "1"
+
+device: cpu
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
 tokenizer:
   # Factory-facing tokenizer implementation id.
   type: "character"
@@ -6,7 +16,6 @@ tokenizer:
   # Preferred normalized tokenizer shape.
   training_corpus: "data/abc.txt"
   artifacts_dir: "data/bpe_char_abc"
-  chunk_size_mb: 64
 
   # Legacy BPE-specific file keys remain only for the legacy tokenizer path.
   bpe_vocab_file: "data/bpe_char_abc/vocab.txt"
@@ -20,6 +29,9 @@ tokenization:
   output_binary: "data/abc_tokenized.bin"
   chunk_size_mb: 64
 
+memory:
+  alignment_bytes: 64
+
 model:
   window_capacity: 8
   n_layers: 3
@@ -28,13 +40,19 @@ model:
   d_ff: 32
 
 training:
+  learning_rate: 0.001
+  beta1: 0.9
+  beta2: 0.999
+  eps: 0.00000001
+  weight_decay: 0.01
   incremental: false
-  window_training: 4
-  batch_size: 16 # 16-32: stable gradients without requiring massive RAM.
+  dry_run: false
   num_epochs_train: 20 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 1
-  learning_rate: 0.001
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
+  grad_clip: 1.0
+  window_training: 4
+  batch_size: 16 # 16-32: stable gradients without requiring massive RAM.
 
 paths:
   model_file: "checkpoints/char_abc.ckpt"
@@ -42,6 +60,12 @@ paths:
 
 inference:
   window_inference: 64
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1
 
 reporting:
   # k: start epoch index, m: duration (-1 for till the end)

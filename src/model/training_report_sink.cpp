@@ -4,13 +4,15 @@
 #include "named_layout.hpp"
 #include "tensor_factory.hpp"
 
+#include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 namespace {
 const char *layout_type(const TensorView &t) {
   if (t.is_contiguous_row_major()) {
-    return "Contiguous Row-Major";
+    return "Cont. Row-Major";
   }
   return "Strided Subview";
 }
@@ -44,7 +46,34 @@ std::string infer_purpose(const std::string &name) {
   return "Model parameter tensor";
 }
 
-std::string tensor_metadata_row(const std::string &name, const TensorView &tv) {
+std::string infer_temp_purpose(const std::string &name) {
+  if (name == "ds.ids") return "Dataset input-token buffer";
+  if (name == "ds.targets") return "Dataset target-token buffer";
+  if (name == "infer.ids") return "Inference token-id buffer";
+  if (name == "infer.logits") return "Inference logits buffer";
+  if (name == "tr.logits") return "Training logits buffer";
+  if (name == "tr.loss") return "Scalar loss buffer";
+  if (name == "tr.X" || name == "tr.Y" || name == "tr.Xn")
+    return "Training hidden-state buffer";
+  if (name == "bw.XnT") return "Transposed normalized hidden states";
+  if (name == "bw.d_lm_w") return "LM head weight gradients";
+  if (name == "bw.lm_wT") return "Transposed LM head weights";
+  if (name == "bw.d_xn" || name == "bw.d_xlast") return "Backward hidden gradients";
+  if (name == "bw.d_lnf_g" || name == "bw.d_lnf_b")
+    return "Final layernorm parameter gradients";
+  if (name == "bw.d_tok" || name == "bw.d_pos")
+    return "Embedding gradient accumulators";
+  if (name.find("layer") == 0 && name.find(".ln") != std::string::npos)
+    return "Layernorm or residual workspace";
+  if (name.find("attn.") != std::string::npos)
+    return "Attention workspace";
+  if (name.find("ffn.") != std::string::npos)
+    return "Feed-forward workspace";
+  return "Temporary tensor";
+}
+
+std::string tensor_metadata_row(const std::string &name, const TensorView &tv,
+                                const std::string &purpose) {
   std::ostringstream addr;
   addr << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(tv.data());
   const std::string shape =
@@ -53,14 +82,44 @@ std::string tensor_metadata_row(const std::string &name, const TensorView &tv) {
       std::to_string(tv.stride_r_bytes()) + "/" + std::to_string(tv.stride_c_bytes());
 
   std::ostringstream line;
-  line << "| " << std::left << std::setw(26) << name
+  line << "| " << std::left << std::setw(18) << name
        << " | " << std::setw(7) << shape
-       << " | " << std::setw(21) << layout_type(tv)
-       << " | " << std::setw(17) << stride
+       << " | " << std::setw(17) << layout_type(tv)
+       << " | " << std::setw(6) << stride
        << " | " << std::setw(14) << addr.str()
        << " | " << std::right << std::setw(7) << tv.bytes()
-       << " | " << std::left << infer_purpose(name);
+       << " | " << std::left << purpose;
   return line.str();
+}
+
+double l2_norm_f32_cpu(const TensorView &t) {
+  if (t.device() != Device::CPU || t.dtype() != DType::F32 ||
+      !t.is_contiguous_row_major()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const float *p = reinterpret_cast<const float *>(t.data());
+  const int64_t n = t.shape().r * t.shape().c;
+  double sum_sq = 0.0;
+  for (int64_t i = 0; i < n; ++i) {
+    const double v = static_cast<double>(p[i]);
+    sum_sq += v * v;
+  }
+  return std::sqrt(sum_sq);
+}
+
+bool all_finite_f32_cpu(const TensorView &t) {
+  if (t.device() != Device::CPU || t.dtype() != DType::F32 ||
+      !t.is_contiguous_row_major()) {
+    return false;
+  }
+  const float *p = reinterpret_cast<const float *>(t.data());
+  const int64_t n = t.shape().r * t.shape().c;
+  for (int64_t i = 0; i < n; ++i) {
+    if (!std::isfinite(p[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 } // namespace
 
@@ -144,6 +203,7 @@ void TrainingReportSink::report_training_start(const Config &cfg) {
       << ", n_heads=" << cfg.model.n_heads
       << ", d_model=" << cfg.model.d_model
       << ", d_ff=" << cfg.model.d_ff
+      << ", vocab_size(actual)=" << cfg.model.target_vocab_size
       << ", lr=" << cfg.training.learning_rate
       << ", beta1=" << cfg.training.beta1
       << ", beta2=" << cfg.training.beta2
@@ -196,30 +256,62 @@ void TrainingReportSink::report_batch_step(uint32_t batch_cfg, uint32_t window_c
   batch_step_report_count_ += 1;
 }
 
+void TrainingReportSink::report_optimizer_state(
+    int phase, const std::string &name, const TensorView &param,
+    const TensorView &grad, const TensorView &m, const TensorView &v,
+    uint64_t step, bool use_weight_decay) {
+  std::ostringstream oss;
+  oss << "[TRAINING][PROGRESS] step=" << step
+      << " [OPTDBG] phase=" << phase
+      << " name=" << name
+      << " shape=" << param.shape().r << "x" << param.shape().c
+      << " use_wd=" << (use_weight_decay ? 1 : 0)
+      << " grad_norm=" << l2_norm_f32_cpu(grad)
+      << " param_norm=" << l2_norm_f32_cpu(param)
+      << " m_norm=" << l2_norm_f32_cpu(m)
+      << " v_norm=" << l2_norm_f32_cpu(v)
+      << " grad_finite=" << (all_finite_f32_cpu(grad) ? 1 : 0)
+      << " param_finite=" << (all_finite_f32_cpu(param) ? 1 : 0)
+      << " m_finite=" << (all_finite_f32_cpu(m) ? 1 : 0)
+      << " v_finite=" << (all_finite_f32_cpu(v) ? 1 : 0);
+  report(ReportEvent::PROGRESS, oss.str());
+}
+
 void TrainingReportSink::report_init_config(const Config &cfg,
-                                            const NamedLayout &layout) {
+                                            const NamedLayout &param_layout,
+                                            const NamedLayout &temp_layout) {
   verbose_init_enabled_ = cfg.reporting.verbose_init;
   alignment_bytes_ = cfg.memory.alignment_bytes;
   if (!verbose_init_enabled_) {
     return;
   }
 
-  uint64_t used_bytes = 0;
-  for (const auto &slice : layout.slices()) {
-    used_bytes += slice.bytes;
+  uint64_t used_param_bytes = 0;
+  for (const auto &slice : param_layout.slices()) {
+    used_param_bytes += slice.bytes;
   }
-  const uint64_t total_param_bytes = layout.total_bytes();
-  const uint64_t waste_bytes =
-      (total_param_bytes >= used_bytes) ? (total_param_bytes - used_bytes) : 0;
+  uint64_t used_temp_bytes = 0;
+  for (const auto &slice : temp_layout.slices()) {
+    used_temp_bytes += slice.bytes;
+  }
+  const uint64_t total_param_bytes = param_layout.total_bytes();
+  const uint64_t total_temp_bytes = temp_layout.total_bytes();
+  const uint64_t param_waste_bytes =
+      (total_param_bytes >= used_param_bytes) ? (total_param_bytes - used_param_bytes) : 0;
+  const uint64_t temp_waste_bytes =
+      (total_temp_bytes >= used_temp_bytes) ? (total_temp_bytes - used_temp_bytes) : 0;
   const uint64_t total_adam_bytes = total_param_bytes * 2;
-  const size_t slice_count = layout.slices().size();
+  const size_t param_slice_count = param_layout.slices().size();
+  const size_t temp_slice_count = temp_layout.slices().size();
 
   const double param_mb =
       static_cast<double>(total_param_bytes) / (1024.0 * 1024.0);
   const double adam_mb = static_cast<double>(total_adam_bytes) / (1024.0 * 1024.0);
+  const double temp_mb =
+      static_cast<double>(total_temp_bytes) / (1024.0 * 1024.0);
 
   std::ostringstream oss;
-  oss << "\n[Memory Topography]\n";
+  oss << "\n[Memory Topography] enabled by `reporting.verbose_init`\n";
   oss << "+--------------------------------------+----------------+\n";
   oss << "| Metric                               | Value          |\n";
   oss << "+--------------------------------------+----------------+\n";
@@ -227,45 +319,58 @@ void TrainingReportSink::report_init_config(const Config &cfg,
       << std::setprecision(2) << std::setw(14) << param_mb << " |\n";
   oss << "| Adam Optimizer Arena (MB)            | " << std::fixed
       << std::setprecision(2) << std::setw(14) << adam_mb << " |\n";
-  oss << "| Alignment Padding Waste (bytes)      | " << std::setw(14) << waste_bytes
-      << " |\n";
-  oss << "| Unique Tensor Slices Mapped          | " << std::setw(14) << slice_count
-      << " |\n";
+  oss << "| Temp Arena (MB)                      | " << std::fixed
+      << std::setprecision(2) << std::setw(14) << temp_mb << " |\n";
+  oss << "| Param Padding Waste (bytes)          | " << std::setw(14)
+      << param_waste_bytes << " |\n";
+  oss << "| Temp Padding Waste (bytes)           | " << std::setw(14)
+      << temp_waste_bytes << " |\n";
+  oss << "| Param Tensor Slices Mapped           | " << std::setw(14)
+      << param_slice_count << " |\n";
+  oss << "| Temp Tensor Slices Mapped            | " << std::setw(14)
+      << temp_slice_count << " |\n";
+  oss << "| Alignment Bytes                      | " << std::setw(14)
+      << alignment_bytes_ << " |\n";
   oss << "+--------------------------------------+----------------+\n";
   oss << "Adam uses exactly 2x parameter memory because it keeps two moments\n"
          "(m and v) for every trainable weight.\n";
   report(ReportEvent::START, oss.str());
 }
 
-void TrainingReportSink::report_init_topology(const NamedLayout &layout,
+void TrainingReportSink::report_init_topology(const NamedLayout &param_layout,
                                               void *param_base,
                                               uint64_t param_size,
                                               void *adam_base,
-                                              uint64_t adam_size) {
+                                              uint64_t adam_size,
+                                              void *temp_base,
+                                              uint64_t temp_size) {
   if (!verbose_init_enabled_) {
     return;
   }
 
-  const uint64_t total_model_memory = param_size + adam_size;
-  uint64_t sum_tensors = 0;
-  for (const auto &slice : layout.slices()) {
-    sum_tensors += slice.bytes;
+  const uint64_t total_model_memory = param_size + adam_size + temp_size;
+  uint64_t sum_param_tensors = 0;
+  for (const auto &slice : param_layout.slices()) {
+    sum_param_tensors += slice.bytes;
   }
-  const uint64_t padding_waste =
-      (param_size >= sum_tensors) ? (param_size - sum_tensors) : 0;
+  const uint64_t param_padding_waste =
+      (param_size >= sum_param_tensors) ? (param_size - sum_param_tensors) : 0;
 
   const std::uintptr_t p0 = reinterpret_cast<std::uintptr_t>(param_base);
   const std::uintptr_t p1 = (param_size == 0) ? p0 : (p0 + param_size - 1);
   const std::uintptr_t a0 = reinterpret_cast<std::uintptr_t>(adam_base);
   const std::uintptr_t a1 = (adam_size == 0) ? a0 : (a0 + adam_size - 1);
+  const std::uintptr_t t0 = reinterpret_cast<std::uintptr_t>(temp_base);
+  const std::uintptr_t t1 = (temp_size == 0) ? t0 : (t0 + temp_size - 1);
 
   const double param_mb = static_cast<double>(param_size) / (1024.0 * 1024.0);
   const double adam_mb = static_cast<double>(adam_size) / (1024.0 * 1024.0);
+  const double temp_mb = static_cast<double>(temp_size) / (1024.0 * 1024.0);
   const double total_mb =
       static_cast<double>(total_model_memory) / (1024.0 * 1024.0);
 
   std::ostringstream oss;
-  oss << "\n[Memory Topology]\n";
+  oss << "\n[Memory Topology] enabled by `reporting.verbose_init`\n";
   oss << "+------------------+-------------------------------------------+------------+\n";
   oss << "| Region           | Hex Range                                 | Size (MB)  |\n";
   oss << "+------------------+-------------------------------------------+------------+\n";
@@ -275,13 +380,16 @@ void TrainingReportSink::report_init_topology(const NamedLayout &layout,
   oss << "| Optimizer Arena  | 0x" << std::hex << a0 << " - 0x" << a1
       << std::dec << " | " << std::fixed << std::setprecision(2) << std::setw(10)
       << adam_mb << " |\n";
+  oss << "| Temp Arena       | 0x" << std::hex << t0 << " - 0x" << t1
+      << std::dec << " | " << std::fixed << std::setprecision(2) << std::setw(10)
+      << temp_mb << " |\n";
   oss << "+------------------+-------------------------------------------+------------+\n";
   oss << "| Total Model Mem  |                                           | "
       << std::setw(10) << total_mb << " |\n";
   oss << "+------------------+-------------------------------------------+------------+\n";
   oss << "Alignment bytes: " << alignment_bytes_
-      << ", padding waste=" << padding_waste
-      << " bytes, slices mapped=" << layout.slices().size() << "\n\n";
+      << ", param padding waste=" << param_padding_waste
+      << " bytes, param slices mapped=" << param_layout.slices().size() << "\n\n";
   oss << "Pointer Arithmetic: TensorFactory treats arena base pointers as anchors and\n"
          "adds each LayoutSlice offset to address every tensor block directly.\n";
   oss << "Adam Overhead: Optimizer memory is 2x parameter memory because Adam keeps\n"
@@ -298,31 +406,146 @@ void TrainingReportSink::report_tensor_factory_topology(
   }
 
   std::vector<std::string> lines;
-  lines.push_back("[TensorFactory Parameters]");
-  lines.push_back("+----------------------------+---------+-----------------------+-------------------+----------------+---------+------------------------------+");
-  lines.push_back("| Name                       | Shape   | Layout                | Stride(r/c bytes) | Address        | Bytes   | Purpose                      |");
-  lines.push_back("+----------------------------+---------+-----------------------+-------------------+----------------+---------+------------------------------+");
-  lines.push_back(tensor_metadata_row("tok_embedding", tensors.param_tok_embedding()));
-  lines.push_back(tensor_metadata_row("pos_embedding", tensors.param_pos_embedding()));
+  lines.push_back("[TensorFactory Parameters] enabled by `reporting.verbose_init`");
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
+  lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
+  lines.push_back(tensor_metadata_row("tok_embedding", tensors.param_tok_embedding(),
+                                      infer_purpose("tok_embedding")));
+  lines.push_back(tensor_metadata_row("pos_embedding", tensors.param_pos_embedding(),
+                                      infer_purpose("pos_embedding")));
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "layer" + std::to_string(l) + ".";
-    lines.push_back(tensor_metadata_row(p + "ln1_gamma", tensors.param_ln1_gamma(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ln1_beta", tensors.param_ln1_beta(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "attn_qkv_w", tensors.param_attn_qkv_w(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "attn_qkv_b", tensors.param_attn_qkv_b(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "attn_out_w", tensors.param_attn_out_w(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "attn_out_b", tensors.param_attn_out_b(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ln2_gamma", tensors.param_ln2_gamma(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ln2_beta", tensors.param_ln2_beta(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ffn_w1", tensors.param_ffn_w1(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ffn_b1", tensors.param_ffn_b1(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ffn_w2", tensors.param_ffn_w2(static_cast<int>(l))));
-    lines.push_back(tensor_metadata_row(p + "ffn_b2", tensors.param_ffn_b2(static_cast<int>(l))));
+    lines.push_back(tensor_metadata_row(p + "ln1_gamma",
+                                        tensors.param_ln1_gamma(static_cast<int>(l)),
+                                        infer_purpose(p + "ln1_gamma")));
+    lines.push_back(tensor_metadata_row(p + "ln1_beta",
+                                        tensors.param_ln1_beta(static_cast<int>(l)),
+                                        infer_purpose(p + "ln1_beta")));
+    lines.push_back(tensor_metadata_row(p + "attn_qkv_w",
+                                        tensors.param_attn_qkv_w(static_cast<int>(l)),
+                                        infer_purpose(p + "attn_qkv_w")));
+    lines.push_back(tensor_metadata_row(p + "attn_qkv_b",
+                                        tensors.param_attn_qkv_b(static_cast<int>(l)),
+                                        infer_purpose(p + "attn_qkv_b")));
+    lines.push_back(tensor_metadata_row(p + "attn_out_w",
+                                        tensors.param_attn_out_w(static_cast<int>(l)),
+                                        infer_purpose(p + "attn_out_w")));
+    lines.push_back(tensor_metadata_row(p + "attn_out_b",
+                                        tensors.param_attn_out_b(static_cast<int>(l)),
+                                        infer_purpose(p + "attn_out_b")));
+    lines.push_back(tensor_metadata_row(p + "ln2_gamma",
+                                        tensors.param_ln2_gamma(static_cast<int>(l)),
+                                        infer_purpose(p + "ln2_gamma")));
+    lines.push_back(tensor_metadata_row(p + "ln2_beta",
+                                        tensors.param_ln2_beta(static_cast<int>(l)),
+                                        infer_purpose(p + "ln2_beta")));
+    lines.push_back(tensor_metadata_row(p + "ffn_w1",
+                                        tensors.param_ffn_w1(static_cast<int>(l)),
+                                        infer_purpose(p + "ffn_w1")));
+    lines.push_back(tensor_metadata_row(p + "ffn_b1",
+                                        tensors.param_ffn_b1(static_cast<int>(l)),
+                                        infer_purpose(p + "ffn_b1")));
+    lines.push_back(tensor_metadata_row(p + "ffn_w2",
+                                        tensors.param_ffn_w2(static_cast<int>(l)),
+                                        infer_purpose(p + "ffn_w2")));
+    lines.push_back(tensor_metadata_row(p + "ffn_b2",
+                                        tensors.param_ffn_b2(static_cast<int>(l)),
+                                        infer_purpose(p + "ffn_b2")));
   }
-  lines.push_back(tensor_metadata_row("lnf_gamma", tensors.param_lnf_gamma()));
-  lines.push_back(tensor_metadata_row("lnf_beta", tensors.param_lnf_beta()));
-  lines.push_back(tensor_metadata_row("lm_head_w", tensors.param_lm_head_w()));
-  lines.push_back("+----------------------------+---------+-----------------------+-------------------+----------------+---------+------------------------------+");
+  lines.push_back(tensor_metadata_row("lnf_gamma", tensors.param_lnf_gamma(),
+                                      infer_purpose("lnf_gamma")));
+  lines.push_back(tensor_metadata_row("lnf_beta", tensors.param_lnf_beta(),
+                                      infer_purpose("lnf_beta")));
+  lines.push_back(tensor_metadata_row("lm_head_w", tensors.param_lm_head_w(),
+                                      infer_purpose("lm_head_w")));
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
+
+  const int64_t T = static_cast<int64_t>(std::max<uint64_t>(
+      static_cast<uint64_t>(cfg.training.batch_size) *
+          static_cast<uint64_t>(cfg.training.window_training),
+      cfg.model.window_capacity));
+  const int64_t S = static_cast<int64_t>(cfg.model.window_capacity);
+
+  lines.push_back("");
+  lines.push_back("[TensorFactory Temporaries] enabled by `reporting.verbose_init`");
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
+  lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
+  lines.push_back(tensor_metadata_row("ds.ids", tensors.temp_ds_ids(T), infer_temp_purpose("ds.ids")));
+  lines.push_back(tensor_metadata_row("ds.targets", tensors.temp_ds_targets(T), infer_temp_purpose("ds.targets")));
+  lines.push_back(tensor_metadata_row("infer.ids", tensors.temp_infer_ids(S), infer_temp_purpose("infer.ids")));
+  lines.push_back(tensor_metadata_row("infer.logits", tensors.temp_infer_logits(S), infer_temp_purpose("infer.logits")));
+  lines.push_back(tensor_metadata_row("tr.logits", tensors.temp_tr_logits(T), infer_temp_purpose("tr.logits")));
+  lines.push_back(tensor_metadata_row("tr.loss", tensors.temp_tr_loss(), infer_temp_purpose("tr.loss")));
+  lines.push_back(tensor_metadata_row("tr.X", tensors.temp_tr_X(T), infer_temp_purpose("tr.X")));
+  lines.push_back(tensor_metadata_row("tr.Y", tensors.temp_tr_Y(T), infer_temp_purpose("tr.Y")));
+  lines.push_back(tensor_metadata_row("tr.Xn", tensors.temp_tr_Xn(T), infer_temp_purpose("tr.Xn")));
+  lines.push_back(tensor_metadata_row("bw.XnT", tensors.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
+  lines.push_back(tensor_metadata_row("bw.d_lm_w", tensors.temp_bw_d_lm_w(T), infer_temp_purpose("bw.d_lm_w")));
+  lines.push_back(tensor_metadata_row("bw.lm_wT", tensors.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
+  lines.push_back(tensor_metadata_row("bw.d_xn", tensors.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
+  lines.push_back(tensor_metadata_row("bw.d_xlast", tensors.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
+  lines.push_back(tensor_metadata_row("bw.d_lnf_g", tensors.temp_bw_d_lnf_g(), infer_temp_purpose("bw.d_lnf_g")));
+  lines.push_back(tensor_metadata_row("bw.d_lnf_b", tensors.temp_bw_d_lnf_b(), infer_temp_purpose("bw.d_lnf_b")));
+  lines.push_back(tensor_metadata_row("bw.d_tok", tensors.temp_bw_d_tok(), infer_temp_purpose("bw.d_tok")));
+  lines.push_back(tensor_metadata_row("bw.d_pos", tensors.temp_bw_d_pos(), infer_temp_purpose("bw.d_pos")));
+
+  for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
+    const int li = static_cast<int>(l);
+    const std::string p = "layer" + std::to_string(l) + ".";
+    lines.push_back(tensor_metadata_row(p + "ln1", tensors.temp_layer_ln1(li, T), infer_temp_purpose(p + "ln1")));
+    lines.push_back(tensor_metadata_row(p + "attn_out", tensors.temp_layer_attn_out(li, T), infer_temp_purpose(p + "attn_out")));
+    lines.push_back(tensor_metadata_row(p + "resid1", tensors.temp_layer_resid1(li, T), infer_temp_purpose(p + "resid1")));
+    lines.push_back(tensor_metadata_row(p + "ln2", tensors.temp_layer_ln2(li, T), infer_temp_purpose(p + "ln2")));
+    lines.push_back(tensor_metadata_row(p + "ffn_out", tensors.temp_layer_ffn_out(li, T), infer_temp_purpose(p + "ffn_out")));
+    lines.push_back(tensor_metadata_row(p + "bw.d_prev", tensors.temp_layer_bw_d_prev(li, T), infer_temp_purpose(p + "bw.d_prev")));
+    lines.push_back(tensor_metadata_row(p + "dln2", tensors.temp_layer_dln2(li, T), infer_temp_purpose(p + "dln2")));
+    lines.push_back(tensor_metadata_row(p + "dy_ln2", tensors.temp_layer_dy_ln2(li, T), infer_temp_purpose(p + "dy_ln2")));
+    lines.push_back(tensor_metadata_row(p + "dln2_gamma", tensors.temp_layer_dln2_gamma(li), infer_temp_purpose(p + "dln2_gamma")));
+    lines.push_back(tensor_metadata_row(p + "dln2_beta", tensors.temp_layer_dln2_beta(li), infer_temp_purpose(p + "dln2_beta")));
+    lines.push_back(tensor_metadata_row(p + "dy_total", tensors.temp_layer_dy_total(li, T), infer_temp_purpose(p + "dy_total")));
+    lines.push_back(tensor_metadata_row(p + "dln1", tensors.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
+    lines.push_back(tensor_metadata_row(p + "dx_ln1", tensors.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
+    lines.push_back(tensor_metadata_row(p + "dln1_gamma", tensors.temp_layer_dln1_gamma(li), infer_temp_purpose(p + "dln1_gamma")));
+    lines.push_back(tensor_metadata_row(p + "dln1_beta", tensors.temp_layer_dln1_beta(li), infer_temp_purpose(p + "dln1_beta")));
+
+    lines.push_back(tensor_metadata_row(p + "attn.qkv", tensors.temp_attn_qkv(li, T), infer_temp_purpose("attn.qkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.context", tensors.temp_attn_context(li, T), infer_temp_purpose("attn.context")));
+    lines.push_back(tensor_metadata_row(p + "attn.scores", tensors.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
+    lines.push_back(tensor_metadata_row(p + "attn.weights", tensors.temp_attn_weights(li, T), infer_temp_purpose("attn.weights")));
+    lines.push_back(tensor_metadata_row(p + "attn.head", tensors.temp_attn_head(li, T), infer_temp_purpose("attn.head")));
+    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensors.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dWo", tensors.temp_attn_dWo(li), infer_temp_purpose("attn.dWo")));
+    lines.push_back(tensor_metadata_row(p + "attn.dbo", tensors.temp_attn_dbo(li), infer_temp_purpose("attn.dbo")));
+    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensors.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensors.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
+    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensors.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensors.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensors.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensors.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
+    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensors.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensors.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensors.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
+    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensors.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
+    lines.push_back(tensor_metadata_row(p + "attn.xT", tensors.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dWqkv", tensors.temp_attn_dWqkv(li), infer_temp_purpose("attn.dWqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.dbqkv", tensors.temp_attn_dbqkv(li), infer_temp_purpose("attn.dbqkv")));
+
+    lines.push_back(tensor_metadata_row(p + "ffn.h", tensors.temp_ffn_h(li, T), infer_temp_purpose("ffn.h")));
+    lines.push_back(tensor_metadata_row(p + "ffn.a", tensors.temp_ffn_a(li, T), infer_temp_purpose("ffn.a")));
+    lines.push_back(tensor_metadata_row(p + "ffn.aT", tensors.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dW2", tensors.temp_ffn_dW2(li), infer_temp_purpose("ffn.dW2")));
+    lines.push_back(tensor_metadata_row(p + "ffn.db2", tensors.temp_ffn_db2(li), infer_temp_purpose("ffn.db2")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensors.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
+    lines.push_back(tensor_metadata_row(p + "ffn.da", tensors.temp_ffn_da(li, T), infer_temp_purpose("ffn.da")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dh", tensors.temp_ffn_dh(li, T), infer_temp_purpose("ffn.dh")));
+    lines.push_back(tensor_metadata_row(p + "ffn.xT", tensors.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dW1", tensors.temp_ffn_dW1(li), infer_temp_purpose("ffn.dW1")));
+    lines.push_back(tensor_metadata_row(p + "ffn.db1", tensors.temp_ffn_db1(li), infer_temp_purpose("ffn.db1")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensors.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
+  }
+  lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 
   for (const auto &line : lines) {
     report(ReportEvent::PROGRESS, line);

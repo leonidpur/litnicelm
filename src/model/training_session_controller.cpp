@@ -6,6 +6,7 @@
 #include <fstream>
 #include <chrono>
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -21,8 +22,9 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      const Command &cmd)
     : cfg_(cfg), cmd_(cmd) {}
 
-void TrainingSessionController::training_loop_start(
-    TrainingState &state, ReportSink *sink, const ArenaView &data_arena,
+bool TrainingSessionController::training_loop_start(
+    TrainingState &state, TensorFactory &tensors, ReportSink *sink,
+    const ArenaView &data_arena,
     const AdamStateView &adam_state) {
   const bool estimate = is_estimation_mode();
   std::ostringstream oss;
@@ -35,7 +37,17 @@ void TrainingSessionController::training_loop_start(
   report_if(sink, ReportEvent::START, static_cast<uint32_t>(state.global_step),
             0.0f, oss.str());
 
-  maybe_resume(state, data_arena, adam_state);
+  const bool resumed = maybe_resume(state, data_arena, adam_state);
+  if (!resumed) {
+    tensors.initialize_parameters_deterministic();
+    state.global_step = 0;
+    state.epoch = 0;
+    if (adam_state.base != nullptr && adam_state.bytes > 0) {
+      std::memset(adam_state.base, 0, static_cast<size_t>(adam_state.bytes));
+    }
+    std::cout << "[Trainer] Fresh initialization completed for parameters and optimizer state.\n";
+  }
+  return resumed;
 }
 
 bool TrainingSessionController::is_estimation_mode() const {
@@ -125,20 +137,13 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
   std::cout << "[Trainer] Resuming from " << cfg_.paths.model_file << "...\n";
 
   try {
-    std::ifstream in(cfg_.paths.model_file, std::ios::binary);
-    if (!in) {
-      throw std::runtime_error("Failed to open checkpoint file");
+    std::string error_detail;
+    if (!load_checkpoint(cfg_.paths.model_file, cfg_.model, cfg_.conf_version,
+                         cfg_.memory.alignment_bytes, data_arena, adam_state,
+                         state.global_step, &error_detail)) {
+      throw std::runtime_error("Failed to load checkpoint: " +
+                               cfg_.paths.model_file + " | " + error_detail);
     }
-
-    in.read(reinterpret_cast<char *>(&state.global_step), sizeof(state.global_step));
-    in.read(reinterpret_cast<char *>(&state.epoch), sizeof(state.epoch));
-    in.read(reinterpret_cast<char *>(data_arena.base), data_arena.bytes);
-    in.read(reinterpret_cast<char *>(adam_state.base), adam_state.bytes);
-
-    if (in.gcount() == 0 && data_arena.bytes > 0) {
-      throw std::runtime_error("Checkpoint file is truncated or empty");
-    }
-
     std::cout << "  -> Success. Resumed at Epoch " << state.epoch
               << ", Global Step " << state.global_step << "\n";
     return true;
