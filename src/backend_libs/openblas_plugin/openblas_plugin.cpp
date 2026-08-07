@@ -472,7 +472,7 @@ public:
   }
 
 private:
-  CpuBackend cpu_backend_;
+  DefaultCpuBackend cpu_backend_;
 };
 
 OpenBlasPluginBackend &to_openblas_backend(void *backend) {

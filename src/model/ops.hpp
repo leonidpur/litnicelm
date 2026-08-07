@@ -5,7 +5,7 @@
 
 class Ops {
 public:
-  explicit Ops(Device device, DeviceBackend &device_backend);
+  explicit Ops(DeviceBackend &device_backend);
 
   void copy(const TensorView &src, TensorView &dst) const;
   void fill(TensorView &t, float v) const;
@@ -56,6 +56,5 @@ public:
   DeviceBackend &backend() const { return device_backend_; }
 
 private:
-  Device device_ = Device::CPU;
   DeviceBackend &device_backend_;
 };

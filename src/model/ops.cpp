@@ -41,10 +41,7 @@ bool same_ranked_prefix(const TensorView &a, const TensorView &b,
 
 } // namespace
 
-Ops::Ops(Device device, DeviceBackend &device_backend)
-    : device_(device), device_backend_(device_backend) {
-  //require_ops(device_ == Device::CPU, "GPU backend not implemented");
-}
+Ops::Ops(DeviceBackend &device_backend) : device_backend_(device_backend) {}
 
 void Ops::copy(const TensorView &src, TensorView &dst) const {
   require_ops(same_shape(src, dst), "copy shape mismatch");

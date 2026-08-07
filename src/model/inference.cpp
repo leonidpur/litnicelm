@@ -57,9 +57,9 @@ struct InferRuntime {
 
   InferRuntime(const Config &base_cfg, ReportSink *sink_in)
       : cfg(base_cfg),
-        backend(make_device_backend(cfg)),
+        backend(DeviceBackend::create_instance(cfg)),
         tokenizer(TokenizerFactory::create(cfg, sink_in)),
-        ops(backend->device(), *backend),
+        ops(*backend),
         sink(sink_in) {
     cfg.model.target_vocab_size =
         static_cast<uint32_t>(tokenizer->vocab_size());

@@ -33,7 +33,7 @@ TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
 } // namespace
 
 Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
-                 OptimizerAdamW &opt, Transformer &model,
+                 OptimizerAdamW &opt, Transformer &transformer,
                  const ArenaView &data_arena, const ArenaView &grad_arena,
                  GradientFactory &gradient_factory, uint64_t decay_bytes,
                  const AdamStateView &adam_state,
@@ -44,7 +44,7 @@ Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
       tensorFactory_(tensor_factory),
       ops_(ops),
       opt_(opt),
-      model_(model),
+      transformer_(transformer),
       data_arena_(data_arena),
       grad_arena_(grad_arena),
       gradientFactory_(gradient_factory),
@@ -54,7 +54,7 @@ Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
       sink_(sink),
       device_backend_(device_backend),
       session_controller_(session_controller),
-      diagnostics_(tensor_factory, ops, model, gradient_factory,
+      diagnostics_(tensor_factory, ops, transformer_, gradient_factory,
                    device_backend, runtime_flags_, cfg) {
   if (decay_bytes_ > data_arena_.bytes || decay_bytes_ > grad_arena_.bytes ||
       decay_bytes_ > (adam_state_.bytes / 2)) {
@@ -66,8 +66,8 @@ Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
           : runtime_flags_.epoch_report_every;
   runtime_flags_.epoch_report_every =
       std::max<uint32_t>(1, runtime_flags_.epoch_report_every);
-  model_.set_observer(&session_controller_);
-  model_.set_diagnostics(&diagnostics_);
+  transformer_.set_observer(&session_controller_);
+  transformer_.set_diagnostics(&diagnostics_);
 }
 
 void Trainer::zero_gradients() {
@@ -141,7 +141,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
       static_cast<uint32_t>(seq_len),
       static_cast<uint32_t>(token_rows),
       static_cast<uint32_t>(vocab_size));
-  model_.forward(batch.ids, logits);
+  transformer_.forward(batch.ids, logits);
   diagnostics_.after_forward(logits);
   TensorView loss_scalar = tensorFactory_.temp_tr_loss();
   double loss = 0.0;
@@ -163,7 +163,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
   }
 
   zero_gradients();
-  model_.backward(batch.ids, logits, runtime_flags_.probe);
+  transformer_.backward(batch.ids, logits, runtime_flags_.probe);
   const uint64_t step = state.global_step + 1;
   try {
     clip_gradients();
@@ -224,52 +224,55 @@ void Trainer::train(IDataLoader &loader) {
   session_controller_.on_training_end(state, sink_);
 }
 
+void Trainer::import_vocab_size(Config &cfg, const Tokenizer &tokenizer) {
+  cfg.model.target_vocab_size = static_cast<uint32_t>(tokenizer.vocab_size());
+  std::cout << "[Trainer] vocab_size " << cfg.model.target_vocab_size
+            << " imported from tokenizer\n";
+}
+
 int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
+  //////////////////////////////
+  // Validate training context and runtime initialization
+  //////////////////////////////
   Config runtime_cfg = cfg;
   TrainerValidationUtils::validate_training_context(runtime_cfg);
   std::cout << "[Trainer] Training context validated.\n";
   auto tokenizer = TokenizerFactory::create(runtime_cfg, nullptr);
-  runtime_cfg.model.target_vocab_size = static_cast<uint32_t>(tokenizer->vocab_size());
+  Trainer::import_vocab_size(runtime_cfg, *tokenizer);
   TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
   TrainingReportSink training_sink(runtime_cfg.logging);
   TrainingSessionController session_controller(runtime_cfg, cmd, training_sink);
 
   session_controller.runtime_cfg_ready(runtime_cfg);
 
-  const std::string selected_input_path = runtime_cfg.tokenization.output_binary;
-  std::cout << "[Trainer] Dataset file to load: " << selected_input_path << "\n";
-  if (selected_input_path.empty()) {
-    throw std::runtime_error("run_train_mode: tokenization.output_binary is required");
-  }
+  TextDataset::early_evaluate_input(runtime_cfg);
 
   std::cout << "[Trainer] Training runtime initialization done.\n";
   //////////////////////////
   // Asset construction
   //////////////////////////
-  std::unique_ptr<DeviceBackend> backend = make_device_backend(runtime_cfg);
+  std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(runtime_cfg);
   TrainingMemoryManager memory_manager(runtime_cfg, *backend, session_controller);
-  Ops ops(backend->device(), *backend);
+  Ops ops(*backend);
   OptimizerAdamW opt(*backend);
-  Transformer model(runtime_cfg, memory_manager.tensor_factory(),
+  Transformer transformer(runtime_cfg, memory_manager.tensor_factory(),
                     &memory_manager.gradient_factory(), ops, &training_sink);
 
-  TextDataset loader(memory_manager.tensor_factory(), *backend, selected_input_path,
-                     backend->device(),
-                     runtime_cfg.training.train_seq_len,
-                     runtime_cfg.training.window_stride,
-                     runtime_cfg.training.batch_size,
+  TextDataset loader(memory_manager.tensor_factory(), *backend, runtime_cfg,
                      /*shuffle_blocks=*/true, &training_sink, &session_controller);
   TrainerValidationUtils::print_dataset_stats(runtime_cfg, loader);
+  
   std::cout << "\n[Trainer] Engine, memory arenas, tensor factory, model, optimizer, and dataset are initialized.\n\n";
 
-  Trainer trainer(runtime_cfg, memory_manager.tensor_factory(), ops, opt, model,
+  Trainer trainer(runtime_cfg, memory_manager.tensor_factory(), ops, opt, transformer,
                   memory_manager.data_arena(),
                   memory_manager.grad_arena(),
                   memory_manager.gradient_factory(),
                   memory_manager.param_layout().decay_bytes(),
                   memory_manager.adam_state(), *backend, session_controller,
                   cmd.runtime_flags, &training_sink);
+  
+  // Do it! Train the model using the dataset loader
   trainer.train(loader);
-
   return 0;
 }

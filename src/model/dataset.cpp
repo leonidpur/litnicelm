@@ -1,12 +1,14 @@
 #include "dataset.hpp"
 #include "backend/device_backend.hpp"
 #include "training_report_sink.hpp"
+#include <config.hpp>
 #include <utils/assert.hpp>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <cerrno>
+#include <iostream>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -162,22 +164,35 @@ DatasetHeader TextDataset::read_header_or_throw(const std::string &path) {
   return header;
 }
 
+std::string TextDataset::early_evaluate_input(const Config &cfg, bool report) {
+  const std::string selected_input_path = cfg.tokenization.output_binary;
+  if (report) {
+    std::cout << "[TextDataset] Dataset file to load: "
+              << selected_input_path << "\n";
+  }
+  if (selected_input_path.empty()) {
+    throw std::runtime_error(
+        "TextDataset: tokenization.output_binary is required");
+  }
+  return selected_input_path;
+}
+
 TextDataset::TextDataset(TensorFactory &tensor_factory,
                          DeviceBackend &device_backend,
-                         const std::string &dataset_path, Device device,
-                         uint32_t seq_len, uint32_t window_stride,
-                         uint32_t batch_size,
+                         const Config &cfg,
                          bool shuffle_blocks, TrainingReportSink *report_sink,
                          ITrainingObserver *load_observer)
     : IDataLoader(load_observer),
       tensorFactory_(tensor_factory),
       device_backend_(&device_backend),
-      device_(device),
-      seq_len_(seq_len),
-      window_stride_(window_stride),
-      batch_size_(batch_size),
+      device_(device_backend.device()),
+      seq_len_(cfg.training.train_seq_len),
+      window_stride_(cfg.training.window_stride),
+      batch_size_(cfg.training.batch_size),
       shuffle_blocks_(shuffle_blocks),
       report_sink_(report_sink) {
+  const std::string dataset_path = early_evaluate_input(cfg, false);
+
   if (device_ == Device::CPU) {
     backend_ = std::make_unique<DatasetCPU>();
   } else {
