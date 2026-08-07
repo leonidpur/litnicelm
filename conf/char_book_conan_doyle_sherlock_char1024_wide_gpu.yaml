@@ -1,0 +1,129 @@
+conf:
+  version: "1"
+
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
+backend:
+  library: "./build/liblitnice_backend_cublas_plugin.so"
+
+tokenizer:
+  type: "only_seen_chars"
+  target_vocab_size: 128
+  training_corpus: "/mnt/ext_ssd/litnicegpt/data/c.doyle"
+  inter_file_boundary: "\n<|book_boundary|>\n"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-wide-gpu"
+  bpe_vocab_file: ""
+  bpe_merges_file: ""
+  bpe_validation_num_threads: 1
+  bpe_validation_sample_rate: 50
+  run_validation: true
+
+tokenization:
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/c.doyle"
+  output_binary: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-wide-gpu_tokenized_dataset.bin"
+  chunk_size_mb: 64
+
+memory:
+  alignment_bytes: 64
+
+model:
+  max_seq_len: 1024
+  n_layers: 6
+  n_heads: 8
+  d_model: 512
+  d_ff: 2048
+
+training:
+  learning_rate: 0.00003
+  beta1: 0.9
+  beta2: 0.95
+  eps: 0.00000001
+  weight_decay: 0.0
+  incremental: false
+  dry_run: false
+  num_epochs_train: 260
+  num_epochs_dry_run: 1
+  save_interval_epochs: 2
+  grad_clip: 0.10
+  train_seq_len: 1024
+  window_stride: 256
+  batch_size: 1
+  target_loss: 0.35
+  min_delta: 0.001
+  patience_epochs: 45
+  min_epochs: 60
+  stop_on_nonfinite_loss: true
+  diagnostics:
+    fw_after_forward_logits: false
+    fw_after_loss_scalar: false
+    fw_after_logits_targets_backward: false
+    fw_after_cross_entropy_backward: false
+    on_nonfinite_grad_norm_original_dlogits: false
+    on_nonfinite_grad_norm_replay: false
+    bk_transformer_dlogits: false
+    bk_transformer_d_lm_w: false
+    bk_transformer_d_xn: false
+    bk_transformer_d_xlast: false
+    bk_transformer_d_lnf_g: false
+    bk_transformer_d_lnf_b: false
+    bk_transformer_layer_d_prev: false
+    bk_transformer_d_cur_before_embeddings: false
+    bk_transformer_d_tok: false
+    bk_transformer_d_pos: false
+    bk_layer_dln2_after_ffn: false
+    bk_layer_dy_ln2: false
+    bk_layer_dln2_gamma: false
+    bk_layer_dln2_beta: false
+    bk_layer_dy_total: false
+    bk_layer_dln1_after_attn: false
+    bk_layer_dx_ln1: false
+    bk_layer_dln1_gamma: false
+    bk_layer_dln1_beta: false
+    bk_layer_dx: false
+    bk_ffn_dW2: false
+    bk_ffn_db2: false
+    bk_ffn_da: false
+    bk_ffn_dh: false
+    bk_ffn_dW1: false
+    bk_ffn_db1: false
+    bk_ffn_dx: false
+    bk_attn_dWo: false
+    bk_attn_dbo: false
+    bk_attn_dcontext: false
+    bk_attn_dweights: false
+    bk_attn_dVh: false
+    bk_attn_dscores_softmax_backward: false
+    bk_attn_dscores_masked: false
+    bk_attn_dQh: false
+    bk_attn_dKh: false
+    bk_attn_dx: false
+    bk_attn_dWqkv: false
+    bk_attn_dbqkv: false
+
+paths:
+  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-wide-gpu_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-wide-gpu_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-wide-gpu_journal.txt"
+
+inference:
+  prompt: "Mr. Sherlock Holmes sat at the breakfast table."
+  max_new: 900
+  temp: 0.0
+  top_k: 0
+  top_p: 1.0
+  seed: 12345
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1000
+  epoch_report_every: 1
+
+reporting:
+  verbose_epoch_index: [0, 3]
+  verbose_init: false

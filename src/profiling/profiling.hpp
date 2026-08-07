@@ -17,6 +17,7 @@ enum class Stage : uint8_t {
   LAYER,
   SELF_ATTENTION,
   FFN,
+  OUTPUT_HEAD,
   LAYERNORM,
   MATMUL,
   SOFTMAX,

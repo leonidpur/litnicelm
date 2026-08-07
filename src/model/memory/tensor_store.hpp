@@ -6,14 +6,18 @@
 #include "tensor.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
-class TensorFactory {
+class TensorStore {
 public:
   enum class TempLayoutKind {
     Training,
     Inference,
   };
+
+  class TempTensorSubStore;
 
   struct LayerParamViews {
     TensorView ln1_gamma;
@@ -76,10 +80,11 @@ public:
     TensorView ffn_W1T;
   };
 
-  TensorFactory(const Config &cfg, const NamedLayout &param_layout,
+  TensorStore(const Config &cfg, const NamedLayout &param_layout,
                 void *params_base, uint64_t params_bytes, Device device,
                 const NamedLayout &temp_layout, void *temp_base,
                 uint64_t temp_bytes, TempLayoutKind temp_kind);
+  ~TensorStore();
 
   const TensorView &tok_embedding() const;
   const TensorView &pos_embedding() const;
@@ -235,53 +240,21 @@ private:
   const Config &cfg_;
   uint8_t *base_ = nullptr;
   uint64_t bytes_ = 0;
-  uint8_t *temp_base_ = nullptr;
-  uint64_t temp_bytes_ = 0;
   Device device_ = Device::CPU;
-  TempLayoutKind temp_kind_ = TempLayoutKind::Training;
   TensorView tok_embedding_;
   TensorView pos_embedding_;
   TensorView lnf_gamma_;
   TensorView lnf_beta_;
   TensorView lm_head_w_;
   std::vector<LayerParamViews> layer_param_views_;
-  TensorView ds_ids_;
-  TensorView ds_targets_;
-  TensorView infer_ids_;
-  TensorView infer_logits_;
-  TensorView tr_logits_;
-  TensorView tr_loss_;
-  TensorView tr_X_;
-  TensorView tr_Y_;
-  TensorView tr_Xn_;
-  TensorView bw_XnT_;
-  TensorView bw_lm_wT_;
-  TensorView bw_d_xn_;
-  TensorView bw_d_xlast_;
-  std::vector<LayerTempViews> layer_temp_views_;
+  std::unique_ptr<TempTensorSubStore> temp_tensor_substore_;
 
   void check_layer(int layer) const;
   void build_param_views(const NamedLayout &param_layout);
-  void build_training_temp_views(const NamedLayout &temp_layout);
-  void build_inference_temp_views(const NamedLayout &temp_layout);
 
   TensorView make_view_f32(const LayoutSlice &s, Shape shape) const;
   TensorView make_subview_f32(const TensorView &view, int64_t col_offset,
                               Shape sub_shape) const;
-  TensorView make_temp_view(const LayoutSlice &s, Shape shape) const;
-  TensorView prefix_storage(const TensorView &view, Shape shape) const;
-  TensorView prefix_batch_seq(const TensorView &view, int64_t batch_size,
-                              int64_t seq_len, const char *label,
-                              int64_t expected_last_dim = -1) const;
-  TensorView prefix_batch_seq_square(const TensorView &view,
-                                     int64_t batch_size, int64_t seq_len,
-                                     const char *label) const;
-  TensorView prefix_head_batch_seq_square(const TensorView &view,
-                                          int64_t batch_size,
-                                          int64_t seq_len,
-                                          const char *label) const;
-  int64_t temp_batch_tokens() const;
 
   std::string lname(int layer, const char *suffix) const;
-  std::string infer_lname(int layer, const char *suffix) const;
 };

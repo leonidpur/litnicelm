@@ -11,7 +11,7 @@
 struct Config;
 struct LoggingConfig;
 class NamedLayout;
-class TensorFactory;
+class TensorStore;
 
 struct TrainingFetchReportData {
   uint64_t start_index = 0;
@@ -43,8 +43,8 @@ public:
                             uint64_t adam_size, void *temp_base,
                             uint64_t temp_size);
   void report_memory_usage(const TrainingMemoryUsage &usage);
-  void report_tensor_factory_topology(const Config &cfg,
-                                      const TensorFactory &tensor_factory);
+  void report_tensor_store_topology(const Config &cfg,
+                                      const TensorStore &tensor_store);
 
   void report(ReportEvent event, const std::string &message) override;
   void report_probe_tensor(const std::string &group, const std::string &name,

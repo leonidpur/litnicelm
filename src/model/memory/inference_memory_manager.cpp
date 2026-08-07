@@ -26,10 +26,10 @@ InferenceMemoryManager::InferenceMemoryManager(const Config &cfg,
   adam_view_ = AdamStateView{adam_arena_->ptr(), adam_arena_->size_bytes(),
                              device};
 
-  tensor_factory_ = std::make_unique<TensorFactory>(
+  tensor_store_ = std::make_unique<TensorStore>(
       cfg_, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
       temp_layout_, temp_arena_->ptr(), temp_arena_->size_bytes(),
-      TensorFactory::TempLayoutKind::Inference);
+      TensorStore::TempLayoutKind::Inference);
 }
 
 const NamedLayout &InferenceMemoryManager::param_layout() const {
@@ -52,9 +52,9 @@ uint64_t InferenceMemoryManager::temp_bytes() const {
   return temp_arena_->size_bytes();
 }
 
-TensorFactory &InferenceMemoryManager::tensor_factory() const {
-  if (tensor_factory_ == nullptr) {
-    throw std::runtime_error("InferenceMemoryManager: tensor_factory is null");
+TensorStore &InferenceMemoryManager::tensor_store() const {
+  if (tensor_store_ == nullptr) {
+    throw std::runtime_error("InferenceMemoryManager: tensor_store is null");
   }
-  return *tensor_factory_;
+  return *tensor_store_;
 }

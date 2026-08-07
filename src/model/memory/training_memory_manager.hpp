@@ -1,12 +1,12 @@
 #pragma once
 
-#include "adam_state_factory.hpp"
+#include "adam_state_store.hpp"
 #include "arena.hpp"
 #include "checkpoint.hpp"
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
 #include "memory_resource_info.hpp"
 #include "named_layout.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <config.hpp>
 
@@ -32,9 +32,9 @@ public:
   void *temp_base() const;
   uint64_t temp_bytes() const;
 
-  TensorFactory &tensor_factory() const;
-  GradientFactory &gradient_factory() const;
-  AdamStateFactory &adam_state_factory() const;
+  TensorStore &tensor_store() const;
+  GradientStore &gradient_store() const;
+  AdamStateStore &adam_state_store() const;
 
 private:
   const Config &cfg_;
@@ -49,7 +49,7 @@ private:
   ArenaView grad_view_{};
   AdamStateView adam_view_{};
   TrainingMemoryUsage memory_usage_{};
-  std::unique_ptr<TensorFactory> tensor_factory_;
-  std::unique_ptr<GradientFactory> gradient_factory_;
-  std::unique_ptr<AdamStateFactory> adam_state_factory_;
+  std::unique_ptr<TensorStore> tensor_store_;
+  std::unique_ptr<GradientStore> gradient_store_;
+  std::unique_ptr<AdamStateStore> adam_state_store_;
 };

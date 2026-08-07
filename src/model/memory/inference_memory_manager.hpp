@@ -3,7 +3,7 @@
 #include "arena.hpp"
 #include "checkpoint.hpp"
 #include "named_layout.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <config.hpp>
 
@@ -25,7 +25,7 @@ public:
   void *temp_base() const;
   uint64_t temp_bytes() const;
 
-  TensorFactory &tensor_factory() const;
+  TensorStore &tensor_store() const;
 
 private:
   const Config &cfg_;
@@ -37,5 +37,5 @@ private:
   std::unique_ptr<Arena> temp_arena_;
   ArenaView data_view_{};
   AdamStateView adam_view_{};
-  std::unique_ptr<TensorFactory> tensor_factory_;
+  std::unique_ptr<TensorStore> tensor_store_;
 };

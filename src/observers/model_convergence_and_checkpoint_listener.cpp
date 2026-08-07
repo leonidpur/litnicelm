@@ -1,6 +1,6 @@
 #include "model_convergence_and_checkpoint_listener.hpp"
 
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <report_interface.hpp>
 
@@ -47,7 +47,7 @@ void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
 } // namespace
 
 void ModelConvergenceAndCheckpointListener::on_training_start(
-    TrainingState &state, TensorFactory &tensor_factory,
+    TrainingState &state, TensorStore &tensor_store,
     uint64_t steps_per_epoch, DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena,
     const AdamStateView &adam_state) {
@@ -70,7 +70,7 @@ void ModelConvergenceAndCheckpointListener::on_training_start(
                                     adam_state, steps_per_epoch,
                                     *observer_relay_);
   if (!resumed) {
-    tensor_factory.initialize_parameters_deterministic(device_backend);
+    tensor_store.initialize_parameters_deterministic(device_backend);
     state.global_step = 0;
     state.epoch = 0;
     zero_buffer(device_backend, adam_state.base, adam_state.bytes);

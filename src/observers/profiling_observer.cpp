@@ -3,14 +3,14 @@
 #include <iostream>
 
 void ProfilingObserver::on_training_start(TrainingState &state,
-                                          TensorFactory &tensor_factory,
+                                          TensorStore &tensor_store,
                                           uint64_t steps_per_epoch,
                                           DeviceBackend &device_backend,
                                           ReportSink *sink,
                                           const ArenaView &data_arena,
                                           const AdamStateView &adam_state) {
   (void)state;
-  (void)tensor_factory;
+  (void)tensor_store;
   (void)steps_per_epoch;
   (void)device_backend;
   (void)sink;
@@ -93,6 +93,12 @@ void ProfilingObserver::on_ffn_end(int layer_idx) {
   (void)layer_idx;
   profiling_.leave();
 }
+
+void ProfilingObserver::on_output_head_start() {
+  profiling_.enter(Stage::OUTPUT_HEAD);
+}
+
+void ProfilingObserver::on_output_head_end() { profiling_.leave(); }
 
 void ProfilingObserver::on_checkpoint_load_start() {
   profiling_.enter(Stage::CHECKPOINT_LOAD);

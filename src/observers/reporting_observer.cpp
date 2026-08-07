@@ -30,9 +30,9 @@ void ReportingObserver::memory_usage_ready(const TrainingMemoryUsage &usage) {
   sink_.report_memory_usage(usage);
 }
 
-void ReportingObserver::tensor_factory_topology_ready(
-    const Config &cfg, const TensorFactory &tensor_factory) {
-  sink_.report_tensor_factory_topology(cfg, tensor_factory);
+void ReportingObserver::tensor_store_topology_ready(
+    const Config &cfg, const TensorStore &tensor_store) {
+  sink_.report_tensor_store_topology(cfg, tensor_store);
 }
 
 void ReportingObserver::batch_step_ready(uint32_t batch_size,

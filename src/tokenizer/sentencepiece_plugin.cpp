@@ -72,7 +72,10 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
                            " --model_prefix=" + model_prefix +
                            " --vocab_size=" +
                            std::to_string(target_vocab_size) +
-                           " --model_type=bpe --character_coverage=1.0";
+                           " --model_type=bpe --character_coverage=1.0"
+                           " --normalization_rule_name=identity"
+                           " --remove_extra_whitespaces=false"
+                           " --byte_fallback=true";
   const auto status = sentencepiece::SentencePieceTrainer::Train(args);
   if (!status.ok()) {
     const std::string message =

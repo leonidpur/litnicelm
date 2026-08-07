@@ -17,6 +17,7 @@ set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 # Group your other sources
 file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/*.cpp
+    src/model/algo/*.cpp
     src/model/memory/*.cpp
     src/model/backend/*.cpp
     src/observers/*.cpp
@@ -43,6 +44,7 @@ add_library(litnice_core STATIC
 target_include_directories(litnice_core PRIVATE 
     include 
     src/model 
+    src/model/algo
     src/model/memory
     src/observers
     src/profiling
@@ -64,6 +66,7 @@ add_library(litnice_backend_cpu SHARED
 target_include_directories(litnice_backend_cpu PRIVATE
     include
     src/model
+    src/model/algo
     src/model/memory
     src/config
     src/utils
@@ -83,6 +86,7 @@ target_include_directories(litnicegpt PRIVATE
     src/config
     src/utils
     src/model
+    src/model/algo
     src/model/memory
     src/observers
     src/profiling

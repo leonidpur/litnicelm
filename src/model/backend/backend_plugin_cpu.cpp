@@ -115,6 +115,22 @@ void plugin_add_bias_rowwise(void *backend, const BackendTensorView *x,
                                            to_tensor_view(*bias_1xC), out_view);
 }
 
+void plugin_add_bias_relu_rowwise(void *backend, const BackendTensorView *x,
+                                  const BackendTensorView *bias_1xC,
+                                  const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).add_bias_relu_rowwise(
+      to_tensor_view(*x), to_tensor_view(*bias_1xC), out_view);
+}
+
+void plugin_add_bias_relu_rowwise_inplace(void *backend,
+                                          const BackendTensorView *x,
+                                          const BackendTensorView *bias_1xC) {
+  TensorView x_view = to_tensor_view(*x);
+  to_cpu_backend(backend).add_bias_relu_rowwise_inplace(
+      x_view, to_tensor_view(*bias_1xC));
+}
+
 void plugin_mul_scalar(void *backend, const BackendTensorView *x, float s,
                        const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
@@ -137,6 +153,14 @@ void plugin_relu_backward(void *backend, const BackendTensorView *preact,
   TensorView dx_view = to_tensor_view(*dx);
   to_cpu_backend(backend).relu_backward(to_tensor_view(*preact),
                                         to_tensor_view(*dout), dx_view);
+}
+
+void plugin_relu_backward_inplace(void *backend,
+                                  const BackendTensorView *preact,
+                                  const BackendTensorView *dout_dx) {
+  TensorView dout_dx_view = to_tensor_view(*dout_dx);
+  to_cpu_backend(backend).relu_backward_inplace(to_tensor_view(*preact),
+                                                dout_dx_view);
 }
 
 void plugin_row_sum(void *backend, const BackendTensorView *x,
@@ -262,6 +286,24 @@ void plugin_softmax_backward_rows(void *backend,
                                                 dx_view);
 }
 
+void plugin_scaled_causal_softmax_rows(void *backend,
+                                       const BackendTensorView *scores,
+                                       float scale,
+                                       const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).scaled_causal_softmax_rows(
+      to_tensor_view(*scores), scale, out_view);
+}
+
+void plugin_softmax_backward_causal_rows(void *backend,
+                                         const BackendTensorView *softmax,
+                                         const BackendTensorView *dout,
+                                         const BackendTensorView *dx) {
+  TensorView dx_view = to_tensor_view(*dx);
+  to_cpu_backend(backend).softmax_backward_causal_rows(
+      to_tensor_view(*softmax), to_tensor_view(*dout), dx_view);
+}
+
 void plugin_apply_causal_mask_inplace(void *backend,
                                       const BackendTensorView *scores,
                                       float neg_inf) {
@@ -312,10 +354,13 @@ const BackendApiV1 kBackendApi = {
     &plugin_add,
     &plugin_add_inplace,
     &plugin_add_bias_rowwise,
+    &plugin_add_bias_relu_rowwise,
+    &plugin_add_bias_relu_rowwise_inplace,
     &plugin_mul_scalar,
     &plugin_sum_squares_f32,
     &plugin_relu,
     &plugin_relu_backward,
+    &plugin_relu_backward_inplace,
     &plugin_row_sum,
     &plugin_matmul,
     &plugin_matmul_left_transposed,
@@ -331,6 +376,8 @@ const BackendApiV1 kBackendApi = {
     &plugin_backward_from_logits_targets,
     &plugin_softmax_rows,
     &plugin_softmax_backward_rows,
+    &plugin_scaled_causal_softmax_rows,
+    &plugin_softmax_backward_causal_rows,
     &plugin_apply_causal_mask_inplace,
     &plugin_adamw_step,
     &plugin_is_file2device_read_supported,

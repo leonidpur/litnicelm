@@ -14,12 +14,19 @@ public:
   void add_inplace(TensorView &a, const TensorView &b) const;
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) const;
+  void add_bias_relu_rowwise(const TensorView &x,
+                             const TensorView &bias_1xC,
+                             TensorView &out) const;
+  void add_bias_relu_rowwise_inplace(TensorView &x,
+                                     const TensorView &bias_1xC) const;
 
   void mul_scalar(const TensorView &x, float s, TensorView &out) const;
   float sum_squares_f32(const TensorView &x) const;
   void relu(const TensorView &x, TensorView &out) const;
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) const;
+  void relu_backward_inplace(const TensorView &preact,
+                             TensorView &dout_dx) const;
   void row_sum(const TensorView &x, TensorView &out_1xC) const;
 
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) const;
@@ -52,6 +59,11 @@ public:
   void softmax_rows(const TensorView &x, TensorView &out) const;
   void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
                              TensorView &dx) const;
+  void scaled_causal_softmax_rows(const TensorView &scores, float scale,
+                                  TensorView &out) const;
+  void softmax_backward_causal_rows(const TensorView &softmax,
+                                    const TensorView &dout,
+                                    TensorView &dx) const;
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf = -1e9f) const;
   DeviceBackend &backend() const { return device_backend_; }
 

@@ -1,4 +1,4 @@
-#include "adam_state_factory.hpp"
+#include "adam_state_store.hpp"
 
 #include <utils/assert.hpp>
 
@@ -6,7 +6,7 @@
 
 #define require(cond, msg)                                                      \
   REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("AdamStateFactory: ") + std::string(msg);                \
+    return std::string("AdamStateStore: ") + std::string(msg);                \
   })
 
 namespace {
@@ -37,7 +37,7 @@ private:
 };
 } // namespace
 
-AdamStateFactory::AdamStateFactory(const Config &cfg,
+AdamStateStore::AdamStateStore(const Config &cfg,
                                    const NamedLayout &param_layout,
                                    void *params_base, uint64_t params_bytes,
                                    const AdamStateView &adam_state)
@@ -58,105 +58,105 @@ AdamStateFactory::AdamStateFactory(const Config &cfg,
   build_state_views(param_layout);
 }
 
-const AdamStateFactory::StatePair &
-AdamStateFactory::state_for_param(const TensorView &param) const {
+const AdamStateStore::StatePair &
+AdamStateStore::state_for_param(const TensorView &param) const {
   const auto it = state_by_param_data_.find(param.data());
   require(it != state_by_param_data_.end(),
           "missing optimizer state for parameter");
   return it->second;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_tok_embedding() const {
+const AdamStateStore::StatePair &AdamStateStore::param_tok_embedding() const {
   return tok_embedding_;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_pos_embedding() const {
+const AdamStateStore::StatePair &AdamStateStore::param_pos_embedding() const {
   return pos_embedding_;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_lnf_gamma() const {
+const AdamStateStore::StatePair &AdamStateStore::param_lnf_gamma() const {
   return lnf_gamma_;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_lnf_beta() const {
+const AdamStateStore::StatePair &AdamStateStore::param_lnf_beta() const {
   return lnf_beta_;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_lm_head_w() const {
+const AdamStateStore::StatePair &AdamStateStore::param_lm_head_w() const {
   return lm_head_w_;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ffn_w1(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ffn_w1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w1;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ffn_b1(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ffn_b1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b1;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ffn_w2(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ffn_w2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w2;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ffn_b2(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ffn_b2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b2;
 }
 
-const AdamStateFactory::StatePair &
-AdamStateFactory::param_attn_qkv_w(int layer) const {
+const AdamStateStore::StatePair &
+AdamStateStore::param_attn_qkv_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w;
 }
 
-const AdamStateFactory::StatePair &
-AdamStateFactory::param_attn_qkv_b(int layer) const {
+const AdamStateStore::StatePair &
+AdamStateStore::param_attn_qkv_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b;
 }
 
-const AdamStateFactory::StatePair &
-AdamStateFactory::param_attn_out_w(int layer) const {
+const AdamStateStore::StatePair &
+AdamStateStore::param_attn_out_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_w;
 }
 
-const AdamStateFactory::StatePair &
-AdamStateFactory::param_attn_out_b(int layer) const {
+const AdamStateStore::StatePair &
+AdamStateStore::param_attn_out_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_b;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ln1_gamma(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ln1_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_gamma;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ln1_beta(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ln1_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_beta;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ln2_gamma(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ln2_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_gamma;
 }
 
-const AdamStateFactory::StatePair &AdamStateFactory::param_ln2_beta(int layer) const {
+const AdamStateStore::StatePair &AdamStateStore::param_ln2_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_beta;
 }
 
-void AdamStateFactory::check_layer(int layer) const {
+void AdamStateStore::check_layer(int layer) const {
   require(layer >= 0, "layer < 0");
   require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
           "layer out of range");
 }
 
-void AdamStateFactory::build_state_views(const NamedLayout &param_layout) {
+void AdamStateStore::build_state_views(const NamedLayout &param_layout) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -279,12 +279,12 @@ void AdamStateFactory::build_state_views(const NamedLayout &param_layout) {
   cursor.finish();
 }
 
-void AdamStateFactory::register_state(const TensorView &param,
+void AdamStateStore::register_state(const TensorView &param,
                                       const StatePair &state) {
   state_by_param_data_.emplace(param.data(), state);
 }
 
-TensorView AdamStateFactory::make_param_view_f32(const LayoutSlice &s,
+TensorView AdamStateStore::make_param_view_f32(const LayoutSlice &s,
                                                  Shape shape) const {
   const uint64_t expected = nbytes(shape, DType::F32);
   require(expected == s.bytes,
@@ -301,7 +301,7 @@ TensorView AdamStateFactory::make_param_view_f32(const LayoutSlice &s,
   return TensorView(device_, DType::F32, ptr, shape);
 }
 
-TensorView AdamStateFactory::make_state_view_f32(const LayoutSlice &s, Shape shape,
+TensorView AdamStateStore::make_state_view_f32(const LayoutSlice &s, Shape shape,
                                                  uint64_t state_base_offset) const {
   const uint64_t expected = nbytes(shape, DType::F32);
   require(expected == s.bytes,
@@ -313,13 +313,13 @@ TensorView AdamStateFactory::make_state_view_f32(const LayoutSlice &s, Shape sha
   return TensorView(device_, DType::F32, ptr, shape);
 }
 
-AdamStateFactory::StatePair AdamStateFactory::make_state_pair_f32(
+AdamStateStore::StatePair AdamStateStore::make_state_pair_f32(
     const LayoutSlice &s, Shape shape, bool apply_weight_decay) const {
   return {make_state_view_f32(s, shape, 0),
           make_state_view_f32(s, shape, param_bytes_), apply_weight_decay};
 }
 
-std::string AdamStateFactory::lname(int layer, const char *suffix) const {
+std::string AdamStateStore::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
 }
 

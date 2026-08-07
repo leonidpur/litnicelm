@@ -14,6 +14,7 @@ tokenizer:
   type: "only_seen_chars"
   target_vocab_size: 128
   training_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean.txt"
+  inter_file_boundary: "\n<|book_boundary|>\n"
   artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-full-char1024-scene-dialogue-gpu"
   bpe_vocab_file: ""
   bpe_merges_file: ""

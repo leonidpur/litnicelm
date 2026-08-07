@@ -1,9 +1,10 @@
 #pragma once
 
 #include <config.hpp>
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
+#include "i_self_attention.hpp"
 #include "ops.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include "training_observer.hpp"
 
 #include <functional>
@@ -21,26 +22,26 @@ class TrainingDiagnosticsController;
 //     head_bh = weights_bh * Vbh           head_bh: [S, dh]
 //   concat heads -> context [B, S, D]
 //   out = context * Wo + bo                Wo: [D, D], bo: [1, D]
-class SelfAttention {
+class SelfAttention final : public ISelfAttention {
 public:
   SelfAttention(int layer_index, const Config &cfg,
-                TensorFactory &tensor_factory,
-                GradientFactory *gradient_factory, Ops &ops);
-  void set_observer(ITrainingObserver *observer);
-  void set_diagnostics(TrainingDiagnosticsController *diagnostics);
+                TensorStore &tensor_store,
+                GradientStore *gradient_store, Ops &ops);
+  void set_observer(ITrainingObserver *observer) override;
+  void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
   // x:   [B, S, D]
   // out: [B, S, D]
-  void forward(const TensorView &x, TensorView &out);
-  void backward(const TensorView &dout, TensorView &dx);
+  void forward(const TensorView &x, TensorView &out) override;
+  void backward(const TensorView &dout, TensorView &dx) override;
 
 private:
   void validate_contract() const;
 
   int idx_;
   const Config &cfg_;
-  TensorFactory &tensorFactory_;
-  GradientFactory *gradientFactory_ = nullptr;
+  TensorStore &tensorStore_;
+  GradientStore *gradientStore_ = nullptr;
   Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;

@@ -1,14 +1,16 @@
 #pragma once
 
 #include <config.hpp>
-#include "ffn.hpp"
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
+#include "i_ffn.hpp"
+#include "i_self_attention.hpp"
+#include "model_algo_factory.hpp"
 #include "ops.hpp"
 #include "training_observer.hpp"
-#include "self_attention.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <functional>
+#include <memory>
 #include <string>
 
 class TrainingDiagnosticsController;
@@ -33,12 +35,13 @@ class TrainingDiagnosticsController;
 //   layer{i}.ffn_b2     [1, D]
 //
 // NOTE: This layer is backend-agnostic and never checks CPU vs GPU.
-// Backend/device checks belong in Ops / TensorFactory implementations.
+// Backend/device checks belong in Ops / TensorStore implementations.
 class TransformerLayer {
 public:
   TransformerLayer(int layer_index, const Config &cfg,
-                   TensorFactory &tensor_factory,
-                   GradientFactory *gradient_factory, Ops &ops);
+                   TensorStore &tensor_store,
+                   GradientStore *gradient_store, Ops &ops,
+                   const ModelAlgoFactory &algo_factory);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
@@ -52,13 +55,13 @@ private:
 
   int idx_;
   const Config &cfg_;
-  TensorFactory &tensorFactory_;
-  GradientFactory *gradientFactory_ = nullptr;
+  TensorStore &tensorStore_;
+  GradientStore *gradientStore_ = nullptr;
   Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
 
-  SelfAttention attn_;
-  FFN ffn_;
+  std::unique_ptr<ISelfAttention> attn_;
+  std::unique_ptr<IFFN> ffn_;
   TensorView cache_x_;
   TensorView cache_y_;
   TensorView cache_ln1_;

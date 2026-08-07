@@ -62,6 +62,37 @@ float parse_f32_or_throw(const std::string &v, const std::string &k) {
   }
 }
 
+std::string parse_escaped_string(const std::string &v) {
+  std::string out;
+  out.reserve(v.size());
+  for (size_t i = 0; i < v.size(); ++i) {
+    if (v[i] != '\\' || i + 1 >= v.size()) {
+      out.push_back(v[i]);
+      continue;
+    }
+    const char next = v[++i];
+    switch (next) {
+    case 'n':
+      out.push_back('\n');
+      break;
+    case 'r':
+      out.push_back('\r');
+      break;
+    case 't':
+      out.push_back('\t');
+      break;
+    case '\\':
+      out.push_back('\\');
+      break;
+    default:
+      out.push_back('\\');
+      out.push_back(next);
+      break;
+    }
+  }
+  return out;
+}
+
 std::pair<int32_t, int32_t> parse_i32_pair_or_throw(const std::string &v,
                                                      const std::string &k) {
   std::string s = string_utils::trim_copy(v);
@@ -114,6 +145,7 @@ const std::vector<std::string> &required_keys() {
       "tokenizer.artifacts_dir",
       "tokenizer.bpe_vocab_file",
       "tokenizer.bpe_merges_file",
+      "tokenizer.inter_file_boundary",
       "tokenizer.run_validation",
       "tokenizer.bpe_validation_num_threads",
       "tokenizer.bpe_validation_sample_rate",
@@ -217,6 +249,19 @@ bool map_model_fields(const std::string &key, const std::string &value, Config &
   return false;
 }
 
+bool map_model_algo_fields(const std::string &key, const std::string &value,
+                           Config &cfg) {
+  if (key == "model_algo.attention") {
+    cfg.model_algo.attention = value;
+    return true;
+  }
+  if (key == "model_algo.ffn") {
+    cfg.model_algo.ffn = value;
+    return true;
+  }
+  return false;
+}
+
 bool map_memory_fields(const std::string &key, const std::string &value, Config &cfg) {
   if (key == "memory.alignment_bytes") {
     cfg.memory.alignment_bytes = parse_u64_or_throw(value, key);
@@ -272,6 +317,10 @@ bool map_tokenizer_fields(const std::string &key, const std::string &value, Conf
   }
   if (key == "tokenizer.bpe_merges_file") {
     cfg.tokenizer.bpe_merges_file = value;
+    return true;
+  }
+  if (key == "tokenizer.inter_file_boundary") {
+    cfg.tokenizer.inter_file_boundary = parse_escaped_string(value);
     return true;
   }
   if (key == "tokenizer.run_validation") {
@@ -652,6 +701,7 @@ void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
         map_root_fields(entry.key, entry.value, cfg) ||
         map_backend_fields(entry.key, entry.value, cfg) ||
         map_model_fields(entry.key, entry.value, cfg) ||
+        map_model_algo_fields(entry.key, entry.value, cfg) ||
         map_memory_fields(entry.key, entry.value, cfg) ||
         map_paths_fields(entry.key, entry.value, cfg) ||
         map_tokenizer_fields(entry.key, entry.value, cfg) ||

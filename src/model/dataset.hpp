@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include "training_observer.hpp"
 
 #include <fcntl.h>
@@ -71,7 +71,7 @@ public:
                           const std::vector<uint64_t> &window_starts,
                           uint64_t first_window_index, uint32_t batch_size,
                           uint32_t seq_len,
-                          TensorFactory &tensor_factory,
+                          TensorStore &tensor_store,
                           DeviceBackend &device_backend, Device device,
                           TrainBatch &out) const = 0;
 };
@@ -82,7 +82,7 @@ public:
                   const std::vector<uint64_t> &window_starts,
                   uint64_t first_window_index, uint32_t batch_size,
                   uint32_t seq_len,
-                  TensorFactory &tensor_factory,
+                  TensorStore &tensor_store,
                   DeviceBackend &device_backend, Device device,
                   TrainBatch &out) const override;
 };
@@ -93,7 +93,7 @@ public:
                   const std::vector<uint64_t> &window_starts,
                   uint64_t first_window_index, uint32_t batch_size,
                   uint32_t seq_len,
-                  TensorFactory &tensor_factory,
+                  TensorStore &tensor_store,
                   DeviceBackend &device_backend, Device device,
                   TrainBatch &out) const override;
 };
@@ -108,7 +108,7 @@ public:
     TOKEN_U32 = 1,
   };
 
-  TextDataset(TensorFactory &tensor_factory, DeviceBackend &device_backend,
+  TextDataset(TensorStore &tensor_store, DeviceBackend &device_backend,
               const Config &cfg,
               bool shuffle_blocks = false,
               TrainingReportSink *report_sink = nullptr,
@@ -129,7 +129,7 @@ public:
   SourceFormat source_format() const { return source_format_; }
 
 private:
-  TensorFactory &tensorFactory_;
+  TensorStore &tensorStore_;
   DeviceBackend *device_backend_ = nullptr;
   Device device_;
 

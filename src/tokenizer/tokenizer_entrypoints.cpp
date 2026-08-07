@@ -1,5 +1,6 @@
 #include "tokenizer_plugin.hpp"
 #include "tokenizer_utils.hpp"
+#include "corpus_input.hpp"
 
 #include <tokenizer_factory.hpp>
 
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -91,12 +93,23 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
   auto plugin = TokenizerFactory::create_plugin(cfg, sink);
 
   const std::string training_corpus = resolve_tokenizer_training_corpus(cfg);
+  std::vector<std::string> training_files;
   if (training_corpus.empty()) {
     if (std::string(plugin->name()).find("CharacterTokenizer") ==
         std::string::npos) {
       throw std::runtime_error(
           "run_tokenizer_training_mode: tokenizer.training_corpus is required");
     }
+  } else {
+    training_files = CorpusInput::resolve_files(training_corpus);
+  }
+
+  std::string plugin_training_corpus = training_corpus;
+  std::string temp_training_corpus;
+  if (CorpusInput::needs_merge_file(training_files)) {
+    temp_training_corpus = CorpusInput::materialize_merged_temp_file(
+        training_files, cfg.tokenizer.inter_file_boundary, "tokenizer_training");
+    plugin_training_corpus = temp_training_corpus;
   }
 
   const std::string create_message =
@@ -104,15 +117,29 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
       std::string(plugin->name()) + ", training_corpus=" + training_corpus +
       ", artifacts_dir=" + artifacts_dir +
       ", target_vocab_size=" + std::to_string(cfg.tokenizer.target_vocab_size) +
-      ", artifacts_dir_out=" + artifacts_dir;
+      ", artifacts_dir_out=" + artifacts_dir +
+      (training_files.empty() ? "" : ", " + CorpusInput::describe_files(training_files));
   std::cout << "[TOKENIZER_TRAINING] " << create_message << "\n";
   report_if(sink, ReportEvent::START, 0, 0.0f, create_message);
-  plugin->train(training_corpus, artifacts_dir, cfg.tokenizer.target_vocab_size,
-                sink);
+  try {
+    plugin->train(plugin_training_corpus, artifacts_dir,
+                  cfg.tokenizer.target_vocab_size, sink);
+  } catch (...) {
+    if (!temp_training_corpus.empty()) {
+      fs::remove(temp_training_corpus);
+    }
+    throw;
+  }
+  if (!temp_training_corpus.empty()) {
+    fs::remove(temp_training_corpus);
+  }
 
   const std::string details =
       "Status: SUCCESS\n\n"
       "Training Corpus: " + training_corpus + "\n\n"
+      "Resolved Corpus: " +
+      (training_files.empty() ? "files=0" : CorpusInput::describe_files(training_files)) +
+      "\n\n"
       "Artifacts Dir: " + artifacts_dir + "\n\n"
       "Tokenizer: " + plugin->name() + "\n\n"
       "Vocab Size: " + std::to_string(cfg.tokenizer.target_vocab_size);
@@ -147,7 +174,9 @@ int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
 
   TokenizerUtils::stream_tokenize(plugin.get(), cfg.tokenization.input_corpus,
                                   cfg.tokenization.output_binary,
-                                  cfg.tokenization.chunk_size_mb, sink);
+                                  cfg.tokenization.chunk_size_mb,
+                                  cfg.tokenizer.inter_file_boundary,
+                                  cfg.tokenizer.run_validation, sink);
 
   const std::string details =
       "Status: SUCCESS\n\n"

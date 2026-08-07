@@ -20,8 +20,8 @@ public:
                            uint64_t adam_size, void *temp_base,
                            uint64_t temp_size) override;
   void memory_usage_ready(const TrainingMemoryUsage &usage) override;
-  void tensor_factory_topology_ready(const Config &cfg,
-                                     const TensorFactory &tensor_factory) override;
+  void tensor_store_topology_ready(const Config &cfg,
+                                     const TensorStore &tensor_store) override;
   void batch_step_ready(uint32_t batch_size, uint32_t seq_len,
                         uint32_t token_rows, uint32_t vocab_size) override;
   void probe_loss_ready(const TensorView &loss_scalar, const TensorView &logits,

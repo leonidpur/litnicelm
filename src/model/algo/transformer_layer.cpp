@@ -13,38 +13,40 @@
   })
 
 TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
-                                   TensorFactory &tensor_factory,
-                                   GradientFactory *gradient_factory, Ops &ops)
+                                   TensorStore &tensor_store,
+                                   GradientStore *gradient_store, Ops &ops,
+                                   const ModelAlgoFactory &algo_factory)
     : idx_(layer_index),
       cfg_(cfg),
-      tensorFactory_(tensor_factory),
-      gradientFactory_(gradient_factory),
-      ops_(ops),
-      attn_(layer_index, cfg, tensor_factory, gradient_factory, ops),
-      ffn_(layer_index, cfg, tensor_factory, gradient_factory, ops) {
+      tensorStore_(tensor_store),
+      gradientStore_(gradient_store),
+      ops_(ops) {
+  attn_ =
+      algo_factory.create_attention(layer_index, cfg, tensor_store, gradient_store, ops);
+  ffn_ = algo_factory.create_ffn(layer_index, cfg, tensor_store, gradient_store, ops);
   validate_contract();
 }
 
 void TransformerLayer::set_observer(ITrainingObserver *observer) {
   observer_ = observer;
-  attn_.set_observer(observer);
-  ffn_.set_observer(observer);
+  attn_->set_observer(observer);
+  ffn_->set_observer(observer);
 }
 
 void TransformerLayer::set_diagnostics(
     TrainingDiagnosticsController *diagnostics) {
   require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
-  attn_.set_diagnostics(diagnostics);
-  ffn_.set_diagnostics(diagnostics);
+  attn_->set_diagnostics(diagnostics);
+  ffn_->set_diagnostics(diagnostics);
 }
 
 void TransformerLayer::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
-  const TensorView &ln1_gamma = tensorFactory_.param_ln1_gamma(idx_);
-  const TensorView &ln1_beta = tensorFactory_.param_ln1_beta(idx_);
-  const TensorView &ln2_gamma = tensorFactory_.param_ln2_gamma(idx_);
-  const TensorView &ln2_beta = tensorFactory_.param_ln2_beta(idx_);
+  const TensorView &ln1_gamma = tensorStore_.param_ln1_gamma(idx_);
+  const TensorView &ln1_beta = tensorStore_.param_ln1_beta(idx_);
+  const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
+  const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
   require(ln1_gamma.dim(0) == 1 && ln1_gamma.dim(1) == model_dim,
           "ln1_gamma must be [1, D]");
@@ -82,31 +84,31 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
               x.dim(2) == model_dim && x.dim(0) * x.dim(1) == token_rows,
           "x must be semantic [B, S, D]");
 
-  const TensorView &ln1_gamma = tensorFactory_.param_ln1_gamma(idx_);
-  const TensorView &ln1_beta = tensorFactory_.param_ln1_beta(idx_);
-  const TensorView &ln2_gamma = tensorFactory_.param_ln2_gamma(idx_);
-  const TensorView &ln2_beta = tensorFactory_.param_ln2_beta(idx_);
+  const TensorView &ln1_gamma = tensorStore_.param_ln1_gamma(idx_);
+  const TensorView &ln1_beta = tensorStore_.param_ln1_beta(idx_);
+  const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
+  const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
   require(ln1_gamma.device() == x.device() && ln2_gamma.device() == x.device(),
           "layernorm param device mismatch");
   require(ln1_gamma.dtype() == x.dtype() && ln2_gamma.dtype() == x.dtype(),
           "layernorm param dtype mismatch");
 
-  TensorView ln1 = tensorFactory_.temp_layer_ln1(idx_, batch_size, seq_len);
+  TensorView ln1 = tensorStore_.temp_layer_ln1(idx_, batch_size, seq_len);
   TensorView attn_out =
-      tensorFactory_.temp_layer_attn_out(idx_, batch_size, seq_len);
-  TensorView y = tensorFactory_.temp_layer_resid1(idx_, batch_size, seq_len);
+      tensorStore_.temp_layer_attn_out(idx_, batch_size, seq_len);
+  TensorView y = tensorStore_.temp_layer_resid1(idx_, batch_size, seq_len);
 
-  TensorView ln2 = tensorFactory_.temp_layer_ln2(idx_, batch_size, seq_len);
+  TensorView ln2 = tensorStore_.temp_layer_ln2(idx_, batch_size, seq_len);
   TensorView ffn_out =
-      tensorFactory_.temp_layer_ffn_out(idx_, batch_size, seq_len);
+      tensorStore_.temp_layer_ffn_out(idx_, batch_size, seq_len);
 
   ops_.layernorm(x, ln1_gamma, ln1_beta, ln1);
-  attn_.forward(ln1, attn_out);
+  attn_->forward(ln1, attn_out);
   ops_.add(x, attn_out, y);
 
   ops_.layernorm(y, ln2_gamma, ln2_beta, ln2);
-  ffn_.forward(ln2, ffn_out);
+  ffn_->forward(ln2, ffn_out);
 
   ops_.add(y, ffn_out, out);
 
@@ -118,7 +120,7 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
 }
 
 void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
-  require(gradientFactory_ != nullptr, "backward requires gradient factory");
+  require(gradientStore_ != nullptr, "backward requires gradient store");
   require(diagnostics_ != nullptr, "backward requires diagnostics controller");
   require(has_cache_, "backward called before forward");
   require(dout.rank() == cache_x_.rank() && dout.dim(0) == cache_x_.dim(0) &&
@@ -133,18 +135,18 @@ void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
   const int64_t model_dim = cache_x_.dim(2);
   (void)model_dim;
 
-  const TensorView &ln1_gamma = tensorFactory_.param_ln1_gamma(idx_);
-  const TensorView &ln1_beta = tensorFactory_.param_ln1_beta(idx_);
-  const TensorView &ln2_gamma = tensorFactory_.param_ln2_gamma(idx_);
-  const TensorView &ln2_beta = tensorFactory_.param_ln2_beta(idx_);
-  TensorView dln2 = tensorFactory_.temp_layer_dln2(idx_, batch_size, seq_len);
-  ffn_.backward(dout, dln2);
+  const TensorView &ln1_gamma = tensorStore_.param_ln1_gamma(idx_);
+  const TensorView &ln1_beta = tensorStore_.param_ln1_beta(idx_);
+  const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
+  const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
+  TensorView dln2 = tensorStore_.temp_layer_dln2(idx_, batch_size, seq_len);
+  ffn_->backward(dout, dln2);
   diagnostics_->bk_layer_dln2_after_ffn(idx_, dln2);
 
   TensorView dy_ln2 =
-      tensorFactory_.temp_layer_dy_ln2(idx_, batch_size, seq_len);
-  TensorView dln2_gamma = gradientFactory_->grad_for_param(ln2_gamma);
-  TensorView dln2_beta = gradientFactory_->grad_for_param(ln2_beta);
+      tensorStore_.temp_layer_dy_ln2(idx_, batch_size, seq_len);
+  TensorView dln2_gamma = gradientStore_->grad_for_param(ln2_gamma);
+  TensorView dln2_beta = gradientStore_->grad_for_param(ln2_beta);
   ops_.layernorm_backward(cache_y_, ln2_gamma, dln2, dy_ln2, dln2_gamma,
                           dln2_beta);
   diagnostics_->bk_layer_dy_ln2(idx_, dy_ln2);
@@ -152,18 +154,18 @@ void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_layer_dln2_beta(idx_, dln2_beta);
 
   TensorView dy_total =
-      tensorFactory_.temp_layer_dy_total(idx_, batch_size, seq_len);
+      tensorStore_.temp_layer_dy_total(idx_, batch_size, seq_len);
   ops_.add(dout, dy_ln2, dy_total);
   diagnostics_->bk_layer_dy_total(idx_, dy_total);
 
-  TensorView dln1 = tensorFactory_.temp_layer_dln1(idx_, batch_size, seq_len);
-  attn_.backward(dy_total, dln1);
+  TensorView dln1 = tensorStore_.temp_layer_dln1(idx_, batch_size, seq_len);
+  attn_->backward(dy_total, dln1);
   diagnostics_->bk_layer_dln1_after_attn(idx_, dln1);
 
   TensorView dx_ln1 =
-      tensorFactory_.temp_layer_dx_ln1(idx_, batch_size, seq_len);
-  TensorView dln1_gamma = gradientFactory_->grad_for_param(ln1_gamma);
-  TensorView dln1_beta = gradientFactory_->grad_for_param(ln1_beta);
+      tensorStore_.temp_layer_dx_ln1(idx_, batch_size, seq_len);
+  TensorView dln1_gamma = gradientStore_->grad_for_param(ln1_gamma);
+  TensorView dln1_beta = gradientStore_->grad_for_param(ln1_beta);
   ops_.layernorm_backward(cache_x_, ln1_gamma, dln1, dx_ln1, dln1_gamma,
                           dln1_beta);
   diagnostics_->bk_layer_dx_ln1(idx_, dx_ln1);

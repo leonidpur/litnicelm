@@ -97,6 +97,7 @@ struct TokenizerConfig {
   std::string bpe_artifacts_dir;
   std::string bpe_vocab_file;
   std::string bpe_merges_file;
+  std::string inter_file_boundary;
   bool run_validation;
   int32_t bpe_validation_num_threads;
   uint32_t bpe_validation_sample_rate;
@@ -143,6 +144,11 @@ struct MemoryConfig {
   uint64_t alignment_bytes;
 };
 
+struct ModelAlgoRuntimeConfig {
+  std::string attention = "reference";
+  std::string ffn = "reference";
+};
+
 struct Command;
 
 struct Config {
@@ -153,6 +159,7 @@ struct Config {
   uint32_t arena_alignment;
   uint64_t max_steps;
   ModelConfig model;
+  ModelAlgoRuntimeConfig model_algo;
   MemoryConfig memory;
   PathsConfig paths;
   BackendConfig backend;

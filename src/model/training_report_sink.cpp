@@ -2,7 +2,7 @@
 
 #include <config.hpp>
 #include "named_layout.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <cmath>
 #include <iomanip>
@@ -536,7 +536,7 @@ void TrainingReportSink::report_init_topology(const NamedLayout &param_layout,
   oss << "Alignment bytes: " << alignment_bytes_
       << ", param padding waste=" << param_padding_waste
       << " bytes, param slices mapped=" << param_layout.slices().size() << "\n\n";
-  oss << "Pointer Arithmetic: TensorFactory treats arena base pointers as anchors and\n"
+  oss << "Pointer Arithmetic: TensorStore treats arena base pointers as anchors and\n"
          "adds each LayoutSlice offset to address every tensor block directly.\n";
   oss << "Adam Overhead: Optimizer memory is 2x parameter memory because Adam keeps\n"
          "two state tensors per weight (m and v).\n";
@@ -594,8 +594,8 @@ void TrainingReportSink::report_memory_usage(const TrainingMemoryUsage &usage) {
   report(ReportEvent::START, oss.str());
 }
 
-void TrainingReportSink::report_tensor_factory_topology(
-    const Config &cfg, const TensorFactory &tensor_factory) {
+void TrainingReportSink::report_tensor_store_topology(
+    const Config &cfg, const TensorStore &tensor_store) {
   if (!verbose_init_enabled_) {
     return;
   }
@@ -614,46 +614,46 @@ void TrainingReportSink::report_tensor_factory_topology(
   std::vector<std::string> decay_rows;
   std::vector<std::string> no_decay_rows;
   append_param_row(decay_rows, no_decay_rows, "tok_embedding",
-                   tensor_factory.param_tok_embedding());
+                   tensor_store.param_tok_embedding());
   append_param_row(decay_rows, no_decay_rows, "pos_embedding",
-                   tensor_factory.param_pos_embedding());
+                   tensor_store.param_pos_embedding());
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const int li = static_cast<int>(l);
     const std::string p = "layer" + std::to_string(l) + ".";
     append_param_row(decay_rows, no_decay_rows, p + "ln1_gamma",
-                     tensor_factory.param_ln1_gamma(li));
+                     tensor_store.param_ln1_gamma(li));
     append_param_row(decay_rows, no_decay_rows, p + "ln1_beta",
-                     tensor_factory.param_ln1_beta(li));
+                     tensor_store.param_ln1_beta(li));
     append_param_row(decay_rows, no_decay_rows, p + "attn_qkv_w",
-                     tensor_factory.param_attn_qkv_w(li));
+                     tensor_store.param_attn_qkv_w(li));
     append_param_row(decay_rows, no_decay_rows, p + "attn_qkv_b",
-                     tensor_factory.param_attn_qkv_b(li));
+                     tensor_store.param_attn_qkv_b(li));
     append_param_row(decay_rows, no_decay_rows, p + "attn_out_w",
-                     tensor_factory.param_attn_out_w(li));
+                     tensor_store.param_attn_out_w(li));
     append_param_row(decay_rows, no_decay_rows, p + "attn_out_b",
-                     tensor_factory.param_attn_out_b(li));
+                     tensor_store.param_attn_out_b(li));
     append_param_row(decay_rows, no_decay_rows, p + "ln2_gamma",
-                     tensor_factory.param_ln2_gamma(li));
+                     tensor_store.param_ln2_gamma(li));
     append_param_row(decay_rows, no_decay_rows, p + "ln2_beta",
-                     tensor_factory.param_ln2_beta(li));
+                     tensor_store.param_ln2_beta(li));
     append_param_row(decay_rows, no_decay_rows, p + "ffn_w1",
-                     tensor_factory.param_ffn_w1(li));
+                     tensor_store.param_ffn_w1(li));
     append_param_row(decay_rows, no_decay_rows, p + "ffn_b1",
-                     tensor_factory.param_ffn_b1(li));
+                     tensor_store.param_ffn_b1(li));
     append_param_row(decay_rows, no_decay_rows, p + "ffn_w2",
-                     tensor_factory.param_ffn_w2(li));
+                     tensor_store.param_ffn_w2(li));
     append_param_row(decay_rows, no_decay_rows, p + "ffn_b2",
-                     tensor_factory.param_ffn_b2(li));
+                     tensor_store.param_ffn_b2(li));
   }
   append_param_row(decay_rows, no_decay_rows, "lnf_gamma",
-                   tensor_factory.param_lnf_gamma());
+                   tensor_store.param_lnf_gamma());
   append_param_row(decay_rows, no_decay_rows, "lnf_beta",
-                   tensor_factory.param_lnf_beta());
+                   tensor_store.param_lnf_beta());
   append_param_row(decay_rows, no_decay_rows, "lm_head_w",
-                   tensor_factory.param_lm_head_w());
+                   tensor_store.param_lm_head_w());
 
   std::vector<std::string> lines;
-  lines.push_back("[TensorFactory Parameters] enabled by `reporting.verbose_init`");
+  lines.push_back("[TensorStore Parameters] enabled by `reporting.verbose_init`");
   lines.push_back("[Decay Zone]");
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
   lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
@@ -675,136 +675,146 @@ void TrainingReportSink::report_tensor_factory_topology(
   const int64_t S = static_cast<int64_t>(cfg.model.max_seq_len);
 
   lines.push_back("");
-  lines.push_back("[TensorFactory Temporaries] enabled by `reporting.verbose_init`");
+  lines.push_back("[TensorStore Temporaries] enabled by `reporting.verbose_init`");
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
   lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
   lines.push_back(tensor_metadata_row(
       "ds.ids",
-      tensor_factory.temp_ds_ids(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_ds_ids(static_cast<int64_t>(cfg.training.batch_size),
                                  static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("ds.ids")));
   lines.push_back(tensor_metadata_row(
       "ds.targets",
-      tensor_factory.temp_ds_targets(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_ds_targets(static_cast<int64_t>(cfg.training.batch_size),
                                      static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("ds.targets")));
   lines.push_back(tensor_metadata_row(
       "tr.logits",
-      tensor_factory.temp_tr_logits(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_tr_logits(static_cast<int64_t>(cfg.training.batch_size),
                                     static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("tr.logits")));
-  lines.push_back(tensor_metadata_row("tr.loss", tensor_factory.temp_tr_loss(), infer_temp_purpose("tr.loss")));
+  lines.push_back(tensor_metadata_row("tr.loss", tensor_store.temp_tr_loss(), infer_temp_purpose("tr.loss")));
   lines.push_back(tensor_metadata_row(
       "tr.X",
-      tensor_factory.temp_tr_X(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_tr_X(static_cast<int64_t>(cfg.training.batch_size),
                                static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("tr.X")));
   lines.push_back(tensor_metadata_row(
       "tr.Y",
-      tensor_factory.temp_tr_Y(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_tr_Y(static_cast<int64_t>(cfg.training.batch_size),
                                static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("tr.Y")));
   lines.push_back(tensor_metadata_row(
       "tr.Xn",
-      tensor_factory.temp_tr_Xn(static_cast<int64_t>(cfg.training.batch_size),
+      tensor_store.temp_tr_Xn(static_cast<int64_t>(cfg.training.batch_size),
                                 static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("tr.Xn")));
-  lines.push_back(tensor_metadata_row("bw.XnT", tensor_factory.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
-  lines.push_back(tensor_metadata_row("bw.lm_wT", tensor_factory.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
-  lines.push_back(tensor_metadata_row("bw.d_xn", tensor_factory.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
-  lines.push_back(tensor_metadata_row("bw.d_xlast", tensor_factory.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
+  lines.push_back(tensor_metadata_row("bw.XnT", tensor_store.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
+  lines.push_back(tensor_metadata_row("bw.lm_wT", tensor_store.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
+  lines.push_back(tensor_metadata_row("bw.d_xn", tensor_store.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
+  lines.push_back(tensor_metadata_row("bw.d_xlast", tensor_store.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
 
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const int li = static_cast<int>(l);
     const std::string p = "layer" + std::to_string(l) + ".";
     lines.push_back(tensor_metadata_row(
         p + "ln1",
-        tensor_factory.temp_layer_ln1(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_layer_ln1(li, static_cast<int64_t>(cfg.training.batch_size),
                                       static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose(p + "ln1")));
     lines.push_back(tensor_metadata_row(
         p + "attn_out",
-        tensor_factory.temp_layer_attn_out(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_layer_attn_out(li, static_cast<int64_t>(cfg.training.batch_size),
                                            static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose(p + "attn_out")));
     lines.push_back(tensor_metadata_row(
         p + "resid1",
-        tensor_factory.temp_layer_resid1(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_layer_resid1(li, static_cast<int64_t>(cfg.training.batch_size),
                                          static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose(p + "resid1")));
     lines.push_back(tensor_metadata_row(
         p + "ln2",
-        tensor_factory.temp_layer_ln2(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_layer_ln2(li, static_cast<int64_t>(cfg.training.batch_size),
                                       static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose(p + "ln2")));
     lines.push_back(tensor_metadata_row(
         p + "ffn_out",
-        tensor_factory.temp_layer_ffn_out(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_layer_ffn_out(li, static_cast<int64_t>(cfg.training.batch_size),
                                           static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose(p + "ffn_out")));
-    lines.push_back(tensor_metadata_row(p + "bw.d_prev", tensor_factory.temp_layer_bw_d_prev(li, T), infer_temp_purpose(p + "bw.d_prev")));
-    lines.push_back(tensor_metadata_row(p + "dln2", tensor_factory.temp_layer_dln2(li, T), infer_temp_purpose(p + "dln2")));
-    lines.push_back(tensor_metadata_row(p + "dy_ln2", tensor_factory.temp_layer_dy_ln2(li, T), infer_temp_purpose(p + "dy_ln2")));
-    lines.push_back(tensor_metadata_row(p + "dy_total", tensor_factory.temp_layer_dy_total(li, T), infer_temp_purpose(p + "dy_total")));
-    lines.push_back(tensor_metadata_row(p + "dln1", tensor_factory.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
-    lines.push_back(tensor_metadata_row(p + "dx_ln1", tensor_factory.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
+    lines.push_back(tensor_metadata_row(p + "bw.d_prev", tensor_store.temp_layer_bw_d_prev(li, T), infer_temp_purpose(p + "bw.d_prev")));
+    lines.push_back(tensor_metadata_row(p + "dln2", tensor_store.temp_layer_dln2(li, T), infer_temp_purpose(p + "dln2")));
+    lines.push_back(tensor_metadata_row(p + "dy_ln2", tensor_store.temp_layer_dy_ln2(li, T), infer_temp_purpose(p + "dy_ln2")));
+    lines.push_back(tensor_metadata_row(p + "dy_total", tensor_store.temp_layer_dy_total(li, T), infer_temp_purpose(p + "dy_total")));
+    lines.push_back(tensor_metadata_row(p + "dln1", tensor_store.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
+    lines.push_back(tensor_metadata_row(p + "dx_ln1", tensor_store.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
 
     lines.push_back(tensor_metadata_row(
         p + "attn.qkv",
-        tensor_factory.temp_attn_qkv(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_attn_qkv(li, static_cast<int64_t>(cfg.training.batch_size),
                                      static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.qkv")));
     lines.push_back(tensor_metadata_row(
         p + "attn.context",
-        tensor_factory.temp_attn_context(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_attn_context(li, static_cast<int64_t>(cfg.training.batch_size),
                                          static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.context")));
-    lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_factory.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
-    lines.push_back(tensor_metadata_row(p + "attn.weights", tensor_factory.temp_attn_weights(li, T), infer_temp_purpose("attn.weights")));
+    lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_store.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
+    if (cfg.model_algo.attention != "fused_inplace") {
+      lines.push_back(tensor_metadata_row(
+          p + "attn.weights", tensor_store.temp_attn_weights(li, T),
+          infer_temp_purpose("attn.weights")));
+    }
     lines.push_back(tensor_metadata_row(
         p + "attn.head",
-        tensor_factory.temp_attn_head(
+        tensor_store.temp_attn_head(
             li, static_cast<int64_t>(cfg.training.batch_size),
             static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.head")));
-    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensor_factory.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
-    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensor_factory.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensor_factory.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
-    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensor_factory.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
-    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensor_factory.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensor_factory.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensor_factory.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
-    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensor_factory.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensor_factory.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensor_factory.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
-    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensor_factory.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
-    lines.push_back(tensor_metadata_row(p + "attn.xT", tensor_factory.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
+    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensor_store.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
+    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensor_store.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensor_store.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
+    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensor_store.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensor_store.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensor_store.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensor_store.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
+    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensor_store.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensor_store.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensor_store.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
+    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensor_store.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
+    lines.push_back(tensor_metadata_row(p + "attn.xT", tensor_store.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
 
     lines.push_back(tensor_metadata_row(
         p + "ffn.h",
-        tensor_factory.temp_ffn_h(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_ffn_h(li, static_cast<int64_t>(cfg.training.batch_size),
                                   static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("ffn.h")));
-    lines.push_back(tensor_metadata_row(
-        p + "ffn.a",
-        tensor_factory.temp_ffn_a(li, static_cast<int64_t>(cfg.training.batch_size),
-                                  static_cast<int64_t>(cfg.training.train_seq_len)),
-        infer_temp_purpose("ffn.a")));
-    lines.push_back(tensor_metadata_row(p + "ffn.aT", tensor_factory.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensor_factory.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
+    if (cfg.model_algo.ffn != "inplace_fused_bias_relu") {
+      lines.push_back(tensor_metadata_row(
+          p + "ffn.a",
+          tensor_store.temp_ffn_a(
+              li, static_cast<int64_t>(cfg.training.batch_size),
+              static_cast<int64_t>(cfg.training.train_seq_len)),
+          infer_temp_purpose("ffn.a")));
+    }
+    lines.push_back(tensor_metadata_row(p + "ffn.aT", tensor_store.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensor_store.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
     lines.push_back(tensor_metadata_row(
         p + "ffn.da",
-        tensor_factory.temp_ffn_da(li, static_cast<int64_t>(cfg.training.batch_size),
+        tensor_store.temp_ffn_da(li, static_cast<int64_t>(cfg.training.batch_size),
                                    static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("ffn.da")));
-    lines.push_back(tensor_metadata_row(
-        p + "ffn.dh",
-        tensor_factory.temp_ffn_dh(li, static_cast<int64_t>(cfg.training.batch_size),
-                                   static_cast<int64_t>(cfg.training.train_seq_len)),
-        infer_temp_purpose("ffn.dh")));
-    lines.push_back(tensor_metadata_row(p + "ffn.xT", tensor_factory.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensor_factory.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
+    if (cfg.model_algo.ffn != "inplace_fused_bias_relu") {
+      lines.push_back(tensor_metadata_row(
+          p + "ffn.dh",
+          tensor_store.temp_ffn_dh(
+              li, static_cast<int64_t>(cfg.training.batch_size),
+              static_cast<int64_t>(cfg.training.train_seq_len)),
+          infer_temp_purpose("ffn.dh")));
+    }
+    lines.push_back(tensor_metadata_row(p + "ffn.xT", tensor_store.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensor_store.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
   }
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 

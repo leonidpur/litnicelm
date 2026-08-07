@@ -12,12 +12,12 @@
   })
 
 SelfAttention::SelfAttention(int layer_index, const Config &cfg,
-                             TensorFactory &tensor_factory,
-                             GradientFactory *gradient_factory, Ops &ops)
+                             TensorStore &tensor_store,
+                             GradientStore *gradient_store, Ops &ops)
     : idx_(layer_index),
       cfg_(cfg),
-      tensorFactory_(tensor_factory),
-      gradientFactory_(gradient_factory),
+      tensorStore_(tensor_store),
+      gradientStore_(gradient_store),
       ops_(ops) {
   validate_contract();
 }
@@ -38,10 +38,10 @@ void SelfAttention::validate_contract() const {
   require((model_dim % num_heads) == 0,
           "d_model must be divisible by n_heads");
 
-  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
-  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
-  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
-  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
+  const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
   require(Wqkv.dim(0) == model_dim && Wqkv.dim(1) == 3 * model_dim,
           "Wqkv must be [D, 3D]");
@@ -82,17 +82,17 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   const int64_t dh = model_dim / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
-  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
-  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
-  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
-  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
+  const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
   require(Wqkv.device() == x.device() && Wo.device() == x.device(),
           "param device mismatch");
   require(Wqkv.dtype() == x.dtype() && Wo.dtype() == x.dtype(),
           "param dtype mismatch");
 
-  TensorView qkv = tensorFactory_.temp_attn_qkv(idx_, batch_size, seq_len);
+  TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.matmul(x, Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
 
@@ -100,13 +100,13 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   TensorView K = qkv.subcols(model_dim, model_dim);
   TensorView V = qkv.subcols(2 * model_dim, model_dim);
 
-  TensorView context = tensorFactory_.temp_attn_context(idx_, batch_size, seq_len);
+  TensorView context = tensorStore_.temp_attn_context(idx_, batch_size, seq_len);
   ops_.fill(context, 0.0f);
 
-  TensorView scores = tensorFactory_.temp_attn_scores(idx_, batch_size, seq_len);
-  TensorView weights = tensorFactory_.temp_attn_weights(idx_, batch_size, seq_len);
+  TensorView scores = tensorStore_.temp_attn_scores(idx_, batch_size, seq_len);
+  TensorView weights = tensorStore_.temp_attn_weights(idx_, batch_size, seq_len);
   TensorView cached_weights =
-      tensorFactory_.temp_attn_cached_weights(idx_, batch_size, seq_len);
+      tensorStore_.temp_attn_cached_weights(idx_, batch_size, seq_len);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -137,7 +137,7 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
 
 void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_attention_start(idx_);
-  require(gradientFactory_ != nullptr, "backward requires gradient factory");
+  require(gradientStore_ != nullptr, "backward requires gradient store");
   require(diagnostics_ != nullptr, "backward requires diagnostics controller");
   require(has_cache_, "backward called before forward");
   require(dout.rank() == cache_x_.rank() && dout.dim(0) == cache_x_.dim(0) &&
@@ -159,22 +159,22 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   const int64_t dh = model_dim / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
-  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
-  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
-  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
-  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
-  TensorView dWo = gradientFactory_->grad_for_param(Wo);
+  const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
+  TensorView dWo = gradientStore_->grad_for_param(Wo);
   ops_.matmul_left_transposed(cache_context_, dout, dWo);
   diagnostics_->bk_attn_dWo(idx_, dWo);
-  TensorView dbo = gradientFactory_->grad_for_param(bo);
+  TensorView dbo = gradientStore_->grad_for_param(bo);
   ops_.row_sum(dout, dbo);
   diagnostics_->bk_attn_dbo(idx_, dbo);
 
-  TensorView dcontext = tensorFactory_.temp_attn_dcontext(idx_, batch_size, seq_len);
+  TensorView dcontext = tensorStore_.temp_attn_dcontext(idx_, batch_size, seq_len);
   ops_.matmul_right_transposed(dout, Wo, dcontext);
   diagnostics_->bk_attn_dcontext(idx_, dcontext);
 
-  TensorView dqkv = tensorFactory_.temp_attn_dqkv(idx_, batch_size, seq_len);
+  TensorView dqkv = tensorStore_.temp_attn_dqkv(idx_, batch_size, seq_len);
   ops_.fill(dqkv, 0.0f);
   TensorView dQ = dqkv.subcols(0, model_dim);
   TensorView dK = dqkv.subcols(model_dim, model_dim);
@@ -184,12 +184,12 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   TensorView K = cache_qkv_.subcols(model_dim, model_dim);
   TensorView V = cache_qkv_.subcols(2 * model_dim, model_dim);
   TensorView cached_weights =
-      tensorFactory_.temp_attn_cached_weights(idx_, batch_size, seq_len);
+      tensorStore_.temp_attn_cached_weights(idx_, batch_size, seq_len);
 
   TensorView dweights =
-      tensorFactory_.temp_attn_dweights(idx_, batch_size, seq_len);
+      tensorStore_.temp_attn_dweights(idx_, batch_size, seq_len);
   TensorView dscores =
-      tensorFactory_.temp_attn_dscores(idx_, batch_size, seq_len);
+      tensorStore_.temp_attn_dscores(idx_, batch_size, seq_len);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -224,10 +224,10 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   ops_.matmul_right_transposed(dqkv, Wqkv, dx);
   diagnostics_->bk_attn_dx(idx_, dx);
 
-  TensorView dWqkv = gradientFactory_->grad_for_param(Wqkv);
+  TensorView dWqkv = gradientStore_->grad_for_param(Wqkv);
   ops_.matmul_left_transposed(cache_x_, dqkv, dWqkv);
   diagnostics_->bk_attn_dWqkv(idx_, dWqkv);
-  TensorView dbqkv = gradientFactory_->grad_for_param(bqkv);
+  TensorView dbqkv = gradientStore_->grad_for_param(bqkv);
   ops_.row_sum(dqkv, dbqkv);
   diagnostics_->bk_attn_dbqkv(idx_, dbqkv);
   observer_->on_attention_end(idx_);
