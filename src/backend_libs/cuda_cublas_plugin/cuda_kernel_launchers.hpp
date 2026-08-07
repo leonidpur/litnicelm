@@ -2,6 +2,8 @@
 
 #include "cuda_tensor_view.hpp"
 
+#include <cuda_runtime.h>
+
 namespace cuda_cublas_plugin {
 
 void launch_fill(TensorView &t, float value);
@@ -31,9 +33,16 @@ void launch_softmax_backward_rows(const TensorView &softmax,
                                   const TensorView &dout, TensorView &dx);
 void launch_scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                        TensorView &out);
+void launch_scaled_causal_softmax_rows_on_stream(const TensorView &scores,
+                                                 float scale, TensorView &out,
+                                                 cudaStream_t stream);
 void launch_softmax_backward_causal_rows(const TensorView &softmax,
                                          const TensorView &dout,
                                          TensorView &dx);
+void launch_softmax_backward_causal_rows_on_stream(const TensorView &softmax,
+                                                   const TensorView &dout,
+                                                   TensorView &dx,
+                                                   cudaStream_t stream);
 
 void launch_cross_entropy_mean_backward_inplace(TensorView &logits,
                                                 const TensorView &targets,

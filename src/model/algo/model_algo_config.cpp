@@ -11,6 +11,9 @@ AttentionImplKind parse_attention_impl(const std::string &value) {
   if (value == "fused_inplace") {
     return AttentionImplKind::FusedInplace;
   }
+  if (value == "fused_inplace_multistream") {
+    return AttentionImplKind::FusedInplaceMultistream;
+  }
   throw std::runtime_error("ModelAlgoConfig: unsupported model_algo.attention: " +
                            value);
 }

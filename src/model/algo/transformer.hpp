@@ -64,7 +64,6 @@ private:
 
   std::vector<TransformerLayer> layers_;
   TensorView cache_x0_;
-  bool has_cache_ = false;
   ReportSink *sink_ = nullptr;
   ITrainingObserver *observer_ = &default_training_observer();
 };

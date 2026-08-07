@@ -761,7 +761,8 @@ void TrainingReportSink::report_tensor_store_topology(
                                          static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.context")));
     lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_store.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
-    if (cfg.model_algo.attention != "fused_inplace") {
+    if (cfg.model_algo.attention != "fused_inplace" &&
+        cfg.model_algo.attention != "fused_inplace_multistream") {
       lines.push_back(tensor_metadata_row(
           p + "attn.weights", tensor_store.temp_attn_weights(li, T),
           infer_temp_purpose("attn.weights")));

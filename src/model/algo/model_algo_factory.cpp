@@ -5,6 +5,7 @@
 #include "inplace_fused_bias_relu_ffn.hpp"
 #include "self_attention.hpp"
 #include "self_attention_fused_inplace.hpp"
+#include "self_attention_fused_inplace_multistream.hpp"
 
 #include <stdexcept>
 
@@ -19,6 +20,9 @@ std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
                                            gradient_store, ops);
   case AttentionImplKind::FusedInplace:
     return std::make_unique<SelfAttentionFusedInplace>(
+        layer_index, cfg, tensor_store, gradient_store, ops);
+  case AttentionImplKind::FusedInplaceMultistream:
+    return std::make_unique<SelfAttentionFusedInplaceMultistream>(
         layer_index, cfg, tensor_store, gradient_store, ops);
   }
   throw std::runtime_error("ModelAlgoFactory: unknown attention implementation");

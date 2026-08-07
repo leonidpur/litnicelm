@@ -5,6 +5,7 @@
 enum class AttentionImplKind {
   Reference,
   FusedInplace,
+  FusedInplaceMultistream,
 };
 
 enum class FFNImplKind {

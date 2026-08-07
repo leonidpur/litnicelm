@@ -295,6 +295,66 @@ void plugin_scaled_causal_softmax_rows(void *backend,
       to_tensor_view(*scores), scale, out_view);
 }
 
+uint32_t plugin_supports_exec_context_iteration(void *backend) {
+  return to_cpu_backend(backend).supports_exec_context_iteration() ? 1u : 0u;
+}
+
+void plugin_start_exec_context_iteration(void *backend) {
+  to_cpu_backend(backend).start_exec_context_iteration();
+}
+
+void plugin_finish_exec_context_iteration(void *backend) {
+  to_cpu_backend(backend).finish_exec_context_iteration();
+}
+
+void plugin_start_exec_context_group(void *backend) {
+  to_cpu_backend(backend).start_exec_context_group();
+}
+
+void plugin_finish_exec_context_group(void *backend) {
+  to_cpu_backend(backend).finish_exec_context_group();
+}
+
+void plugin_matmul_exec_context(void *backend, const BackendTensorView *a,
+                                const BackendTensorView *b,
+                                const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).matmul_exec_context(to_tensor_view(*a),
+                                              to_tensor_view(*b), out_view);
+}
+
+void plugin_matmul_right_transposed_exec_context(
+    void *backend, const BackendTensorView *a, const BackendTensorView *b,
+    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).matmul_right_transposed_exec_context(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_matmul_left_transposed_exec_context(
+    void *backend, const BackendTensorView *a, const BackendTensorView *b,
+    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).matmul_left_transposed_exec_context(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
+void plugin_scaled_causal_softmax_rows_exec_context(
+    void *backend, const BackendTensorView *scores, float scale,
+    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).scaled_causal_softmax_rows_exec_context(
+      to_tensor_view(*scores), scale, out_view);
+}
+
+void plugin_softmax_backward_causal_rows_exec_context(
+    void *backend, const BackendTensorView *softmax,
+    const BackendTensorView *dout, const BackendTensorView *dx) {
+  TensorView dx_view = to_tensor_view(*dx);
+  to_cpu_backend(backend).softmax_backward_causal_rows_exec_context(
+      to_tensor_view(*softmax), to_tensor_view(*dout), dx_view);
+}
+
 void plugin_softmax_backward_causal_rows(void *backend,
                                          const BackendTensorView *softmax,
                                          const BackendTensorView *dout,
@@ -377,6 +437,16 @@ const BackendApiV1 kBackendApi = {
     &plugin_softmax_rows,
     &plugin_softmax_backward_rows,
     &plugin_scaled_causal_softmax_rows,
+    &plugin_supports_exec_context_iteration,
+    &plugin_start_exec_context_iteration,
+    &plugin_finish_exec_context_iteration,
+    &plugin_start_exec_context_group,
+    &plugin_finish_exec_context_group,
+    &plugin_matmul_exec_context,
+    &plugin_matmul_left_transposed_exec_context,
+    &plugin_matmul_right_transposed_exec_context,
+    &plugin_scaled_causal_softmax_rows_exec_context,
+    &plugin_softmax_backward_causal_rows_exec_context,
     &plugin_softmax_backward_causal_rows,
     &plugin_apply_causal_mask_inplace,
     &plugin_adamw_step,

@@ -6,6 +6,7 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -16,6 +17,12 @@ namespace cuda_cublas_plugin {
 namespace {
 
 class CuBlasPluginBackend final : public DeviceBackend {
+  struct CudaExecutionLane {
+    cudaStream_t stream = nullptr;
+    cublasHandle_t cublas = nullptr;
+    cudaEvent_t done = nullptr;
+  };
+
 public:
   CuBlasPluginBackend() {
     check_cublas(cublasCreate(&handle_), "cublasCreate");
@@ -29,6 +36,20 @@ public:
   }
 
   ~CuBlasPluginBackend() override {
+    for (CudaExecutionLane &lane : exec_lanes_) {
+      if (lane.cublas != nullptr) {
+        cublasDestroy(lane.cublas);
+      }
+      if (lane.done != nullptr) {
+        cudaEventDestroy(lane.done);
+      }
+      if (lane.stream != nullptr) {
+        cudaStreamDestroy(lane.stream);
+      }
+    }
+    if (exec_ready_event_ != nullptr) {
+      cudaEventDestroy(exec_ready_event_);
+    }
     if (handle_ != nullptr) {
       cublasDestroy(handle_);
     }
@@ -373,6 +394,119 @@ public:
     launch_scaled_causal_softmax_rows(scores, scale, out);
   }
 
+  bool supports_exec_context_iteration() const override { return true; }
+
+  void start_exec_context_iteration() override {
+    ensure_exec_lanes();
+    exec_lane_index_ = 0;
+    active_exec_lane_index_ = 0;
+    used_exec_lane_count_ = 0;
+    has_active_exec_group_ = false;
+    in_exec_iteration_ = true;
+
+    check_cuda(cudaEventRecord(exec_ready_event_, 0),
+               "cudaEventRecord(exec context ready)");
+    for (CudaExecutionLane &lane : exec_lanes_) {
+      check_cuda(cudaStreamWaitEvent(lane.stream, exec_ready_event_, 0),
+                 "cudaStreamWaitEvent(exec context ready)");
+    }
+  }
+
+  void finish_exec_context_iteration() override {
+    if (!in_exec_iteration_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: finish_exec_context_iteration without active iteration");
+    }
+    if (has_active_exec_group_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: finish_exec_context_iteration with active group");
+    }
+    for (size_t lane_index = 0; lane_index < used_exec_lane_count_;
+         ++lane_index) {
+      CudaExecutionLane &lane = exec_lanes_[lane_index];
+      check_cuda(cudaEventRecord(lane.done, lane.stream),
+                 "cudaEventRecord(exec context done)");
+      check_cuda(cudaStreamWaitEvent(0, lane.done, 0),
+                 "cudaStreamWaitEvent(exec context done)");
+    }
+    in_exec_iteration_ = false;
+  }
+
+  void start_exec_context_group() override {
+    if (!in_exec_iteration_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: start_exec_context_group without active iteration");
+    }
+    if (has_active_exec_group_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: nested exec context groups are not supported");
+    }
+    if (exec_lanes_.empty()) {
+      throw std::runtime_error("cuda_cublas_plugin: no exec context lanes");
+    }
+    active_exec_lane_index_ = exec_lane_index_ % exec_lanes_.size();
+    used_exec_lane_count_ =
+        std::max(used_exec_lane_count_, active_exec_lane_index_ + 1);
+    has_active_exec_group_ = true;
+  }
+
+  void finish_exec_context_group() override {
+    if (!has_active_exec_group_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: finish_exec_context_group without active group");
+    }
+    has_active_exec_group_ = false;
+    ++exec_lane_index_;
+  }
+
+  void matmul_exec_context(const TensorView &a, const TensorView &b,
+                           TensorView &out) override {
+    cublas_matmul(active_exec_lane().cublas, a, b, out);
+  }
+
+  void matmul_left_transposed_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) override {
+    cublas_matmul_left_transposed(active_exec_lane().cublas, a, b, out);
+  }
+
+  void matmul_right_transposed_exec_context(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override {
+    cublas_matmul_right_transposed(active_exec_lane().cublas, a, b, out);
+  }
+
+  void scaled_causal_softmax_rows_exec_context(
+      const TensorView &scores, float scale, TensorView &out) override {
+    require_cuda_f32_row_major(scores,
+                               "scaled_causal_softmax_rows_exec_context(scores)");
+    require_cuda_f32_row_major(out,
+                               "scaled_causal_softmax_rows_exec_context(out)");
+    if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
+      return;
+    }
+    CudaExecutionLane &lane = active_exec_lane();
+    launch_scaled_causal_softmax_rows_on_stream(scores, scale, out,
+                                                lane.stream);
+  }
+
+  void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
+                                                 const TensorView &dout,
+                                                 TensorView &dx) override {
+    require_cuda_f32_row_major(
+        softmax, "softmax_backward_causal_rows_exec_context(softmax)");
+    require_cuda_f32_row_major(
+        dout, "softmax_backward_causal_rows_exec_context(dout)");
+    require_cuda_f32_row_major(
+        dx, "softmax_backward_causal_rows_exec_context(dx)");
+    if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
+      return;
+    }
+    CudaExecutionLane &lane = active_exec_lane();
+    launch_softmax_backward_causal_rows_on_stream(softmax, dout, dx,
+                                                  lane.stream);
+  }
+
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
@@ -455,6 +589,35 @@ public:
   }
 
 private:
+  CudaExecutionLane &active_exec_lane() {
+    if (!has_active_exec_group_) {
+      throw std::runtime_error(
+          "cuda_cublas_plugin: exec context op without active group");
+    }
+    return exec_lanes_[active_exec_lane_index_];
+  }
+
+  void ensure_exec_lanes() {
+    if (exec_ready_event_ == nullptr) {
+      check_cuda(cudaEventCreateWithFlags(&exec_ready_event_,
+                                          cudaEventDisableTiming),
+                 "cudaEventCreate(exec context ready)");
+    }
+    while (exec_lanes_.size() < max_exec_lanes_) {
+      CudaExecutionLane lane;
+      check_cuda(cudaStreamCreateWithFlags(&lane.stream, cudaStreamNonBlocking),
+                 "cudaStreamCreate(exec context)");
+      check_cublas(cublasCreate(&lane.cublas), "cublasCreate(exec context)");
+      check_cublas(cublasSetMathMode(lane.cublas, CUBLAS_DEFAULT_MATH),
+                   "cublasSetMathMode(exec context)");
+      check_cublas(cublasSetStream(lane.cublas, lane.stream),
+                   "cublasSetStream(exec context)");
+      check_cuda(cudaEventCreateWithFlags(&lane.done, cudaEventDisableTiming),
+                 "cudaEventCreate(exec context done)");
+      exec_lanes_.push_back(lane);
+    }
+  }
+
   void copy_stage_from_device(const TensorView &src, HostTensorStage &dst) {
     copy_tensor_2d(src, dst.view, cudaMemcpyDeviceToHost,
                    "cudaMemcpy2D(device_to_host_stage)");
@@ -494,6 +657,14 @@ private:
 
   cublasHandle_t handle_ = nullptr;
   DefaultCpuBackend cpu_backend_;
+  static constexpr size_t max_exec_lanes_ = 4;
+  cudaEvent_t exec_ready_event_ = nullptr;
+  std::vector<CudaExecutionLane> exec_lanes_;
+  size_t exec_lane_index_ = 0;
+  size_t active_exec_lane_index_ = 0;
+  size_t used_exec_lane_count_ = 0;
+  bool has_active_exec_group_ = false;
+  bool in_exec_iteration_ = false;
 };
 
 

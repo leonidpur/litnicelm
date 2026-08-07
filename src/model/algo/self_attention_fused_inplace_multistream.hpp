@@ -7,15 +7,15 @@
 #include "tensor_store.hpp"
 #include "training_observer.hpp"
 
-#include <string>
-
 class TrainingDiagnosticsController;
 
-class SelfAttentionFusedInplace final : public ISelfAttention {
+class SelfAttentionFusedInplaceMultistream final : public ISelfAttention {
 public:
-  SelfAttentionFusedInplace(int layer_index, const Config &cfg,
-                            TensorStore &tensor_store,
-                            GradientStore *gradient_store, Ops &ops);
+  SelfAttentionFusedInplaceMultistream(int layer_index, const Config &cfg,
+                                       TensorStore &tensor_store,
+                                       GradientStore *gradient_store,
+                                       Ops &ops);
+
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
@@ -23,8 +23,6 @@ public:
   void backward(const TensorView &dout, TensorView &dx) override;
 
 private:
-  void validate_contract() const;
-
   int idx_;
   const Config &cfg_;
   TensorStore &tensorStore_;
