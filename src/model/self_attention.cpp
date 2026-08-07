@@ -12,8 +12,39 @@
   })
 
 SelfAttention::SelfAttention(int layer_index, const Config &cfg,
-                             TensorFactory &tensors, Ops &ops)
-    : idx_(layer_index), cfg_(cfg), tensorFactory_(tensors), ops_(ops) {}
+                             TensorFactory &tensor_factory, Ops &ops)
+    : idx_(layer_index), cfg_(cfg), tensorFactory_(tensor_factory), ops_(ops) {
+  validate_contract();
+}
+
+void SelfAttention::validate_contract() const {
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const int64_t num_heads = static_cast<int64_t>(cfg_.model.n_heads);
+  require(num_heads > 0, "n_heads must be > 0");
+  require((model_dim % num_heads) == 0,
+          "d_model must be divisible by n_heads");
+
+  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
+
+  require(Wqkv.shape().r == model_dim && Wqkv.shape().c == 3 * model_dim,
+          "Wqkv must be [D, 3D]");
+  require(bqkv.shape().r == 1 && bqkv.shape().c == 3 * model_dim,
+          "bqkv must be [1, 3D]");
+  require(Wo.shape().r == model_dim && Wo.shape().c == model_dim,
+          "Wo must be [D, D]");
+  require(bo.shape().r == 1 && bo.shape().c == model_dim,
+          "bo must be [1, D]");
+
+  require(Wqkv.device() == bqkv.device() && Wqkv.device() == Wo.device() &&
+              Wqkv.device() == bo.device(),
+          "attention parameter devices must match");
+  require(Wqkv.dtype() == bqkv.dtype() && Wqkv.dtype() == Wo.dtype() &&
+              Wqkv.dtype() == bo.dtype(),
+          "attention parameter dtypes must match");
+}
 
 static void row_sum_f32(const TensorView &x, TensorView &out_1xC) {
   require(x.device() == Device::CPU && out_1xC.device() == Device::CPU,
@@ -66,46 +97,39 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   require(x.device() == out.device(), "x/out device mismatch");
   require(x.dtype() == out.dtype(), "x/out dtype mismatch");
 
-  const int64_t T = x.shape().r;
-  const int64_t D = x.shape().c;
-  require(D == static_cast<int64_t>(cfg_.model.d_model), "x.c != d_model");
-  require(out.shape().r == T && out.shape().c == D, "out must be [T, D]");
+  const int64_t token_rows = x.shape().r;
+  const int64_t model_dim = x.shape().c;
+  require(model_dim == static_cast<int64_t>(cfg_.model.d_model), "x.c != d_model");
+  require(out.shape().r == token_rows && out.shape().c == model_dim,
+          "out must be [T, D]");
 
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
-  require(H > 0, "n_heads must be > 0");
-  require((D % H) == 0, "d_model must be divisible by n_heads");
-  const int64_t dh = D / H;
+  const int64_t dh = model_dim / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
-  const TensorView Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
-  const TensorView bqkv = tensorFactory_.param_attn_qkv_b(idx_);
-  const TensorView Wo = tensorFactory_.param_attn_out_w(idx_);
-  const TensorView bo = tensorFactory_.param_attn_out_b(idx_);
-  require(Wqkv.shape().r == D && Wqkv.shape().c == 3 * D,
-          "Wqkv must be [D, 3D]");
-  require(bqkv.shape().r == 1 && bqkv.shape().c == 3 * D,
-          "bqkv must be [1, 3D]");
-  require(Wo.shape().r == D && Wo.shape().c == D, "Wo must be [D, D]");
-  require(bo.shape().r == 1 && bo.shape().c == D, "bo must be [1, D]");
+  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
 
   require(Wqkv.device() == x.device() && Wo.device() == x.device(),
           "param device mismatch");
   require(Wqkv.dtype() == x.dtype() && Wo.dtype() == x.dtype(),
           "param dtype mismatch");
 
-  TensorView qkv = tensorFactory_.temp_attn_qkv(idx_, T);
+  TensorView qkv = tensorFactory_.temp_attn_qkv(idx_, token_rows);
   ops_.matmul(x, Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
 
-  TensorView Q = qkv.subcols(0, D);
-  TensorView K = qkv.subcols(D, D);
-  TensorView V = qkv.subcols(2 * D, D);
+  TensorView Q = qkv.subcols(0, model_dim);
+  TensorView K = qkv.subcols(model_dim, model_dim);
+  TensorView V = qkv.subcols(2 * model_dim, model_dim);
 
-  TensorView context = tensorFactory_.temp_attn_context(idx_, T);
+  TensorView context = tensorFactory_.temp_attn_context(idx_, token_rows);
   ops_.fill(context, 0.0f);
 
-  TensorView scores = tensorFactory_.temp_attn_scores(idx_, T);
-  TensorView weights = tensorFactory_.temp_attn_weights(idx_, T);
+  TensorView scores = tensorFactory_.temp_attn_scores(idx_, token_rows);
+  TensorView weights = tensorFactory_.temp_attn_weights(idx_, token_rows);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -120,7 +144,7 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
     ops_.apply_causal_mask_inplace(scores);
     ops_.softmax_rows(scores, weights);
 
-    TensorView head = tensorFactory_.temp_attn_head(idx_, T);
+    TensorView head = tensorFactory_.temp_attn_head(idx_, token_rows);
     ops_.matmul(weights, Vh, head);
 
     TensorView context_h = context.subcols(col0, dh);
@@ -144,19 +168,17 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
   require(dx.shape().r == cache_x_.shape().r && dx.shape().c == cache_x_.shape().c,
           "dx shape mismatch");
 
-  const int64_t T = cache_x_.shape().r;
-  const int64_t D = cache_x_.shape().c;
+  const int64_t token_rows = cache_x_.shape().r;
+  const int64_t model_dim = cache_x_.shape().c;
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
-  require(H > 0, "n_heads must be > 0");
-  require((D % H) == 0, "d_model must be divisible by n_heads");
-  const int64_t dh = D / H;
+  const int64_t dh = model_dim / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
-  const TensorView Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
-  const TensorView bqkv = tensorFactory_.param_attn_qkv_b(idx_);
-  const TensorView Wo = tensorFactory_.param_attn_out_w(idx_);
-  const TensorView bo = tensorFactory_.param_attn_out_b(idx_);
-  TensorView contextT = tensorFactory_.temp_attn_contextT(idx_, T);
+  const TensorView &Wqkv = tensorFactory_.param_attn_qkv_w(idx_);
+  const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
+  const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
+  const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
+  TensorView contextT = tensorFactory_.temp_attn_contextT(idx_, token_rows);
   ops_.transpose(cache_context_, contextT);
   TensorView dWo = tensorFactory_.temp_attn_dWo(idx_);
   ops_.matmul(contextT, dout, dWo);
@@ -165,27 +187,27 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
 
   TensorView WoT = tensorFactory_.temp_attn_WoT(idx_);
   ops_.transpose(Wo, WoT);
-  TensorView dcontext = tensorFactory_.temp_attn_dcontext(idx_, T);
+  TensorView dcontext = tensorFactory_.temp_attn_dcontext(idx_, token_rows);
   ops_.matmul(dout, WoT, dcontext);
 
-  TensorView dqkv = tensorFactory_.temp_attn_dqkv(idx_, T);
+  TensorView dqkv = tensorFactory_.temp_attn_dqkv(idx_, token_rows);
   ops_.fill(dqkv, 0.0f);
-  TensorView dQ = dqkv.subcols(0, D);
-  TensorView dK = dqkv.subcols(D, D);
-  TensorView dV = dqkv.subcols(2 * D, D);
+  TensorView dQ = dqkv.subcols(0, model_dim);
+  TensorView dK = dqkv.subcols(model_dim, model_dim);
+  TensorView dV = dqkv.subcols(2 * model_dim, model_dim);
 
-  TensorView Q = cache_qkv_.subcols(0, D);
-  TensorView K = cache_qkv_.subcols(D, D);
-  TensorView V = cache_qkv_.subcols(2 * D, D);
+  TensorView Q = cache_qkv_.subcols(0, model_dim);
+  TensorView K = cache_qkv_.subcols(model_dim, model_dim);
+  TensorView V = cache_qkv_.subcols(2 * model_dim, model_dim);
 
-  TensorView KhT = tensorFactory_.temp_attn_KhT(idx_, T);
-  TensorView scores = tensorFactory_.temp_attn_scores(idx_, T);
-  TensorView weights = tensorFactory_.temp_attn_weights(idx_, T);
-  TensorView VhT = tensorFactory_.temp_attn_VhT(idx_, T);
-  TensorView dweights = tensorFactory_.temp_attn_dweights(idx_, T);
-  TensorView weightsT = tensorFactory_.temp_attn_weightsT(idx_, T);
-  TensorView dscores = tensorFactory_.temp_attn_dscores(idx_, T);
-  TensorView dscoresT = tensorFactory_.temp_attn_dscoresT(idx_, T);
+  TensorView KhT = tensorFactory_.temp_attn_KhT(idx_, token_rows);
+  TensorView scores = tensorFactory_.temp_attn_scores(idx_, token_rows);
+  TensorView weights = tensorFactory_.temp_attn_weights(idx_, token_rows);
+  TensorView VhT = tensorFactory_.temp_attn_VhT(idx_, token_rows);
+  TensorView dweights = tensorFactory_.temp_attn_dweights(idx_, token_rows);
+  TensorView weightsT = tensorFactory_.temp_attn_weightsT(idx_, token_rows);
+  TensorView dscores = tensorFactory_.temp_attn_dscores(idx_, token_rows);
+  TensorView dscoresT = tensorFactory_.temp_attn_dscoresT(idx_, token_rows);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -209,8 +231,8 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
     ops_.matmul(weightsT, dhead, dVh);
 
     softmax_backward_rows_f32(weights, dweights, dscores);
-    for (int64_t i = 0; i < T; ++i) {
-      for (int64_t j = i + 1; j < T; ++j) {
+    for (int64_t i = 0; i < token_rows; ++i) {
+      for (int64_t j = i + 1; j < token_rows; ++j) {
         dscores.set_f32(i, j, 0.0f);
       }
     }
@@ -227,7 +249,7 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
   ops_.transpose(Wqkv, WqkvT);
   ops_.matmul(dqkv, WqkvT, dx);
 
-  TensorView xT = tensorFactory_.temp_attn_xT(idx_, T);
+  TensorView xT = tensorFactory_.temp_attn_xT(idx_, token_rows);
   ops_.transpose(cache_x_, xT);
   TensorView dWqkv = tensorFactory_.temp_attn_dWqkv(idx_);
   ops_.matmul(xT, dqkv, dWqkv);

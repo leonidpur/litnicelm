@@ -22,7 +22,7 @@ public:
   using ParamUpdater =
       std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
 
-  SelfAttention(int layer_index, const Config &cfg, TensorFactory &tensors,
+  SelfAttention(int layer_index, const Config &cfg, TensorFactory &tensor_factory,
                 Ops &ops);
 
   // x:   [T, D]
@@ -32,6 +32,8 @@ public:
                 const ParamUpdater &update_param);
 
 private:
+  void validate_contract() const;
+
   int idx_;
   const Config &cfg_;
   TensorFactory &tensorFactory_;

@@ -9,16 +9,31 @@
 
 class TensorFactory {
 public:
+  struct LayerParamViews {
+    TensorView ln1_gamma;
+    TensorView ln1_beta;
+    TensorView attn_qkv_w;
+    TensorView attn_qkv_b;
+    TensorView attn_out_w;
+    TensorView attn_out_b;
+    TensorView ln2_gamma;
+    TensorView ln2_beta;
+    TensorView ffn_w1;
+    TensorView ffn_b1;
+    TensorView ffn_w2;
+    TensorView ffn_b2;
+  };
+
   TensorFactory(const Config &cfg, const NamedLayout &param_layout,
                 void *params_base, uint64_t params_bytes, Device device,
                 const NamedLayout &temp_layout, void *temp_base,
                 uint64_t temp_bytes);
 
-  TensorView tok_embedding() const;
-  TensorView pos_embedding() const;
-  TensorView lnf_gamma() const;
-  TensorView lnf_beta() const;
-  TensorView lm_head_w() const;
+  const TensorView &tok_embedding() const;
+  const TensorView &pos_embedding() const;
+  const TensorView &lnf_gamma() const;
+  const TensorView &lnf_beta() const;
+  const TensorView &lm_head_w() const;
 
   TensorView layer_ln1_gamma(int layer) const;
   TensorView layer_ln1_beta(int layer) const;
@@ -41,23 +56,23 @@ public:
   TensorView layer_ffn_b1(int layer) const;
   TensorView layer_ffn_w2(int layer) const;
   TensorView layer_ffn_b2(int layer) const;
-  TensorView param_ffn_w1(int layer) const;
-  TensorView param_ffn_b1(int layer) const;
-  TensorView param_ffn_w2(int layer) const;
-  TensorView param_ffn_b2(int layer) const;
-  TensorView param_attn_qkv_w(int layer) const;
-  TensorView param_attn_qkv_b(int layer) const;
-  TensorView param_attn_out_w(int layer) const;
-  TensorView param_attn_out_b(int layer) const;
-  TensorView param_ln1_gamma(int layer) const;
-  TensorView param_ln1_beta(int layer) const;
-  TensorView param_ln2_gamma(int layer) const;
-  TensorView param_ln2_beta(int layer) const;
-  TensorView param_tok_embedding() const;
-  TensorView param_pos_embedding() const;
-  TensorView param_lnf_gamma() const;
-  TensorView param_lnf_beta() const;
-  TensorView param_lm_head_w() const;
+  const TensorView &param_ffn_w1(int layer) const;
+  const TensorView &param_ffn_b1(int layer) const;
+  const TensorView &param_ffn_w2(int layer) const;
+  const TensorView &param_ffn_b2(int layer) const;
+  const TensorView &param_attn_qkv_w(int layer) const;
+  const TensorView &param_attn_qkv_b(int layer) const;
+  const TensorView &param_attn_out_w(int layer) const;
+  const TensorView &param_attn_out_b(int layer) const;
+  const TensorView &param_ln1_gamma(int layer) const;
+  const TensorView &param_ln1_beta(int layer) const;
+  const TensorView &param_ln2_gamma(int layer) const;
+  const TensorView &param_ln2_beta(int layer) const;
+  const TensorView &param_tok_embedding() const;
+  const TensorView &param_pos_embedding() const;
+  const TensorView &param_lnf_gamma() const;
+  const TensorView &param_lnf_beta() const;
+  const TensorView &param_lm_head_w() const;
 
   TensorView temp_ds_ids(int64_t rows) const;
   TensorView temp_ds_targets(int64_t rows) const;
@@ -141,8 +156,15 @@ private:
   uint8_t *temp_base_ = nullptr;
   uint64_t temp_bytes_ = 0;
   Device device_ = Device::CPU;
+  TensorView tok_embedding_;
+  TensorView pos_embedding_;
+  TensorView lnf_gamma_;
+  TensorView lnf_beta_;
+  TensorView lm_head_w_;
+  std::vector<LayerParamViews> layer_param_views_;
 
   void check_layer(int layer) const;
+  void build_param_views();
   const LayoutSlice &require_slice(const std::string &name) const;
   const LayoutSlice &require_temp_slice(const std::string &name) const;
 

@@ -10,8 +10,35 @@
   REQUIRE_DEBUG((cond),                                                         \
                 [&]() { return std::string("FFN: ") + std::string(msg); })
 
-FFN::FFN(int layer_index, const Config &cfg, TensorFactory &tensors, Ops &ops)
-    : idx_(layer_index), cfg_(cfg), tensorFactory_(tensors), ops_(ops) {}
+FFN::FFN(int layer_index, const Config &cfg, TensorFactory &tensor_factory, Ops &ops)
+    : idx_(layer_index), cfg_(cfg), tensorFactory_(tensor_factory), ops_(ops) {
+  validate_contract();
+}
+
+void FFN::validate_contract() const {
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
+
+  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
+
+  require(W1.shape().r == model_dim && W1.shape().c == ffn_dim,
+          "W1 must be [D, F]");
+  require(b1.shape().r == 1 && b1.shape().c == ffn_dim, "b1 must be [1, F]");
+  require(W2.shape().r == ffn_dim && W2.shape().c == model_dim,
+          "W2 must be [F, D]");
+  require(b2.shape().r == 1 && b2.shape().c == model_dim,
+          "b2 must be [1, D]");
+
+  require(W1.device() == W2.device() && W1.device() == b1.device() &&
+              W1.device() == b2.device(),
+          "FFN parameter devices must match");
+  require(W1.dtype() == W2.dtype() && W1.dtype() == b1.dtype() &&
+              W1.dtype() == b2.dtype(),
+          "FFN parameter dtypes must match");
+}
 
 static void row_sum_f32(const TensorView &x, TensorView &out_1xC) {
   require(x.device() == Device::CPU && out_1xC.device() == Device::CPU,
@@ -57,29 +84,25 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   require(x.device() == out.device(), "x/out device mismatch");
   require(x.dtype() == out.dtype(), "x/out dtype mismatch");
 
-  const int64_t T = x.shape().r;
-  const int64_t D = x.shape().c;
-  require(D == static_cast<int64_t>(cfg_.model.d_model), "x.c != d_model");
-  require(out.shape().r == T && out.shape().c == D, "out must be [T, D]");
+  const int64_t token_rows = x.shape().r;
+  const int64_t model_dim = x.shape().c;
+  require(model_dim == static_cast<int64_t>(cfg_.model.d_model), "x.c != d_model");
+  require(out.shape().r == token_rows && out.shape().c == model_dim,
+          "out must be [T, D]");
 
   const int64_t F = static_cast<int64_t>(cfg_.model.d_ff);
 
-  const TensorView W1 = tensorFactory_.param_ffn_w1(idx_);
-  const TensorView b1 = tensorFactory_.param_ffn_b1(idx_);
-  const TensorView W2 = tensorFactory_.param_ffn_w2(idx_);
-  const TensorView b2 = tensorFactory_.param_ffn_b2(idx_);
+  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
   require(W1.device() == x.device() && W2.device() == x.device(),
           "param device mismatch");
   require(W1.dtype() == x.dtype() && W2.dtype() == x.dtype(),
           "param dtype mismatch");
 
-  require(W1.shape().r == D && W1.shape().c == F, "W1 must be [D, F]");
-  require(b1.shape().r == 1 && b1.shape().c == F, "b1 must be [1, F]");
-  require(W2.shape().r == F && W2.shape().c == D, "W2 must be [F, D]");
-  require(b2.shape().r == 1 && b2.shape().c == D, "b2 must be [1, D]");
-
-  TensorView h = tensorFactory_.temp_ffn_h(idx_, T);
-  TensorView a = tensorFactory_.temp_ffn_a(idx_, T);
+  TensorView h = tensorFactory_.temp_ffn_h(idx_, token_rows);
+  TensorView a = tensorFactory_.temp_ffn_a(idx_, token_rows);
 
   ops_.matmul(x, W1, h);
   ops_.add_bias_rowwise(h, b1, h);
@@ -101,15 +124,15 @@ void FFN::backward(const TensorView &dout, TensorView &dx,
   require(dx.shape().r == cache_x_.shape().r && dx.shape().c == cache_x_.shape().c,
           "dx shape mismatch");
 
-  const int64_t T = cache_x_.shape().r;
-  const int64_t D = cache_x_.shape().c;
+  const int64_t token_rows = cache_x_.shape().r;
+  const int64_t model_dim = cache_x_.shape().c;
   const int64_t F = static_cast<int64_t>(cfg_.model.d_ff);
 
-  const TensorView W1 = tensorFactory_.param_ffn_w1(idx_);
-  const TensorView b1 = tensorFactory_.param_ffn_b1(idx_);
-  const TensorView W2 = tensorFactory_.param_ffn_w2(idx_);
-  const TensorView b2 = tensorFactory_.param_ffn_b2(idx_);
-  TensorView aT = tensorFactory_.temp_ffn_aT(idx_, T);
+  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
+  TensorView aT = tensorFactory_.temp_ffn_aT(idx_, token_rows);
   ops_.transpose(cache_a_, aT);
   TensorView dW2 = tensorFactory_.temp_ffn_dW2(idx_);
   ops_.matmul(aT, dout, dW2);
@@ -118,13 +141,13 @@ void FFN::backward(const TensorView &dout, TensorView &dx,
 
   TensorView W2T = tensorFactory_.temp_ffn_W2T(idx_);
   ops_.transpose(W2, W2T);
-  TensorView da = tensorFactory_.temp_ffn_da(idx_, T);
+  TensorView da = tensorFactory_.temp_ffn_da(idx_, token_rows);
   ops_.matmul(dout, W2T, da);
 
-  TensorView dh = tensorFactory_.temp_ffn_dh(idx_, T);
+  TensorView dh = tensorFactory_.temp_ffn_dh(idx_, token_rows);
   relu_backward_f32(cache_h_, da, dh);
 
-  TensorView xT = tensorFactory_.temp_ffn_xT(idx_, T);
+  TensorView xT = tensorFactory_.temp_ffn_xT(idx_, token_rows);
   ops_.transpose(cache_x_, xT);
   TensorView dW1 = tensorFactory_.temp_ffn_dW1(idx_);
   ops_.matmul(xT, dh, dW1);

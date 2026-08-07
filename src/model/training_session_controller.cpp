@@ -23,9 +23,11 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
     : cfg_(cfg), cmd_(cmd) {}
 
 bool TrainingSessionController::training_loop_start(
-    TrainingState &state, TensorFactory &tensors, ReportSink *sink,
+    TrainingState &state, TensorFactory &tensor_factory, uint64_t steps_per_epoch,
+    DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena,
     const AdamStateView &adam_state) {
+  steps_per_epoch_ = steps_per_epoch;
   const bool estimate = is_estimation_mode();
   std::ostringstream oss;
   if (estimate) {
@@ -37,9 +39,9 @@ bool TrainingSessionController::training_loop_start(
   report_if(sink, ReportEvent::START, static_cast<uint32_t>(state.global_step),
             0.0f, oss.str());
 
-  const bool resumed = maybe_resume(state, data_arena, adam_state);
+  const bool resumed = maybe_resume(state, device_backend, data_arena, adam_state);
   if (!resumed) {
-    tensors.initialize_parameters_deterministic();
+    tensor_factory.initialize_parameters_deterministic();
     state.global_step = 0;
     state.epoch = 0;
     if (adam_state.base != nullptr && adam_state.bytes > 0) {
@@ -48,6 +50,11 @@ bool TrainingSessionController::training_loop_start(
     std::cout << "[Trainer] Fresh initialization completed for parameters and optimizer state.\n";
   }
   return resumed;
+}
+
+uint32_t TrainingSessionController::total_epochs() const {
+  return is_estimation_mode() ? cfg_.training.num_epochs_dry_run
+                              : cfg_.training.num_epochs_train;
 }
 
 bool TrainingSessionController::is_estimation_mode() const {
@@ -69,7 +76,8 @@ void TrainingSessionController::on_epoch_start(uint32_t epoch) {
 
 void TrainingSessionController::on_epoch_end(uint32_t epoch, float mean_loss,
                                              TrainingState &state,
-                                             uint32_t print_mod,
+                                             uint32_t epoch_report_every,
+                                             DeviceBackend &device_backend,
                                              ReportSink *sink,
                                              const ArenaView &data_arena,
                                              const AdamStateView &adam_state) {
@@ -77,15 +85,14 @@ void TrainingSessionController::on_epoch_end(uint32_t epoch, float mean_loss,
   const auto elapsed =
       std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count();
   ms_per_epoch_avg_ = (epoch > 0) ? (elapsed / epoch) : 0;
-  std::cout << "#";
-  if ((epoch % print_mod) == 0) {
+  if ((epoch % epoch_report_every) == 0) {
     std::ostringstream oss;
     oss << "Epoch " << epoch << " mean_loss=" << mean_loss
         << " " << get_eta_report(epoch);
     report_if(sink, ReportEvent::STEP_COMPLETE, epoch, mean_loss, oss.str());
   }
   state.epoch = epoch;
-  maybe_save(state, true, data_arena, adam_state);
+  maybe_save(state, true, device_backend, data_arena, adam_state);
 }
 
 void TrainingSessionController::training_loop_end(const TrainingState &state,
@@ -122,6 +129,7 @@ void TrainingSessionController::training_loop_end(const TrainingState &state,
 }
 
 bool TrainingSessionController::maybe_resume(TrainingState &state,
+                                             DeviceBackend &device_backend,
                                              const ArenaView &data_arena,
                                              const AdamStateView &adam_state) {
   if (!cfg_.training.incremental) {
@@ -139,13 +147,17 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
   try {
     std::string error_detail;
     if (!load_checkpoint(cfg_.paths.model_file, cfg_.model, cfg_.conf_version,
-                         cfg_.memory.alignment_bytes, data_arena, adam_state,
-                         state.global_step, &error_detail)) {
+                         cfg_.memory.alignment_bytes, device_backend,
+                         data_arena, adam_state,
+                         state.global_step, state.epoch, &error_detail)) {
       throw std::runtime_error("Failed to load checkpoint: " +
                                cfg_.paths.model_file + " | " + error_detail);
     }
-    std::cout << "  -> Success. Resumed at Epoch " << state.epoch
-              << ", Global Step " << state.global_step << "\n";
+    const uint64_t total_steps =
+        steps_per_epoch_ * static_cast<uint64_t>(total_epochs());
+    std::cout << "  -> Success. Resumed at Step [" << state.global_step << "/"
+              << total_steps << "], epoch[" << state.epoch << "/"
+              << total_epochs() << "]\n";
     return true;
   } catch (const std::exception &e) {
     std::cerr << "[Trainer] ERROR during resume: " << e.what()
@@ -156,6 +168,7 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
 
 void TrainingSessionController::maybe_save(const TrainingState &state,
                                            bool force,
+                                           DeviceBackend &device_backend,
                                            const ArenaView &data_arena,
                                            const AdamStateView &adam_state) {
   if (is_estimation_mode()) {
@@ -180,13 +193,18 @@ void TrainingSessionController::maybe_save(const TrainingState &state,
 
     const bool ok =
         save_checkpoint(cfg_.paths.model_file, cfg_.model, cfg_.conf_version,
-                        cfg_.memory.alignment_bytes, data_arena, adam_state,
-                        state.global_step);
+                        cfg_.memory.alignment_bytes, device_backend,
+                        data_arena, adam_state,
+                        state.global_step, state.epoch);
     if (!ok) {
       throw std::runtime_error("save_checkpoint failed");
     }
-    std::cout << "  -> Checkpoint saved successfully at Step "
-              << state.global_step << "\n";
+    const uint32_t total_epochs = this->total_epochs();
+    const uint64_t total_steps =
+        steps_per_epoch_ * static_cast<uint64_t>(total_epochs);
+    std::cout << "  -> Checkpoint saved successfully at Step ["
+              << state.global_step << "/" << total_steps << "]"
+              << ", epoch[" << state.epoch << "/" << total_epochs << "]\n";
   } catch (const std::exception &e) {
     std::cerr << "[Trainer] CRITICAL: Failed to save checkpoint: " << e.what()
               << "\n";

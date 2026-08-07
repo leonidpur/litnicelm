@@ -127,6 +127,7 @@ const std::vector<std::string> &required_keys() {
       "logging.show_train",
       "logging.show_inference",
       "logging.report_every_n_steps",
+      "logging.epoch_report_every",
       "reporting.verbose_epoch_index",
       "reporting.verbose_init",
   };
@@ -361,6 +362,10 @@ bool map_logging_fields(const std::string &key, const std::string &value, Config
     cfg.logging.report_every_n_steps = parse_i32_or_throw(value, key);
     return true;
   }
+  if (key == "logging.epoch_report_every") {
+    cfg.logging.epoch_report_every = parse_u32_or_throw(value, key);
+    return true;
+  }
   if (key == "reporting.verbose_epoch_index") {
     const auto p = parse_i32_pair_or_throw(value, key);
     cfg.reporting.verbose_epoch_index = {p.first, p.second};
@@ -440,6 +445,11 @@ std::string Config::apply_command_overrides(const Command &cmd) {
     replaced.push_back("training.batch_size=" +
                        std::to_string(cmd.batch_size_override));
   }
+  if (cmd.has_incremental_override) {
+    this->training.incremental = cmd.incremental_override;
+    replaced.push_back(std::string("training.incremental=") +
+                       (cmd.incremental_override ? "true" : "false"));
+  }
   if (cmd.num_epochs_override > 0) {
     if (cmd.target == Command::Target::DRY_RUN) {
       this->training.num_epochs_dry_run = cmd.num_epochs_override;
@@ -450,6 +460,11 @@ std::string Config::apply_command_overrides(const Command &cmd) {
       replaced.push_back("training.num_epochs_train=" +
                          std::to_string(cmd.num_epochs_override));
     }
+  }
+  if (cmd.runtime_flags.epoch_report_every > 0) {
+    this->logging.epoch_report_every = cmd.runtime_flags.epoch_report_every;
+    replaced.push_back("logging.epoch_report_every=" +
+                       std::to_string(cmd.runtime_flags.epoch_report_every));
   }
 
   std::ostringstream out;

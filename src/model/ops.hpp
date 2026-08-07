@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ops_cpu.hpp"
+#include "backend/device_backend.hpp"
 #include "tensor.hpp"
 
 class Ops {
 public:
-  explicit Ops(Device device = Device::CPU);
+  explicit Ops(Device device, DeviceBackend &device_backend);
 
   void copy(const TensorView &src, TensorView &dst) const;
   void fill(TensorView &t, float v) const;
@@ -24,6 +24,10 @@ public:
   void transpose(const TensorView &x, TensorView &out) const;
   void layernorm(const TensorView &x, const TensorView &gamma_1xC,
                  const TensorView &beta_1xC, TensorView &out) const;
+  void layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
+                          const TensorView &dout, TensorView &dx,
+                          TensorView &dgamma_1xC,
+                          TensorView &dbeta_1xC) const;
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) const;
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
@@ -38,5 +42,5 @@ public:
 
 private:
   Device device_ = Device::CPU;
-  OpsCPU cpu_;
+  DeviceBackend &device_backend_;
 };

@@ -57,6 +57,7 @@ struct LoggingConfig {
   bool show_train;
   bool show_inference;
   int32_t report_every_n_steps;
+  uint32_t epoch_report_every;
 };
 
 struct ReportingConfig {
@@ -105,9 +106,17 @@ struct Config {
 };
 
 struct RuntimeFlags {
-  bool do_probe;
+  struct ProbeFlags {
+    bool embeddings;
+    bool output_head;
+    bool loss;
+    bool backward;
+    bool attention;
+    bool ffn;
+    bool layernorm;
+  } probe;
   bool logit;
-  uint32_t print_mod;
+  uint32_t epoch_report_every;
 };
 
 struct Command {
@@ -127,6 +136,8 @@ struct Command {
 
   uint32_t window_training_override;
   uint32_t batch_size_override;
+  bool has_incremental_override;
+  bool incremental_override;
   RuntimeFlags runtime_flags;
   uint32_t num_epochs_override;
 

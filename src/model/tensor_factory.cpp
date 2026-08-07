@@ -26,6 +26,7 @@ TensorFactory::TensorFactory(const Config &cfg, const NamedLayout &param_layout,
   require(temp_bytes_ > 0, "temp_bytes must be > 0");
   require(temp_layout_.total_bytes() <= temp_bytes_,
           "temp_layout.total_bytes() exceeds provided temp_bytes");
+  build_param_views();
 }
 
 void TensorFactory::check_layer(int layer) const {
@@ -36,6 +37,51 @@ void TensorFactory::check_layer(int layer) const {
 
 std::string TensorFactory::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
+}
+
+void TensorFactory::build_param_views() {
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
+  const int64_t vocab_size =
+      static_cast<int64_t>(cfg_.model.target_vocab_size);
+  const int64_t qkv_dim = 3 * model_dim;
+
+  tok_embedding_ = by_name_f32("tok_embedding", {vocab_size, model_dim});
+  pos_embedding_ =
+      by_name_f32("pos_embedding", {static_cast<int64_t>(cfg_.model.window_capacity),
+                                     model_dim});
+  lnf_gamma_ = by_name_f32("lnf_gamma", {1, model_dim});
+  lnf_beta_ = by_name_f32("lnf_beta", {1, model_dim});
+  lm_head_w_ = by_name_f32("lm_head_w", {model_dim, vocab_size});
+
+  layer_param_views_.resize(cfg_.model.n_layers);
+  for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
+    LayerParamViews &views = layer_param_views_[layer];
+    views.ln1_gamma = by_name_f32(lname(static_cast<int>(layer), "ln1_gamma"),
+                                  {1, model_dim});
+    views.ln1_beta = by_name_f32(lname(static_cast<int>(layer), "ln1_beta"),
+                                 {1, model_dim});
+    views.attn_qkv_w = by_name_f32(
+        lname(static_cast<int>(layer), "attn_qkv_w"), {model_dim, qkv_dim});
+    views.attn_qkv_b = by_name_f32(
+        lname(static_cast<int>(layer), "attn_qkv_b"), {1, qkv_dim});
+    views.attn_out_w = by_name_f32(
+        lname(static_cast<int>(layer), "attn_out_w"), {model_dim, model_dim});
+    views.attn_out_b = by_name_f32(
+        lname(static_cast<int>(layer), "attn_out_b"), {1, model_dim});
+    views.ln2_gamma = by_name_f32(lname(static_cast<int>(layer), "ln2_gamma"),
+                                  {1, model_dim});
+    views.ln2_beta = by_name_f32(lname(static_cast<int>(layer), "ln2_beta"),
+                                 {1, model_dim});
+    views.ffn_w1 = by_name_f32(lname(static_cast<int>(layer), "ffn_w1"),
+                               {model_dim, ffn_dim});
+    views.ffn_b1 = by_name_f32(lname(static_cast<int>(layer), "ffn_b1"),
+                               {1, ffn_dim});
+    views.ffn_w2 = by_name_f32(lname(static_cast<int>(layer), "ffn_w2"),
+                               {ffn_dim, model_dim});
+    views.ffn_b2 = by_name_f32(lname(static_cast<int>(layer), "ffn_b2"),
+                               {1, model_dim});
+  }
 }
 
 const LayoutSlice &TensorFactory::require_slice(const std::string &name) const {
@@ -516,34 +562,6 @@ TensorView TensorFactory::temp_ffn_W1T(int layer) const {
                               static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::tok_embedding() const {
-  const int64_t V = cfg_.model.target_vocab_size;
-  const int64_t D = cfg_.model.d_model;
-  return by_name_f32("tok_embedding", {V, D});
-}
-
-TensorView TensorFactory::pos_embedding() const {
-  const int64_t S = cfg_.model.window_capacity;
-  const int64_t D = cfg_.model.d_model;
-  return by_name_f32("pos_embedding", {S, D});
-}
-
-TensorView TensorFactory::lnf_gamma() const {
-  const int64_t D = cfg_.model.d_model;
-  return by_name_f32("lnf_gamma", {1, D});
-}
-
-TensorView TensorFactory::lnf_beta() const {
-  const int64_t D = cfg_.model.d_model;
-  return by_name_f32("lnf_beta", {1, D});
-}
-
-TensorView TensorFactory::lm_head_w() const {
-  const int64_t D = cfg_.model.d_model;
-  const int64_t V = cfg_.model.target_vocab_size;
-  return by_name_f32("lm_head_w", {D, V});
-}
-
 TensorView TensorFactory::layer_ln1_gamma(int layer) const {
   check_layer(layer);
   return by_name_f32(lname(layer, "ln1_gamma"), {1, (int64_t)cfg_.model.d_model});
@@ -656,39 +674,65 @@ TensorView TensorFactory::layer_ffn_b2(int layer) const {
   return by_name_f32(lname(layer, "ffn_b2"), {1, D});
 }
 
-TensorView TensorFactory::param_ffn_w1(int layer) const { return layer_ffn_w1(layer); }
-TensorView TensorFactory::param_ffn_b1(int layer) const { return layer_ffn_b1(layer); }
-TensorView TensorFactory::param_ffn_w2(int layer) const { return layer_ffn_w2(layer); }
-TensorView TensorFactory::param_ffn_b2(int layer) const { return layer_ffn_b2(layer); }
-TensorView TensorFactory::param_attn_qkv_w(int layer) const {
-  return layer_attn_qkv_w(layer);
+const TensorView &TensorFactory::tok_embedding() const { return tok_embedding_; }
+const TensorView &TensorFactory::pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorFactory::lnf_gamma() const { return lnf_gamma_; }
+const TensorView &TensorFactory::lnf_beta() const { return lnf_beta_; }
+const TensorView &TensorFactory::lm_head_w() const { return lm_head_w_; }
+
+const TensorView &TensorFactory::param_ffn_w1(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ffn_w1;
 }
-TensorView TensorFactory::param_attn_qkv_b(int layer) const {
-  return layer_attn_qkv_b(layer);
+const TensorView &TensorFactory::param_ffn_b1(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ffn_b1;
 }
-TensorView TensorFactory::param_attn_out_w(int layer) const {
-  return layer_attn_out_w(layer);
+const TensorView &TensorFactory::param_ffn_w2(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ffn_w2;
 }
-TensorView TensorFactory::param_attn_out_b(int layer) const {
-  return layer_attn_out_b(layer);
+const TensorView &TensorFactory::param_ffn_b2(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ffn_b2;
 }
-TensorView TensorFactory::param_ln1_gamma(int layer) const {
-  return layer_ln1_gamma(layer);
+const TensorView &TensorFactory::param_attn_qkv_w(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w;
 }
-TensorView TensorFactory::param_ln1_beta(int layer) const {
-  return layer_ln1_beta(layer);
+const TensorView &TensorFactory::param_attn_qkv_b(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b;
 }
-TensorView TensorFactory::param_ln2_gamma(int layer) const {
-  return layer_ln2_gamma(layer);
+const TensorView &TensorFactory::param_attn_out_w(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].attn_out_w;
 }
-TensorView TensorFactory::param_ln2_beta(int layer) const {
-  return layer_ln2_beta(layer);
+const TensorView &TensorFactory::param_attn_out_b(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].attn_out_b;
 }
-TensorView TensorFactory::param_tok_embedding() const { return tok_embedding(); }
-TensorView TensorFactory::param_pos_embedding() const { return pos_embedding(); }
-TensorView TensorFactory::param_lnf_gamma() const { return lnf_gamma(); }
-TensorView TensorFactory::param_lnf_beta() const { return lnf_beta(); }
-TensorView TensorFactory::param_lm_head_w() const { return lm_head_w(); }
+const TensorView &TensorFactory::param_ln1_gamma(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ln1_gamma;
+}
+const TensorView &TensorFactory::param_ln1_beta(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ln1_beta;
+}
+const TensorView &TensorFactory::param_ln2_gamma(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ln2_gamma;
+}
+const TensorView &TensorFactory::param_ln2_beta(int layer) const {
+  check_layer(layer);
+  return layer_param_views_[static_cast<size_t>(layer)].ln2_beta;
+}
+const TensorView &TensorFactory::param_tok_embedding() const { return tok_embedding_; }
+const TensorView &TensorFactory::param_pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorFactory::param_lnf_gamma() const { return lnf_gamma_; }
+const TensorView &TensorFactory::param_lnf_beta() const { return lnf_beta_; }
+const TensorView &TensorFactory::param_lm_head_w() const { return lm_head_w_; }
 
 void TensorFactory::initialize_parameters_deterministic() const {
   require(device_ == Device::CPU, "initialize_parameters_deterministic CPU only");
