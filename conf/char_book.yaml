@@ -1,0 +1,59 @@
+tokenizer:
+  # Factory-facing tokenizer implementation id.
+  # Preferred values: "sentencepiece", "character".
+  type: "sentencepiece"
+
+  # Preferred normalized plugin config.
+  training_corpus: "/mnt/ext_ssd/litnicegpt/data/twain_test.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/bpe_char_book"
+  chunk_size_mb: 64
+
+  # Plugin/validation settings.
+  bpe_validation_num_threads: 1
+  bpe_validation_sample_rate: 50
+  run_validation: true
+  
+  # Future shape:
+  # params:
+  #   model_type: "bpe"
+  #   character_coverage: 1.0
+  # validation:
+  #   enabled: true
+  #   num_threads: 1
+  #   sample_rate: 50
+
+tokenization:
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/twain_test.txt"
+  output_binary: "/mnt/ext_ssd/litnicegpt/data/tokenized_dataset.bin"
+  chunk_size_mb: 64
+
+model:
+  n_layers: 2
+  n_heads: 2
+  d_model: 64
+  d_ff: 256
+  target_vocab_size: 128
+  window_capacity: 16
+
+training:
+  incremental: false
+  window_training: 4
+  batch_size: 4 # 16-32: stable gradients without requiring massive RAM.
+  num_epochs_train: 20 # Small models need many passes to memorize single-author style.
+  num_epochs_dry_run: 2
+  learning_rate: 0.001
+  save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
+
+paths:
+  model_file: "/mnt/ext_ssd/litnicegpt/data/char_book.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+
+inference:
+  window_inference: 64
+
+reporting:
+  # k: start epoch index, m: duration (-1 for till the end)
+  # [k, m] -> [-1, 0] disables educational reports.
+  verbose_epoch_index: [0, 1]
+  # If true, provide deep-dives during memory allocation and tensor setup.
+  verbose_init: true
