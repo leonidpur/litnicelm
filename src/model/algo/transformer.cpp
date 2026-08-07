@@ -1,4 +1,5 @@
 #include "transformer.hpp"
+#include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 #include <utils/assert.hpp>
 
@@ -45,7 +46,6 @@ void Transformer::set_observer(ITrainingObserver *observer) {
 }
 
 void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
-  require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
   for (auto &layer : layers_) {
     layer.set_diagnostics(diagnostics);
@@ -63,42 +63,28 @@ void Transformer::validate_contract() const {
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
   const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
-  require(tok_emb.dim(0) == vocab_size && tok_emb.dim(1) == model_dim,
-          "tok_embedding must be [V, D]");
-  require(pos_emb.dim(0) == max_seq_len && pos_emb.dim(1) == model_dim,
-          "pos_embedding must be [S, D]");
-  require(tok_emb.device() == pos_emb.device(),
-          "transformer parameter devices must match");
-  require(tok_emb.dtype() == pos_emb.dtype(),
-          "transformer parameter dtypes must match");
+  TensorContracts::validate_transformer_embedding_params(
+      tok_emb, pos_emb, model_dim, vocab_size, max_seq_len, "Transformer");
 }
 
 void Transformer::forward(const TensorView &ids, TensorView &logits,
                           TensorView *last_hidden) {
   observer_->on_forward_start();
-  require(ids.rank() == 2, "ids must be semantic [B, S]");
-  const int64_t batch_size = ids.dim(0);
-  const int64_t seq_len = ids.dim(1);
-  const int64_t token_rows = static_cast<int64_t>(ids.numel());
-  require(batch_size > 0 && seq_len > 0, "ids must define [B, S] with positive dims");
-  require(batch_size * seq_len == token_rows, "ids [B, S] must cover all tokens");
-
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
-  require(seq_len <= max_seq_len,
-          "sequence length S=" + std::to_string(seq_len) +
-              " exceeds max_seq_len=" + std::to_string(max_seq_len));
-
-  require(logits.rank() == 3 && logits.dim(0) == batch_size &&
-              logits.dim(1) == seq_len && logits.dim(2) == vocab_size,
-          "logits must be semantic [B, S, V]");
+  const TensorContracts::BatchSeqDims dims =
+      TensorContracts::validate_ids_bs(ids, max_seq_len, "Transformer");
+  const int64_t batch_size = dims.batch_size;
+  const int64_t seq_len = dims.seq_len;
+  TensorContracts::validate_logits_bsv(logits, batch_size, seq_len,
+                                       vocab_size, "Transformer", "logits");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
   const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
-  require(tok_emb.device() == logits.device(), "params/logits device mismatch");
-  require(tok_emb.dtype() == logits.dtype(), "params/logits dtype mismatch");
-  require(pos_emb.device() == logits.device(), "pos_emb device mismatch");
+  TensorContracts::validate_same_device_dtype(tok_emb, logits, "Transformer",
+                                              "params/logits");
+  require(pos_emb.device() == logits.device(), "pos_emb/logits device mismatch");
 
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
@@ -124,42 +110,33 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   }
 
   outputHead_.forward(X, logits, last_hidden);
-  has_cache_ = true;
   observer_->on_forward_end();
 }
 
 void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
                            const RuntimeFlags::ProbeFlags &probe) {
   observer_->on_backward_start();
-  require(gradientStore_ != nullptr, "backward requires gradient store");
-  require(diagnostics_ != nullptr, "backward requires diagnostics controller");
-  require(has_cache_, "backward called before forward");
   require(ids.device() == dlogits.device(), "ids/dlogits device mismatch");
   require(ids.dtype() == DType::I32 || ids.dtype() == DType::F32,
           "ids must be I32/F32");
 
-  require(ids.rank() == 2, "ids must be semantic [B, S]");
-  const int64_t batch_size = ids.dim(0);
-  const int64_t seq_len = ids.dim(1);
+  const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
+  const TensorContracts::BatchSeqDims dims =
+      TensorContracts::validate_ids_bs(ids, max_seq_len, "Transformer");
+  const int64_t batch_size = dims.batch_size;
+  const int64_t seq_len = dims.seq_len;
   const int64_t ids_token_rows = static_cast<int64_t>(ids.numel());
   const int64_t token_rows = static_cast<int64_t>(dlogits.numel() /
       static_cast<uint64_t>(cfg_.model.target_vocab_size));
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
-  const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
-  require(batch_size > 0 && seq_len > 0, "ids must define [B, S] with positive dims");
-  require(batch_size * seq_len == ids_token_rows, "ids [B, S] must cover all tokens");
-  require(seq_len <= max_seq_len,
-          "backward sequence length S=" + std::to_string(seq_len) +
-              " exceeds max_seq_len=" + std::to_string(max_seq_len));
   require(ids_token_rows == token_rows,
           "backward ids/dlogits token-row mismatch");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
   const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
-  require(dlogits.rank() == 3 && dlogits.dim(0) == batch_size &&
-              dlogits.dim(1) == seq_len && dlogits.dim(2) == vocab_size,
-          "dlogits must be semantic [B, S, V]");
+  TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
+                                       vocab_size, "Transformer", "dlogits");
 
   (void)probe;
 

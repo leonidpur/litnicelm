@@ -30,6 +30,5 @@ private:
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;
   TensorView cache_xn_;
-  bool has_cache_ = false;
   ITrainingObserver *observer_ = &default_training_observer();
 };

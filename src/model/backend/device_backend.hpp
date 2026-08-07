@@ -75,6 +75,23 @@ public:
                                      TensorView &dx) = 0;
   virtual void scaled_causal_softmax_rows(const TensorView &scores,
                                           float scale, TensorView &out) = 0;
+  virtual bool supports_exec_context_iteration() const = 0;
+  virtual void start_exec_context_iteration() = 0;
+  virtual void finish_exec_context_iteration() = 0;
+  virtual void start_exec_context_group() = 0;
+  virtual void finish_exec_context_group() = 0;
+  virtual void matmul_exec_context(const TensorView &a, const TensorView &b,
+                                   TensorView &out) = 0;
+  virtual void matmul_left_transposed_exec_context(const TensorView &a,
+                                                  const TensorView &b,
+                                                  TensorView &out) = 0;
+  virtual void matmul_right_transposed_exec_context(const TensorView &a,
+                                                   const TensorView &b,
+                                                   TensorView &out) = 0;
+  virtual void scaled_causal_softmax_rows_exec_context(
+      const TensorView &scores, float scale, TensorView &out) = 0;
+  virtual void softmax_backward_causal_rows_exec_context(
+      const TensorView &softmax, const TensorView &dout, TensorView &dx) = 0;
   virtual void softmax_backward_causal_rows(const TensorView &softmax,
                                             const TensorView &dout,
                                             TensorView &dx) = 0;
@@ -147,6 +164,24 @@ public:
                              TensorView &dx) override;
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) override;
+  bool supports_exec_context_iteration() const override;
+  void start_exec_context_iteration() override;
+  void finish_exec_context_iteration() override;
+  void start_exec_context_group() override;
+  void finish_exec_context_group() override;
+  void matmul_exec_context(const TensorView &a, const TensorView &b,
+                           TensorView &out) override;
+  void matmul_left_transposed_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) override;
+  void matmul_right_transposed_exec_context(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override;
+  void scaled_causal_softmax_rows_exec_context(
+      const TensorView &scores, float scale, TensorView &out) override;
+  void softmax_backward_causal_rows_exec_context(
+      const TensorView &softmax, const TensorView &dout,
+      TensorView &dx) override;
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override;

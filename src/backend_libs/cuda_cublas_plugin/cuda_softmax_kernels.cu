@@ -196,9 +196,15 @@ void launch_softmax_backward_rows(const TensorView &softmax,
 
 void launch_scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                        TensorView &out) {
+  launch_scaled_causal_softmax_rows_on_stream(scores, scale, out, 0);
+}
+
+void launch_scaled_causal_softmax_rows_on_stream(const TensorView &scores,
+                                                 float scale, TensorView &out,
+                                                 cudaStream_t stream) {
   scaled_causal_softmax_rows_kernel<<<
       static_cast<unsigned int>(tensor_rows(scores)), kThreadsPerBlock,
-      static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
+      static_cast<size_t>(kThreadsPerBlock * sizeof(float)), stream>>>(
       to_kernel_tensor_view(scores), scale, to_kernel_tensor_view(out));
   check_kernel_launch("scaled_causal_softmax_rows_kernel");
 }
@@ -206,9 +212,16 @@ void launch_scaled_causal_softmax_rows(const TensorView &scores, float scale,
 void launch_softmax_backward_causal_rows(const TensorView &softmax,
                                          const TensorView &dout,
                                          TensorView &dx) {
+  launch_softmax_backward_causal_rows_on_stream(softmax, dout, dx, 0);
+}
+
+void launch_softmax_backward_causal_rows_on_stream(const TensorView &softmax,
+                                                   const TensorView &dout,
+                                                   TensorView &dx,
+                                                   cudaStream_t stream) {
   softmax_backward_causal_rows_kernel<<<
       static_cast<unsigned int>(tensor_rows(softmax)), kThreadsPerBlock,
-      static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
+      static_cast<size_t>(kThreadsPerBlock * sizeof(float)), stream>>>(
       to_kernel_tensor_view(softmax), to_kernel_tensor_view(dout),
       to_kernel_tensor_view(dx));
   check_kernel_launch("softmax_backward_causal_rows_kernel");

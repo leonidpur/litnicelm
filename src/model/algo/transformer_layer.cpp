@@ -1,16 +1,8 @@
 #include "transformer_layer.hpp"
+#include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <utils/assert.hpp>
-
 #include <cmath>
-#include <stdexcept>
-#include <string>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("TransformerLayer: ") + std::string(msg);               \
-  })
 
 TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
                                    TensorStore &tensor_store,
@@ -35,7 +27,6 @@ void TransformerLayer::set_observer(ITrainingObserver *observer) {
 
 void TransformerLayer::set_diagnostics(
     TrainingDiagnosticsController *diagnostics) {
-  require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
   attn_->set_diagnostics(diagnostics);
   ffn_->set_diagnostics(diagnostics);
@@ -48,51 +39,33 @@ void TransformerLayer::validate_contract() const {
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  require(ln1_gamma.dim(0) == 1 && ln1_gamma.dim(1) == model_dim,
-          "ln1_gamma must be [1, D]");
-  require(ln1_beta.dim(0) == 1 && ln1_beta.dim(1) == model_dim,
-          "ln1_beta must be [1, D]");
-  require(ln2_gamma.dim(0) == 1 && ln2_gamma.dim(1) == model_dim,
-          "ln2_gamma must be [1, D]");
-  require(ln2_beta.dim(0) == 1 && ln2_beta.dim(1) == model_dim,
-          "ln2_beta must be [1, D]");
-
-  require(ln1_gamma.device() == ln1_beta.device() &&
-              ln1_gamma.device() == ln2_gamma.device() &&
-              ln1_gamma.device() == ln2_beta.device(),
-          "layernorm parameter devices must match");
-  require(ln1_gamma.dtype() == ln1_beta.dtype() &&
-              ln1_gamma.dtype() == ln2_gamma.dtype() &&
-              ln1_gamma.dtype() == ln2_beta.dtype(),
-          "layernorm parameter dtypes must match");
+  TensorContracts::validate_layernorm_params(ln1_gamma, ln1_beta, model_dim,
+                                             "TransformerLayer", "ln1");
+  TensorContracts::validate_layernorm_params(ln2_gamma, ln2_beta, model_dim,
+                                             "TransformerLayer", "ln2");
+  TensorContracts::validate_same_device_dtype(ln1_gamma, ln2_gamma,
+                                              "TransformerLayer", "ln1/ln2");
 }
 
 void TransformerLayer::forward(const TensorView &x, TensorView &out) {
-  require(x.device() == out.device(), "x/out device mismatch");
-  require(x.dtype() == out.dtype(), "x/out dtype mismatch");
-
-  require(x.rank() == 3, "x must be semantic [B, S, D]");
-  const int64_t batch_size = x.dim(0);
-  const int64_t seq_len = x.dim(1);
-  const int64_t model_dim = x.dim(2);
-  const int64_t token_rows = static_cast<int64_t>(x.numel() / static_cast<uint64_t>(model_dim));
-  require(model_dim == static_cast<int64_t>(cfg_.model.d_model), "x.dim(2) != d_model");
-  require(out.rank() == 3 && out.dim(0) == batch_size && out.dim(1) == seq_len &&
-              out.dim(2) == model_dim,
-          "out must be semantic [B, S, D]");
-  require(x.dim(0) > 0 && x.dim(1) > 0 &&
-              x.dim(2) == model_dim && x.dim(0) * x.dim(1) == token_rows,
-          "x must be semantic [B, S, D]");
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const TensorContracts::BatchSeqDims dims =
+      TensorContracts::validate_bsd_io(x, out, model_dim,
+                                       "TransformerLayer");
+  const int64_t batch_size = dims.batch_size;
+  const int64_t seq_len = dims.seq_len;
 
   const TensorView &ln1_gamma = tensorStore_.param_ln1_gamma(idx_);
   const TensorView &ln1_beta = tensorStore_.param_ln1_beta(idx_);
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  require(ln1_gamma.device() == x.device() && ln2_gamma.device() == x.device(),
-          "layernorm param device mismatch");
-  require(ln1_gamma.dtype() == x.dtype() && ln2_gamma.dtype() == x.dtype(),
-          "layernorm param dtype mismatch");
+  TensorContracts::validate_same_device_dtype(ln1_gamma, x,
+                                              "TransformerLayer",
+                                              "ln1_gamma/x");
+  TensorContracts::validate_same_device_dtype(ln2_gamma, x,
+                                              "TransformerLayer",
+                                              "ln2_gamma/x");
 
   TensorView ln1 = tensorStore_.temp_layer_ln1(idx_, batch_size, seq_len);
   TensorView attn_out =
@@ -116,19 +89,13 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
   cache_y_ = y;
   cache_ln1_ = ln1;
   cache_ln2_ = ln2;
-  has_cache_ = true;
 }
 
 void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
-  require(gradientStore_ != nullptr, "backward requires gradient store");
-  require(diagnostics_ != nullptr, "backward requires diagnostics controller");
-  require(has_cache_, "backward called before forward");
-  require(dout.rank() == cache_x_.rank() && dout.dim(0) == cache_x_.dim(0) &&
-              dout.dim(1) == cache_x_.dim(1) && dout.dim(2) == cache_x_.dim(2),
-          "dout shape mismatch");
-  require(dx.rank() == cache_x_.rank() && dx.dim(0) == cache_x_.dim(0) &&
-              dx.dim(1) == cache_x_.dim(1) && dx.dim(2) == cache_x_.dim(2),
-          "dx shape mismatch");
+  TensorContracts::validate_bsd_shape_like(dout, cache_x_,
+                                           "TransformerLayer", "dout");
+  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "TransformerLayer",
+                                           "dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
@@ -175,5 +142,3 @@ void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
   ops_.add(dy_total, dx_ln1, dx);
   diagnostics_->bk_layer_dx(idx_, dx);
 }
-
-#undef require

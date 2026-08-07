@@ -474,6 +474,109 @@ public:
     api_->scaled_causal_softmax_rows(instance_, &scores_view, scale, &out_view);
   }
 
+  bool supports_exec_context_iteration() const override {
+    return api_->supports_exec_context_iteration != nullptr &&
+           api_->supports_exec_context_iteration(instance_) != 0;
+  }
+
+  void start_exec_context_iteration() override {
+    if (api_->start_exec_context_iteration == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context iteration is not supported");
+    }
+    api_->start_exec_context_iteration(instance_);
+  }
+
+  void finish_exec_context_iteration() override {
+    if (api_->finish_exec_context_iteration == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context iteration is not supported");
+    }
+    api_->finish_exec_context_iteration(instance_);
+  }
+
+  void start_exec_context_group() override {
+    if (api_->start_exec_context_group == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context group is not supported");
+    }
+    api_->start_exec_context_group(instance_);
+  }
+
+  void finish_exec_context_group() override {
+    if (api_->finish_exec_context_group == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context group is not supported");
+    }
+    api_->finish_exec_context_group(instance_);
+  }
+
+  void matmul_exec_context(const TensorView &a, const TensorView &b,
+                           TensorView &out) override {
+    if (api_->matmul_exec_context == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context matmul is not supported");
+    }
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul_exec_context(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void matmul_right_transposed_exec_context(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override {
+    if (api_->matmul_right_transposed_exec_context == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context right-transposed matmul is not supported");
+    }
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul_right_transposed_exec_context(instance_, &a_view, &b_view,
+                                               &out_view);
+  }
+
+  void matmul_left_transposed_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) override {
+    if (api_->matmul_left_transposed_exec_context == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context left-transposed matmul is not supported");
+    }
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul_left_transposed_exec_context(instance_, &a_view, &b_view,
+                                              &out_view);
+  }
+
+  void scaled_causal_softmax_rows_exec_context(
+      const TensorView &scores, float scale, TensorView &out) override {
+    if (api_->scaled_causal_softmax_rows_exec_context == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context causal softmax is not supported");
+    }
+    const BackendTensorView scores_view = to_backend_tensor_view(scores);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->scaled_causal_softmax_rows_exec_context(instance_, &scores_view,
+                                                  scale, &out_view);
+  }
+
+  void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
+                                                 const TensorView &dout,
+                                                 TensorView &dx) override {
+    if (api_->softmax_backward_causal_rows_exec_context == nullptr) {
+      throw std::runtime_error(
+          "DynamicLibraryBackend: exec context causal softmax backward is not supported");
+    }
+    const BackendTensorView softmax_view = to_backend_tensor_view(softmax);
+    const BackendTensorView dout_view = to_backend_tensor_view(dout);
+    const BackendTensorView dx_view = to_backend_tensor_view(dx);
+    api_->softmax_backward_causal_rows_exec_context(
+        instance_, &softmax_view, &dout_view, &dx_view);
+  }
+
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
@@ -1427,6 +1530,60 @@ void DefaultCpuBackend::scaled_causal_softmax_rows(const TensorView &scores,
           CpuMemOperations::load_f32_prefix_last1(out, prefix, c) * inv_sum);
     }
   }
+}
+
+bool DefaultCpuBackend::supports_exec_context_iteration() const {
+  return false;
+}
+
+void DefaultCpuBackend::start_exec_context_iteration() {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context iteration is not supported");
+}
+
+void DefaultCpuBackend::finish_exec_context_iteration() {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context iteration is not supported");
+}
+
+void DefaultCpuBackend::start_exec_context_group() {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context group is not supported");
+}
+
+void DefaultCpuBackend::finish_exec_context_group() {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context group is not supported");
+}
+
+void DefaultCpuBackend::matmul_exec_context(const TensorView &,
+                                            const TensorView &, TensorView &) {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context matmul is not supported");
+}
+
+void DefaultCpuBackend::matmul_right_transposed_exec_context(
+    const TensorView &, const TensorView &, TensorView &) {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context right-transposed matmul is not supported");
+}
+
+void DefaultCpuBackend::matmul_left_transposed_exec_context(
+    const TensorView &, const TensorView &, TensorView &) {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context left-transposed matmul is not supported");
+}
+
+void DefaultCpuBackend::scaled_causal_softmax_rows_exec_context(
+    const TensorView &, float, TensorView &) {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context causal softmax is not supported");
+}
+
+void DefaultCpuBackend::softmax_backward_causal_rows_exec_context(
+    const TensorView &, const TensorView &, TensorView &) {
+  throw std::runtime_error(
+      "DefaultCpuBackend: exec context causal softmax backward is not supported");
 }
 
 void DefaultCpuBackend::softmax_backward_causal_rows(const TensorView &softmax,

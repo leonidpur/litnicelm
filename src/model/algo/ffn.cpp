@@ -1,14 +1,8 @@
 #include "ffn.hpp"
+#include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <utils/assert.hpp>
 
 #include <cstring>
-#include <stdexcept>
-#include <string>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond),                                                         \
-                [&]() { return std::string("FFN: ") + std::string(msg); })
 
 FFN::FFN(int layer_index, const Config &cfg, TensorStore &tensor_store,
          GradientStore *gradient_store, Ops &ops)
@@ -25,7 +19,6 @@ void FFN::set_observer(ITrainingObserver *observer) {
 }
 
 void FFN::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
-  require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
 }
 
@@ -38,48 +31,24 @@ void FFN::validate_contract() const {
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
 
-  require(W1.dim(0) == model_dim && W1.dim(1) == ffn_dim,
-          "W1 must be [D, F]");
-  require(b1.dim(0) == 1 && b1.dim(1) == ffn_dim, "b1 must be [1, F]");
-  require(W2.dim(0) == ffn_dim && W2.dim(1) == model_dim,
-          "W2 must be [F, D]");
-  require(b2.dim(0) == 1 && b2.dim(1) == model_dim,
-          "b2 must be [1, D]");
-
-  require(W1.device() == W2.device() && W1.device() == b1.device() &&
-              W1.device() == b2.device(),
-          "FFN parameter devices must match");
-  require(W1.dtype() == W2.dtype() && W1.dtype() == b1.dtype() &&
-              W1.dtype() == b2.dtype(),
-          "FFN parameter dtypes must match");
+  TensorContracts::validate_ffn_params(W1, b1, W2, b2, model_dim, ffn_dim,
+                                       "FFN");
 }
 
 void FFN::forward(const TensorView &x, TensorView &out) {
   observer_->on_ffn_start(idx_);
-  require(x.device() == out.device(), "x/out device mismatch");
-  require(x.dtype() == out.dtype(), "x/out dtype mismatch");
-
-  require(x.rank() == 3, "x must be semantic [B, S, D]");
-  const int64_t batch_size = x.dim(0);
-  const int64_t seq_len = x.dim(1);
-  const int64_t model_dim = x.dim(2);
-  const int64_t token_rows = static_cast<int64_t>(x.numel() / static_cast<uint64_t>(model_dim));
-  require(model_dim == static_cast<int64_t>(cfg_.model.d_model), "x.dim(2) != d_model");
-  require(out.rank() == 3 && out.dim(0) == batch_size && out.dim(1) == seq_len &&
-              out.dim(2) == model_dim,
-          "out must be semantic [B, S, D]");
-  require(x.dim(0) > 0 && x.dim(1) > 0 &&
-              x.dim(2) == model_dim && x.dim(0) * x.dim(1) == token_rows,
-          "x must be semantic [B, S, D]");
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const TensorContracts::BatchSeqDims dims =
+      TensorContracts::validate_bsd_io(x, out, model_dim, "FFN");
+  const int64_t batch_size = dims.batch_size;
+  const int64_t seq_len = dims.seq_len;
 
   const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
-  require(W1.device() == x.device() && W2.device() == x.device(),
-          "param device mismatch");
-  require(W1.dtype() == x.dtype() && W2.dtype() == x.dtype(),
-          "param dtype mismatch");
+  TensorContracts::validate_same_device_dtype(W1, x, "FFN", "W1/x");
+  TensorContracts::validate_same_device_dtype(W2, x, "FFN", "W2/x");
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
@@ -93,20 +62,14 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   cache_x_ = x;
   cache_h_ = h;
   cache_a_ = a;
-  has_cache_ = true;
   observer_->on_ffn_end(idx_);
 }
 
 void FFN::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_ffn_start(idx_);
-  require(gradientStore_ != nullptr, "backward requires gradient store");
-  require(diagnostics_ != nullptr, "backward requires diagnostics controller");
-  require(has_cache_, "backward called before forward");
-  require(dout.device() == cache_x_.device(), "dout device mismatch");
-  require(dout.dtype() == cache_x_.dtype(), "dout dtype mismatch");
-  require(dx.rank() == cache_x_.rank() && dx.dim(0) == cache_x_.dim(0) &&
-              dx.dim(1) == cache_x_.dim(1) && dx.dim(2) == cache_x_.dim(2),
-          "dx shape mismatch");
+  TensorContracts::validate_same_device_dtype(dout, cache_x_, "FFN",
+                                              "dout/cache_x");
+  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "FFN", "dx");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 
@@ -140,5 +103,3 @@ void FFN::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_ffn_dx(idx_, dx);
   observer_->on_ffn_end(idx_);
 }
-
-#undef require

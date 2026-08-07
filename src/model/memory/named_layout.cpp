@@ -11,7 +11,8 @@ bool uses_inplace_ffn_activation(const Config &cfg) {
 }
 
 bool uses_fused_inplace_attention(const Config &cfg) {
-  return cfg.model_algo.attention == "fused_inplace";
+  return cfg.model_algo.attention == "fused_inplace" ||
+         cfg.model_algo.attention == "fused_inplace_multistream";
 }
 
 void push_slice(std::vector<LayoutSlice> &out, uint64_t alignment,

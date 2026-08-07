@@ -110,6 +110,26 @@ struct BackendApiV1 {
                                      const BackendTensorView *scores,
                                      float scale,
                                      const BackendTensorView *out);
+  uint32_t (*supports_exec_context_iteration)(void *backend);
+  void (*start_exec_context_iteration)(void *backend);
+  void (*finish_exec_context_iteration)(void *backend);
+  void (*start_exec_context_group)(void *backend);
+  void (*finish_exec_context_group)(void *backend);
+  void (*matmul_exec_context)(void *backend, const BackendTensorView *a,
+                              const BackendTensorView *b,
+                              const BackendTensorView *out);
+  void (*matmul_left_transposed_exec_context)(
+      void *backend, const BackendTensorView *a, const BackendTensorView *b,
+      const BackendTensorView *out);
+  void (*matmul_right_transposed_exec_context)(
+      void *backend, const BackendTensorView *a, const BackendTensorView *b,
+      const BackendTensorView *out);
+  void (*scaled_causal_softmax_rows_exec_context)(
+      void *backend, const BackendTensorView *scores, float scale,
+      const BackendTensorView *out);
+  void (*softmax_backward_causal_rows_exec_context)(
+      void *backend, const BackendTensorView *softmax,
+      const BackendTensorView *dout, const BackendTensorView *dx);
   void (*softmax_backward_causal_rows)(void *backend,
                                        const BackendTensorView *softmax,
                                        const BackendTensorView *dout,
@@ -129,7 +149,7 @@ struct BackendApiV1 {
   BackendMemoryInfo (*memory_info)(void *backend);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 15;
+inline constexpr uint32_t kBackendApiVersion = 16;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

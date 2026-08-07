@@ -47,6 +47,5 @@ private:
   TensorView cache_x_;
   TensorView cache_qkv_;
   TensorView cache_context_;
-  bool has_cache_ = false;
   ITrainingObserver *observer_ = &default_training_observer();
 };

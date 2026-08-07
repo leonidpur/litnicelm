@@ -1,13 +1,7 @@
 #include "output_head.hpp"
+#include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <utils/assert.hpp>
 
-#include <string>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("OutputHead: ") + std::string(msg);                    \
-  })
 
 OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
                        GradientStore *gradient_store, Ops &ops)
@@ -23,7 +17,6 @@ void OutputHead::set_observer(ITrainingObserver *observer) {
 }
 
 void OutputHead::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
-  require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
 }
 
@@ -36,83 +29,60 @@ void OutputHead::validate_contract() const {
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
 
-  require(lnf_g.dim(0) == 1 && lnf_g.dim(1) == model_dim,
-          "lnf_gamma must be [1, D]");
-  require(lnf_b.dim(0) == 1 && lnf_b.dim(1) == model_dim,
-          "lnf_beta must be [1, D]");
-  require(lm_w.dim(0) == model_dim && lm_w.dim(1) == vocab_size,
-          "lm_head_w must be [D, V]");
-
-  require(lnf_g.device() == lnf_b.device() && lnf_g.device() == lm_w.device(),
-          "output-head parameter devices must match");
-  require(lnf_g.dtype() == lnf_b.dtype() && lnf_g.dtype() == lm_w.dtype(),
-          "output-head parameter dtypes must match");
+  TensorContracts::validate_output_head_params(lnf_g, lnf_b, lm_w, model_dim,
+                                               vocab_size, "OutputHead");
 }
 
 void OutputHead::forward(const TensorView &x, TensorView &logits,
                          TensorView *last_hidden) {
   observer_->on_output_head_start();
-  require(x.device() == logits.device(), "x/logits device mismatch");
-  require(x.dtype() == logits.dtype(), "x/logits dtype mismatch");
-  require(x.rank() == 3, "x must be semantic [B, S, D]");
-
+  TensorContracts::validate_same_device_dtype(x, logits, "OutputHead",
+                                              "x/logits");
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  TensorContracts::validate_bsd_tensor(x, model_dim, "OutputHead", "x");
   const int64_t batch_size = x.dim(0);
   const int64_t seq_len = x.dim(1);
-  const int64_t model_dim = x.dim(2);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.target_vocab_size);
-  require(model_dim == static_cast<int64_t>(cfg_.model.d_model),
-          "x.dim(2) != d_model");
-  require(logits.rank() == 3 && logits.dim(0) == batch_size &&
-              logits.dim(1) == seq_len && logits.dim(2) == vocab_size,
-          "logits must be semantic [B, S, V]");
+  TensorContracts::validate_logits_bsv(logits, batch_size, seq_len, vocab_size,
+                                       "OutputHead", "logits");
 
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
-  require(lnf_g.device() == logits.device(), "lnf_gamma device mismatch");
-  require(lm_w.device() == logits.device(), "lm_head_w device mismatch");
-  require(lnf_g.dtype() == logits.dtype(), "lnf_gamma dtype mismatch");
-  require(lm_w.dtype() == logits.dtype(), "lm_head_w dtype mismatch");
+  TensorContracts::validate_same_device_dtype(lnf_g, logits, "OutputHead",
+                                              "lnf_gamma/logits");
+  TensorContracts::validate_same_device_dtype(lm_w, logits, "OutputHead",
+                                              "lm_head_w/logits");
 
   TensorView Xn = tensorStore_.temp_tr_Xn(batch_size, seq_len);
   ops_.layernorm(x, lnf_g, lnf_b, Xn);
 
   if (last_hidden != nullptr) {
-    require(last_hidden->rank() == 3 && last_hidden->dim(0) == batch_size &&
-                last_hidden->dim(1) == seq_len &&
-                last_hidden->dim(2) == model_dim,
-            "last_hidden must be semantic [B, S, D]");
-    require(last_hidden->device() == logits.device(),
-            "last_hidden device mismatch");
-    require(last_hidden->dtype() == logits.dtype(), "last_hidden dtype mismatch");
+    TensorContracts::validate_bsd_shape_like(*last_hidden, x, "OutputHead",
+                                             "last_hidden");
+    TensorContracts::validate_same_device_dtype(*last_hidden, logits,
+                                                "OutputHead",
+                                                "last_hidden/logits");
     ops_.copy(Xn, *last_hidden);
   }
 
   ops_.matmul(Xn, lm_w, logits);
   cache_x_ = x;
   cache_xn_ = Xn;
-  has_cache_ = true;
   observer_->on_output_head_end();
 }
 
 void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   observer_->on_output_head_start();
-  require(gradientStore_ != nullptr, "backward requires gradient store");
-  require(diagnostics_ != nullptr, "backward requires diagnostics controller");
-  require(has_cache_, "backward called before forward");
-  require(dlogits.rank() == 3, "dlogits must be semantic [B, S, V]");
-  require(dx.rank() == cache_x_.rank() && dx.dim(0) == cache_x_.dim(0) &&
-              dx.dim(1) == cache_x_.dim(1) && dx.dim(2) == cache_x_.dim(2),
-          "dx shape mismatch");
+  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "OutputHead", "dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.target_vocab_size);
-  require(dlogits.dim(0) == batch_size && dlogits.dim(1) == seq_len &&
-              dlogits.dim(2) == vocab_size,
-          "dlogits shape mismatch");
+  TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
+                                       vocab_size, "OutputHead", "dlogits");
 
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
@@ -136,5 +106,3 @@ void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   diagnostics_->bk_transformer_d_lnf_b(d_lnf_b);
   observer_->on_output_head_end();
 }
-
-#undef require

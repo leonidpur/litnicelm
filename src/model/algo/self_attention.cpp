@@ -1,15 +1,8 @@
 #include "self_attention.hpp"
+#include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <utils/assert.hpp>
 
 #include <cmath>
-#include <stdexcept>
-#include <string>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("SelfAttention: ") + std::string(msg);                  \
-  })
 
 SelfAttention::SelfAttention(int layer_index, const Config &cfg,
                              TensorStore &tensor_store,
@@ -27,56 +20,31 @@ void SelfAttention::set_observer(ITrainingObserver *observer) {
 }
 
 void SelfAttention::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
-  require(diagnostics != nullptr, "diagnostics must be non-null");
   diagnostics_ = diagnostics;
 }
 
 void SelfAttention::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t num_heads = static_cast<int64_t>(cfg_.model.n_heads);
-  require(num_heads > 0, "n_heads must be > 0");
-  require((model_dim % num_heads) == 0,
-          "d_model must be divisible by n_heads");
+  TensorContracts::validate_attention_config(model_dim, num_heads,
+                                             "SelfAttention");
 
   const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
-  require(Wqkv.dim(0) == model_dim && Wqkv.dim(1) == 3 * model_dim,
-          "Wqkv must be [D, 3D]");
-  require(bqkv.dim(0) == 1 && bqkv.dim(1) == 3 * model_dim,
-          "bqkv must be [1, 3D]");
-  require(Wo.dim(0) == model_dim && Wo.dim(1) == model_dim,
-          "Wo must be [D, D]");
-  require(bo.dim(0) == 1 && bo.dim(1) == model_dim,
-          "bo must be [1, D]");
-
-  require(Wqkv.device() == bqkv.device() && Wqkv.device() == Wo.device() &&
-              Wqkv.device() == bo.device(),
-          "attention parameter devices must match");
-  require(Wqkv.dtype() == bqkv.dtype() && Wqkv.dtype() == Wo.dtype() &&
-              Wqkv.dtype() == bo.dtype(),
-          "attention parameter dtypes must match");
+  TensorContracts::validate_attention_params(Wqkv, bqkv, Wo, bo, model_dim,
+                                             "SelfAttention");
 }
 
 void SelfAttention::forward(const TensorView &x, TensorView &out) {
   observer_->on_attention_start(idx_);
-  require(x.device() == out.device(), "x/out device mismatch");
-  require(x.dtype() == out.dtype(), "x/out dtype mismatch");
-
-  require(x.rank() == 3, "x must be semantic [B, S, D]");
-  const int64_t batch_size = x.dim(0);
-  const int64_t seq_len = x.dim(1);
-  const int64_t model_dim = x.dim(2);
-  const int64_t token_rows = static_cast<int64_t>(x.numel() / static_cast<uint64_t>(model_dim));
-  require(model_dim == static_cast<int64_t>(cfg_.model.d_model), "x.dim(2) != d_model");
-  require(out.rank() == 3 && out.dim(0) == batch_size && out.dim(1) == seq_len &&
-              out.dim(2) == model_dim,
-          "out must be semantic [B, S, D]");
-  require(x.dim(0) > 0 && x.dim(1) > 0 &&
-              x.dim(2) == model_dim && x.dim(0) * x.dim(1) == token_rows,
-          "x must be semantic [B, S, D]");
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const TensorContracts::BatchSeqDims dims =
+      TensorContracts::validate_bsd_io(x, out, model_dim, "SelfAttention");
+  const int64_t batch_size = dims.batch_size;
+  const int64_t seq_len = dims.seq_len;
 
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
   const int64_t dh = model_dim / H;
@@ -87,10 +55,9 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
-  require(Wqkv.device() == x.device() && Wo.device() == x.device(),
-          "param device mismatch");
-  require(Wqkv.dtype() == x.dtype() && Wo.dtype() == x.dtype(),
-          "param dtype mismatch");
+  TensorContracts::validate_same_device_dtype(Wqkv, x, "SelfAttention",
+                                              "Wqkv/x");
+  TensorContracts::validate_same_device_dtype(Wo, x, "SelfAttention", "Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.matmul(x, Wqkv, qkv);
@@ -131,28 +98,19 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   cache_x_ = x;
   cache_qkv_ = qkv;
   cache_context_ = context;
-  has_cache_ = true;
   observer_->on_attention_end(idx_);
 }
 
 void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_attention_start(idx_);
-  require(gradientStore_ != nullptr, "backward requires gradient store");
-  require(diagnostics_ != nullptr, "backward requires diagnostics controller");
-  require(has_cache_, "backward called before forward");
-  require(dout.rank() == cache_x_.rank() && dout.dim(0) == cache_x_.dim(0) &&
-              dout.dim(1) == cache_x_.dim(1) && dout.dim(2) == cache_x_.dim(2),
-          "dout shape mismatch");
-  require(dx.rank() == cache_x_.rank() && dx.dim(0) == cache_x_.dim(0) &&
-              dx.dim(1) == cache_x_.dim(1) && dx.dim(2) == cache_x_.dim(2),
-          "dx shape mismatch");
+  TensorContracts::validate_bsd_shape_like(dout, cache_x_, "SelfAttention",
+                                           "dout");
+  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "SelfAttention",
+                                           "dx");
 
-  const int64_t token_rows = cache_x_.dim(0) * cache_x_.dim(1);
   const int64_t model_dim = cache_x_.dim(2);
-  require(cache_x_.rank() == 3 && cache_x_.dim(0) > 0 && cache_x_.dim(1) > 0 &&
-              cache_x_.dim(2) == model_dim &&
-              cache_x_.dim(0) * cache_x_.dim(1) == token_rows,
-          "cached x must be semantic [B, S, D]");
+  TensorContracts::validate_bsd_tensor(cache_x_, model_dim, "SelfAttention",
+                                       "cached x");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
@@ -232,5 +190,3 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_attn_dbqkv(idx_, dbqkv);
   observer_->on_attention_end(idx_);
 }
-
-#undef require

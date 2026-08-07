@@ -61,6 +61,25 @@ public:
                              TensorView &dx) const;
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) const;
+  bool supports_exec_context_iteration() const;
+  void start_exec_context_iteration() const;
+  void finish_exec_context_iteration() const;
+  void start_exec_context_group() const;
+  void finish_exec_context_group() const;
+  void matmul_exec_context(const TensorView &a, const TensorView &b,
+                           TensorView &out) const;
+  void matmul_left_transposed_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) const;
+  void matmul_right_transposed_exec_context(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) const;
+  void scaled_causal_softmax_rows_exec_context(const TensorView &scores,
+                                               float scale,
+                                               TensorView &out) const;
+  void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
+                                                const TensorView &dout,
+                                                TensorView &dx) const;
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) const;
