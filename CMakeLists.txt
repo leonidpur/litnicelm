@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(litnicegpt LANGUAGES CXX)
+project(litnicelm LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,7 +57,7 @@ target_include_directories(litnice_core PRIVATE
 # Link SentencePiece to the core library
 target_link_libraries(litnice_core PRIVATE ${SPM_LIBRARIES})
 target_link_libraries(litnice_core PRIVATE dl)
-target_compile_definitions(litnice_core PRIVATE LITNICEGPT_HAVE_SENTENCEPIECE=1)
+target_compile_definitions(litnice_core PRIVATE LITNICELM_HAVE_SENTENCEPIECE=1)
 
 add_library(litnice_backend_cpu SHARED
     src/model/backend/device_backend.cpp
@@ -80,8 +80,8 @@ add_subdirectory(src/backend_libs/openblas_plugin)
 add_subdirectory(src/backend_libs/cuda_cublas_plugin)
 
 # Build main executable using the path-referenced main.cpp
-add_executable(litnicegpt ${MAIN_SOURCE})
-target_include_directories(litnicegpt PRIVATE
+add_executable(litnicelm ${MAIN_SOURCE})
+target_include_directories(litnicelm PRIVATE
     include
     src/config
     src/utils
@@ -93,7 +93,7 @@ target_include_directories(litnicegpt PRIVATE
     src/tokenizer
     ${SPM_INCLUDE_DIRS}
 )
-target_link_libraries(litnicegpt PRIVATE litnice_core)
+target_link_libraries(litnicelm PRIVATE litnice_core)
 
 set(WORKFLOW_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book.yaml" CACHE FILEPATH
     "YAML config used by workflow targets")
@@ -102,50 +102,50 @@ set(WORKFLOW_INFER_PROMPT "" CACHE STRING
 
 add_custom_target(tokenizer_training
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicegpt> --tokenizer_trainig --config ${WORKFLOW_CONFIG}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicelm> --tokenizer_trainig --config ${WORKFLOW_CONFIG}"
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "$<TARGET_FILE:litnicegpt>" --tokenizer_trainig --config "${WORKFLOW_CONFIG}"
-    DEPENDS litnicegpt
+    COMMAND "$<TARGET_FILE:litnicelm>" --tokenizer_trainig --config "${WORKFLOW_CONFIG}"
+    DEPENDS litnicelm
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     USES_TERMINAL
 )
 
 add_custom_target(encode
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicegpt> --tokenize --config ${WORKFLOW_CONFIG}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicelm> --tokenize --config ${WORKFLOW_CONFIG}"
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "$<TARGET_FILE:litnicegpt>" --tokenize --config "${WORKFLOW_CONFIG}"
-    DEPENDS litnicegpt
+    COMMAND "$<TARGET_FILE:litnicelm>" --tokenize --config "${WORKFLOW_CONFIG}"
+    DEPENDS litnicelm
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     USES_TERMINAL
 )
 
 add_custom_target(train
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicegpt> --train --config ${WORKFLOW_CONFIG}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicelm> --train --config ${WORKFLOW_CONFIG}"
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "$<TARGET_FILE:litnicegpt>" --train --config "${WORKFLOW_CONFIG}"
-    DEPENDS litnicegpt
+    COMMAND "$<TARGET_FILE:litnicelm>" --train --config "${WORKFLOW_CONFIG}"
+    DEPENDS litnicelm
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     USES_TERMINAL
 )
 
 add_custom_target(dry_run
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicegpt> dry_run --config ${WORKFLOW_CONFIG}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicelm> dry_run --config ${WORKFLOW_CONFIG}"
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "$<TARGET_FILE:litnicegpt>" dry_run --config "${WORKFLOW_CONFIG}"
-    DEPENDS litnicegpt
+    COMMAND "$<TARGET_FILE:litnicelm>" dry_run --config "${WORKFLOW_CONFIG}"
+    DEPENDS litnicelm
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     USES_TERMINAL
 )
 
 add_custom_target(infer
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicegpt> infer --config ${WORKFLOW_CONFIG} ${WORKFLOW_INFER_PROMPT}"
+    COMMAND "${CMAKE_COMMAND}" -E echo "$<TARGET_FILE:litnicelm> infer --config ${WORKFLOW_CONFIG} ${WORKFLOW_INFER_PROMPT}"
     COMMAND "${CMAKE_COMMAND}" -E echo ""
-    COMMAND "$<TARGET_FILE:litnicegpt>" infer --config "${WORKFLOW_CONFIG}" "${WORKFLOW_INFER_PROMPT}"
-    DEPENDS litnicegpt
+    COMMAND "$<TARGET_FILE:litnicelm>" infer --config "${WORKFLOW_CONFIG}" "${WORKFLOW_INFER_PROMPT}"
+    DEPENDS litnicelm
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     USES_TERMINAL
 )

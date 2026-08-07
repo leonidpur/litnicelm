@@ -20,8 +20,8 @@ tokenizer:
   target_vocab_size: 1248
 
   # Preferred normalized plugin config.
-  training_corpus: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short.txt"
-  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/bpe_A_Connecticut_Yankee_in_King_Arthurs_Court-short"
+  training_corpus: "/mnt/ext_ssd/litnicelm/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicelm/data/bpe_A_Connecticut_Yankee_in_King_Arthurs_Court-short"
   bpe_vocab_file: ""
   bpe_merges_file: ""
 
@@ -40,8 +40,8 @@ tokenizer:
   #   sample_rate: 50
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short.txt"
-  output_binary: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_tokenized_dataset.bin"
+  input_corpus: "/mnt/ext_ssd/litnicelm/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short.txt"
+  output_binary: "/mnt/ext_ssd/litnicelm/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_tokenized_dataset.bin"
   chunk_size_mb: 64
 
 memory:
@@ -79,9 +79,9 @@ training:
   stop_on_nonfinite_loss: true
 
 paths:
-  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_latest.ckpt"
-  model_file_best: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_best.ckpt"
-  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+  model_file_latest: "/mnt/ext_ssd/litnicelm/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicelm/data/A_Connecticut_Yankee_in_King_Arthurs_Court-short_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicelm/data/journal.txt"
 
 inference:
   prompt: ""

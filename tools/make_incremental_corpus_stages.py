@@ -113,9 +113,9 @@ def main():
                 str(token_count),
                 str(corpus_path),
                 str(config_path),
-                f"./build/litnicegpt --tokenizer_training --config {config_path}",
-                f"./build/litnicegpt --tokenize --config {config_path}",
-                f"./build/litnicegpt --train --config {config_path}",
+                f"./build/litnicelm --tokenizer_training --config {config_path}",
+                f"./build/litnicelm --tokenize --config {config_path}",
+                f"./build/litnicelm --train --config {config_path}",
             ]))
 
     manifest_path = output_root / "manifest.tsv"

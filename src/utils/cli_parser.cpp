@@ -173,7 +173,7 @@ void parse_train_args(const std::vector<std::string> &args, Command &cmd) {
 
   if (positional.size() > 2) {
     throw std::runtime_error(
-        "Too many train arguments. Usage: ./build/litnicegpt train --config <config.yaml> "
+        "Too many train arguments. Usage: ./build/litnicelm train --config <config.yaml> "
         "[train_seq_len] [batch_size] [--probe a,b] [--epochs N] [--logit] "
         "[--incremental|--no-incremental] [--epoch_report_every N]");
   }
@@ -320,36 +320,36 @@ void CliParser::print_usage() {
   std::cout
       << "Usage:\n"
       << "  Train (default):\n"
-      << "    ./build/litnicegpt train --config <config.yaml> [train_seq_len] [batch_size] "
+      << "    ./build/litnicelm train --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
-      << "    ./build/litnicegpt --config <config.yaml> [train_seq_len] [batch_size] "
+      << "    ./build/litnicelm --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Dry run:\n"
-      << "    ./build/litnicegpt dry_run --config <config.yaml> [train_seq_len] [batch_size] "
+      << "    ./build/litnicelm dry_run --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Inference:\n"
-      << "    ./build/litnicegpt infer --config <config.yaml> "
+      << "    ./build/litnicelm infer --config <config.yaml> "
          "[--prompt TEXT] [--max_new N] [--temp X] [--top_k K] [--top_p P] [--seed N]\n"
       << "  Inspect next-token distribution:\n"
-      << "    ./build/litnicegpt inspect --config <config.yaml> "
+      << "    ./build/litnicelm inspect --config <config.yaml> "
          "[--prompt TEXT] [--max_new N] [--temp X] [--top_k K] [--top_p P] [--seed N]\n"
       << "  Interactive inference:\n"
-      << "    ./build/litnicegpt inferloop --config <config.yaml>\n"
+      << "    ./build/litnicelm inferloop --config <config.yaml>\n"
       << "  Train tokenizer artifacts:\n"
-      << "    ./build/litnicegpt tokenizer_training --config <config.yaml>\n"
-      << "    ./build/litnicegpt --tokenizer_training --config <config.yaml>\n"
+      << "    ./build/litnicelm tokenizer_training --config <config.yaml>\n"
+      << "    ./build/litnicelm --tokenizer_training --config <config.yaml>\n"
       << "  Tokenize corpus:\n"
-      << "    ./build/litnicegpt encode --config <config.yaml>\n"
-      << "    ./build/litnicegpt --encode --config <config.yaml>\n"
-      << "    ./build/litnicegpt --tokenize --config <config.yaml>\n"
+      << "    ./build/litnicelm encode --config <config.yaml>\n"
+      << "    ./build/litnicelm --encode --config <config.yaml>\n"
+      << "    ./build/litnicelm --tokenize --config <config.yaml>\n"
       << "  Help:\n"
-      << "    ./build/litnicegpt --help\n";
+      << "    ./build/litnicelm --help\n";
 }
 
 Command CliParser::parse(int argc, char **argv) {

@@ -21,8 +21,8 @@ tokenizer:
   target_vocab_size: 1248
 
   # Preferred normalized plugin config.
-  training_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean.txt"
-  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean"
+  training_corpus: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean"
   bpe_vocab_file: ""
   bpe_merges_file: ""
 
@@ -41,8 +41,8 @@ tokenizer:
   #   sample_rate: 50
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean.txt"
-  output_binary: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean_tokenized_dataset.bin"
+  input_corpus: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean.txt"
+  output_binary: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean_tokenized_dataset.bin"
   chunk_size_mb: 64
 
 memory:
@@ -80,9 +80,9 @@ training:
   stop_on_nonfinite_loss: true
 
 paths:
-  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean_latest.ckpt"
-  model_file_best: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare_clean_best.ckpt"
-  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+  model_file_latest: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare_clean_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicelm/data/journal.txt"
 
 inference:
   prompt: ""
