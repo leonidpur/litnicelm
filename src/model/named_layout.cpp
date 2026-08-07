@@ -218,6 +218,10 @@ NamedLayout build_temp_layout(const Config &cfg) {
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
                NamedLayout::tensor_bytes(T, T, DType::F32, "attn.weights"),
                cursor);
+    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights_cache",
+               NamedLayout::tensor_bytes(cfg.model.n_heads * T, T, DType::F32,
+                                         "attn.weights_cache"),
+               cursor);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.head",
                NamedLayout::tensor_bytes(T, dh, DType::F32, "attn.head"), cursor);
 

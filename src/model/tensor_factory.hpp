@@ -113,6 +113,7 @@ public:
   TensorView temp_attn_context(int layer, int64_t rows) const;
   TensorView temp_attn_scores(int layer, int64_t rows) const;
   TensorView temp_attn_weights(int layer, int64_t rows) const;
+  TensorView temp_attn_cached_weights(int layer, int64_t rows) const;
   TensorView temp_attn_head(int layer, int64_t rows) const;
   TensorView temp_attn_contextT(int layer, int64_t rows) const;
   TensorView temp_attn_dWo(int layer) const;

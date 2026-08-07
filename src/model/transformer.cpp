@@ -172,18 +172,14 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
               dlogits.shape().c == vocab_size,
           "dlogits shape mismatch");
 
-  TensorView XnT = tensorFactory_.temp_bw_XnT(token_rows);
-  ops_.transpose(cache_xn_, XnT);
   TensorView d_lm_w = tensorFactory_.temp_bw_d_lm_w(token_rows);
-  ops_.matmul(XnT, dlogits, d_lm_w);
+  ops_.matmul_left_transposed(cache_xn_, dlogits, d_lm_w);
   (void)probe;
   observer_->probe_output_head_ready(lm_w, d_lm_w);
   update_param("lm_head_w", const_cast<TensorView &>(lm_w), d_lm_w, true);
 
-  TensorView lm_wT = tensorFactory_.temp_bw_lm_wT();
-  ops_.transpose(lm_w, lm_wT);
   TensorView d_xn = tensorFactory_.temp_bw_d_xn(token_rows);
-  ops_.matmul(dlogits, lm_wT, d_xn);
+  ops_.matmul_right_transposed(dlogits, lm_w, d_xn);
 
   TensorView d_xlast = tensorFactory_.temp_bw_d_xlast(token_rows);
   TensorView d_lnf_g = tensorFactory_.temp_bw_d_lnf_g();
