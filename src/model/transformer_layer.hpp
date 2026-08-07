@@ -3,6 +3,7 @@
 #include <config.hpp>
 #include "ffn.hpp"
 #include "ops.hpp"
+#include "training_observer.hpp"
 #include "self_attention.hpp"
 #include "tensor_factory.hpp"
 
@@ -37,6 +38,7 @@ public:
 
   TransformerLayer(int layer_index, const Config &cfg, TensorFactory &tensor_factory,
                    Ops &ops);
+  void set_observer(ITrainingObserver *observer);
 
   // x:   [T, D]
   // out: [T, D]
@@ -59,4 +61,5 @@ private:
   TensorView cache_ln1_;
   TensorView cache_ln2_;
   bool has_cache_ = false;
+  ITrainingObserver *observer_ = nullptr;
 };

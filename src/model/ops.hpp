@@ -19,8 +19,10 @@ public:
   void relu(const TensorView &x, TensorView &out) const;
 
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) const;
-  void matmul_transposed(const TensorView &a, const TensorView &b,
-                         TensorView &out) const;
+  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+                              TensorView &out) const;
+  void matmul_right_transposed(const TensorView &a, const TensorView &b,
+                               TensorView &out) const;
   void transpose(const TensorView &x, TensorView &out) const;
   void layernorm(const TensorView &x, const TensorView &gamma_1xC,
                  const TensorView &beta_1xC, TensorView &out) const;

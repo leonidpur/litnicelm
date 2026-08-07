@@ -23,7 +23,8 @@ public:
   Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
           OptimizerAdamW &opt, Transformer &model, const ArenaView &data_arena,
           const AdamStateView &adam_state, DeviceBackend &device_backend,
-          const Command &cmd, const RuntimeFlags &runtime_flags,
+          TrainingSessionController &session_controller,
+          const RuntimeFlags &runtime_flags,
           TrainingReportSink *sink = nullptr);
 
   // Train for the epoch count selected by TrainingSessionController.
@@ -43,7 +44,7 @@ private:
   bool has_last_checkpoint_time_ = false;
   TrainingReportSink *sink_ = nullptr;
   DeviceBackend &device_backend_;
-  TrainingSessionController session_controller_;
+  TrainingSessionController &session_controller_;
 
   void on_gradient_ready(const std::string &name, TensorView &param,
                          const TensorView &grad, bool is_row_sparse,

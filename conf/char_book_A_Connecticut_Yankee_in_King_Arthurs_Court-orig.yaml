@@ -1,0 +1,93 @@
+conf:
+  version: "1"
+
+device: cpu
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
+backend:
+  #library: "./build/liblitnice_backend_cpu.so"
+  library: "./build/liblitnice_backend_openblas_plugin.so"
+
+tokenizer:
+  # Factory-facing tokenizer implementation id.
+  # Preferred values: "sentencepiece", "character".
+  type: "sentencepiece"
+  target_vocab_size: 1248
+
+  # Preferred normalized plugin config.
+  training_corpus: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/bpe_A_Connecticut_Yankee_in_King_Arthurs_Court-orig"
+  bpe_vocab_file: ""
+  bpe_merges_file: ""
+
+  # Plugin/validation settings.
+  bpe_validation_num_threads: 1
+  bpe_validation_sample_rate: 50
+  run_validation: true
+  
+  # Future shape:
+  # params:
+  #   model_type: "bpe"
+  #   character_coverage: 1.0
+  # validation:
+  #   enabled: true
+  #   num_threads: 1
+  #   sample_rate: 50
+
+tokenization:
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/.txt"
+  output_binary: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig_tokenized_dataset.bin"
+  chunk_size_mb: 64
+
+memory:
+  alignment_bytes: 64
+
+model:
+  #window_capacity: 512
+  window_capacity: 240
+  #n_layers: 12
+  n_layers: 2
+  n_heads: 8
+  #d_model: 512
+  d_model: 64
+  d_ff: 256
+
+training:
+  learning_rate: 0.001
+  beta1: 0.9
+  beta2: 0.999
+  eps: 0.00000001
+  weight_decay: 0.01
+  incremental: false
+  dry_run: false
+  num_epochs_train: 170 # Small models need many passes to memorize single-author style.
+  num_epochs_dry_run: 2
+  save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
+  grad_clip: 1.0
+  window_training: 15
+  batch_size: 16 # 16-32: stable gradients without requiring massive RAM.
+
+paths:
+  model_file: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+
+inference:
+  window_inference: 64
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1
+  epoch_report_every: 100
+
+reporting:
+  # k: start epoch index, m: duration (-1 for till the end)
+  # [k, m] -> [-1, 0] disables educational reports.
+  verbose_epoch_index: [0, 5]
+  # If true, provide deep-dives during memory allocation and tensor setup.
+  verbose_init: true

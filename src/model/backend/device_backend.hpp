@@ -23,8 +23,10 @@ public:
   virtual void mul_scalar(const TensorView &x, float s, TensorView &out) = 0;
   virtual void relu(const TensorView &x, TensorView &out) = 0;
   virtual void matmul(const TensorView &a, const TensorView &b, TensorView &out) = 0;
-  virtual void matmul_transposed(const TensorView &a, const TensorView &b,
-                                 TensorView &out) = 0;
+  virtual void matmul_left_transposed(const TensorView &a, const TensorView &b,
+                                      TensorView &out) = 0;
+  virtual void matmul_right_transposed(const TensorView &a, const TensorView &b,
+                                       TensorView &out) = 0;
   virtual void transpose(const TensorView &x, TensorView &out) = 0;
   virtual void layernorm_forward(const TensorView &x,
                                  const TensorView &gamma_1xC,
@@ -67,8 +69,10 @@ public:
   void mul_scalar(const TensorView &x, float s, TensorView &out) override;
   void relu(const TensorView &x, TensorView &out) override;
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) override;
-  void matmul_transposed(const TensorView &a, const TensorView &b,
-                         TensorView &out) override;
+  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+                              TensorView &out) override;
+  void matmul_right_transposed(const TensorView &a, const TensorView &b,
+                               TensorView &out) override;
   void transpose(const TensorView &x, TensorView &out) override;
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override;
@@ -107,8 +111,10 @@ public:
   void mul_scalar(const TensorView &x, float s, TensorView &out) override;
   void relu(const TensorView &x, TensorView &out) override;
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) override;
-  void matmul_transposed(const TensorView &a, const TensorView &b,
-                         TensorView &out) override;
+  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+                              TensorView &out) override;
+  void matmul_right_transposed(const TensorView &a, const TensorView &b,
+                               TensorView &out) override;
   void transpose(const TensorView &x, TensorView &out) override;
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override;

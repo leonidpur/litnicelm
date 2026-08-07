@@ -38,9 +38,12 @@ struct BackendApiV1 {
                const BackendTensorView *out);
   void (*matmul)(void *backend, const BackendTensorView *a,
                  const BackendTensorView *b, const BackendTensorView *out);
-  void (*matmul_transposed)(void *backend, const BackendTensorView *a,
-                            const BackendTensorView *b,
-                            const BackendTensorView *out);
+  void (*matmul_left_transposed)(void *backend, const BackendTensorView *a,
+                                 const BackendTensorView *b,
+                                 const BackendTensorView *out);
+  void (*matmul_right_transposed)(void *backend, const BackendTensorView *a,
+                                  const BackendTensorView *b,
+                                  const BackendTensorView *out);
   void (*transpose)(void *backend, const BackendTensorView *x,
                     const BackendTensorView *out);
   void (*layernorm_forward)(void *backend, const BackendTensorView *x,
@@ -73,7 +76,7 @@ struct BackendApiV1 {
                            uint64_t size, uint64_t file_offset);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 1;
+inline constexpr uint32_t kBackendApiVersion = 2;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

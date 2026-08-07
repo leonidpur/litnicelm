@@ -22,6 +22,12 @@ TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
   validate_contract();
 }
 
+void TransformerLayer::set_observer(ITrainingObserver *observer) {
+  observer_ = observer;
+  attn_.set_observer(observer);
+  ffn_.set_observer(observer);
+}
+
 void TransformerLayer::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorView &ln1_gamma = tensorFactory_.param_ln1_gamma(idx_);

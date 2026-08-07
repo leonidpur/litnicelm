@@ -172,12 +172,20 @@ public:
     api_->matmul(instance_, &a_view, &b_view, &out_view);
   }
 
-  void matmul_transposed(const TensorView &a, const TensorView &b,
-                         TensorView &out) override {
+  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+                              TensorView &out) override {
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_transposed(instance_, &a_view, &b_view, &out_view);
+    api_->matmul_left_transposed(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void matmul_right_transposed(const TensorView &a, const TensorView &b,
+                               TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul_right_transposed(instance_, &a_view, &b_view, &out_view);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
@@ -413,8 +421,24 @@ void CpuBackend::matmul(const TensorView &a, const TensorView &b,
   }
 }
 
-void CpuBackend::matmul_transposed(const TensorView &a, const TensorView &b,
-                                   TensorView &out) {
+void CpuBackend::matmul_left_transposed(const TensorView &a, const TensorView &b,
+                                        TensorView &out) {
+  const int64_t row_count = a.shape().c;
+  const int64_t inner_dim = a.shape().r;
+  const int64_t col_count = b.shape().c;
+  for (int64_t r = 0; r < row_count; ++r) {
+    for (int64_t c = 0; c < col_count; ++c) {
+      float acc = 0.0f;
+      for (int64_t k = 0; k < inner_dim; ++k) {
+        acc += load_f32_backend(a, k, r) * load_f32_backend(b, k, c);
+      }
+      store_f32_backend(out, r, c, acc);
+    }
+  }
+}
+
+void CpuBackend::matmul_right_transposed(const TensorView &a, const TensorView &b,
+                                         TensorView &out) {
   const int64_t row_count = a.shape().r;
   const int64_t inner_dim = a.shape().c;
   const int64_t col_count = b.shape().r;
@@ -731,10 +755,15 @@ void CudaBackend::matmul(const TensorView &a, const TensorView &b, TensorView &o
   (void)a; (void)b; (void)out;
   throw std::runtime_error("CudaBackend::matmul: GPU backend is not implemented yet");
 }
-void CudaBackend::matmul_transposed(const TensorView &a, const TensorView &b,
-                                    TensorView &out) {
+void CudaBackend::matmul_left_transposed(const TensorView &a, const TensorView &b,
+                                         TensorView &out) {
   (void)a; (void)b; (void)out;
-  throw std::runtime_error("CudaBackend::matmul_transposed: GPU backend is not implemented yet");
+  throw std::runtime_error("CudaBackend::matmul_left_transposed: GPU backend is not implemented yet");
+}
+void CudaBackend::matmul_right_transposed(const TensorView &a, const TensorView &b,
+                                          TensorView &out) {
+  (void)a; (void)b; (void)out;
+  throw std::runtime_error("CudaBackend::matmul_right_transposed: GPU backend is not implemented yet");
 }
 void CudaBackend::transpose(const TensorView &x, TensorView &out) {
   (void)x; (void)out;

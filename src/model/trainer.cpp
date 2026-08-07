@@ -2,7 +2,10 @@
 
 #include "arena.hpp"
 #include "dataset.hpp"
+#include "eta_observer.hpp"
 #include "named_layout.hpp"
+#include "profiling_observer.hpp"
+#include "reporting_observer.hpp"
 #include "training_report_sink.hpp"
 #include "training_session_controller.hpp"
 #include "trainer_validation_utils.hpp"
@@ -18,7 +21,8 @@
 Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
                  OptimizerAdamW &opt, Transformer &model,
                  const ArenaView &data_arena, const AdamStateView &adam_state,
-                 DeviceBackend &device_backend, const Command &cmd,
+                 DeviceBackend &device_backend,
+                 TrainingSessionController &session_controller,
                  const RuntimeFlags &runtime_flags, TrainingReportSink *sink)
     : cfg_(cfg),
       tensorFactory_(tensor_factory),
@@ -30,13 +34,14 @@ Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
       runtime_flags_(runtime_flags),
       sink_(sink),
       device_backend_(device_backend),
-      session_controller_(cfg_, cmd) {
+      session_controller_(session_controller) {
   runtime_flags_.epoch_report_every =
       (runtime_flags_.epoch_report_every == 0)
           ? cfg_.logging.epoch_report_every
           : runtime_flags_.epoch_report_every;
   runtime_flags_.epoch_report_every =
       std::max<uint32_t>(1, runtime_flags_.epoch_report_every);
+  model_.set_observer(&session_controller_);
 }
 
 void Trainer::on_gradient_ready(const std::string &name, TensorView &param,
@@ -74,22 +79,19 @@ void Trainer::on_gradient_ready(const std::string &name, TensorView &param,
 }
 
 double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
+  session_controller_.on_batch_start(state.global_step);
   const int64_t token_rows = batch.ids.shape().r;
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
   TensorView logits = tensorFactory_.temp_tr_logits(token_rows);
-  if (sink_ != nullptr) {
-    sink_->report_batch_step(
-        static_cast<uint32_t>(cfg_.training.batch_size),
-        static_cast<uint32_t>(cfg_.training.window_training),
-        static_cast<uint32_t>(token_rows),
-        static_cast<uint32_t>(vocab_size));
-  }
+  session_controller_.batch_step_ready(
+      static_cast<uint32_t>(cfg_.training.batch_size),
+      static_cast<uint32_t>(cfg_.training.window_training),
+      static_cast<uint32_t>(token_rows),
+      static_cast<uint32_t>(vocab_size));
   model_.forward(batch.ids, logits);
   TensorView loss_scalar = tensorFactory_.temp_tr_loss();
   ops_.cross_entropy_mean(logits, batch.targets, loss_scalar);
-  if (runtime_flags_.probe.loss && sink_ != nullptr) {
-    sink_->report_probe_loss(loss_scalar, logits, batch.targets);
-  }
+  session_controller_.probe_loss_ready(loss_scalar, logits, batch.targets);
   const double loss = ops_.read_scalar_f32(loss_scalar);
 
   ops_.backward_from_logits_targets(logits, batch.targets);
@@ -99,6 +101,8 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
     this->on_gradient_ready(name, param, grad, sparse, state.global_step + 1);
   };
   model_.backward(batch.ids, logits, updater, runtime_flags_.probe);
+
+  session_controller_.on_batch_end(state.global_step, loss);
 
   return loss;
 }
@@ -148,8 +152,16 @@ int train_entry_point(const Config &cfg, const Command &cmd) {
   runtime_cfg.model.target_vocab_size = static_cast<uint32_t>(tokenizer->vocab_size());
   TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
   TrainingReportSink training_sink(runtime_cfg.logging);
+  TrainingSessionController session_controller(runtime_cfg, cmd);
+  session_controller.add_observer(std::make_unique<ReportingObserver>(
+      training_sink, cmd.runtime_flags.probe));
+  session_controller.add_observer(std::make_unique<ProfilingObserver>());
+  session_controller.add_observer(std::make_unique<EtaObserver>(
+      runtime_cfg, cmd, &training_sink, cmd.runtime_flags.epoch_report_every == 0
+                                            ? runtime_cfg.logging.epoch_report_every
+                                            : cmd.runtime_flags.epoch_report_every));
 
-  training_sink.report_training_start(runtime_cfg);
+  session_controller.runtime_cfg_ready(runtime_cfg);
 
   const std::string selected_input_path = runtime_cfg.tokenization.output_binary;
   std::cout << "[Trainer] Dataset file to load: " << selected_input_path << "\n";
@@ -165,7 +177,7 @@ int train_entry_point(const Config &cfg, const Command &cmd) {
 
   NamedLayout param_layout = build_param_layout(runtime_cfg);
   NamedLayout temp_layout = build_temp_layout(runtime_cfg);
-  training_sink.report_init_config(runtime_cfg, param_layout, temp_layout);
+  session_controller.init_config_ready(runtime_cfg, param_layout, temp_layout);
   
   const uint64_t param_bytes = param_layout.total_bytes();
   Arena param_arena(*backend, runtime_cfg.device, param_bytes,
@@ -182,15 +194,15 @@ int train_entry_point(const Config &cfg, const Command &cmd) {
   ArenaView data_view{param_arena.ptr(), param_arena.size_bytes(), runtime_cfg.device};
   AdamStateView adam_view{adam_arena.ptr(), adam_arena.size_bytes(), runtime_cfg.device};
   
-  training_sink.report_init_topology(param_layout, data_view.base, data_view.bytes,
-                                     adam_view.base, adam_view.bytes,
-                                     temp_arena.ptr(), temp_arena.size_bytes());
+  session_controller.init_topology_ready(param_layout, data_view.base, data_view.bytes,
+                                         adam_view.base, adam_view.bytes,
+                                         temp_arena.ptr(), temp_arena.size_bytes());
 
   TensorFactory tensor_factory(runtime_cfg, param_layout, data_view.base,
                                data_view.bytes, data_view.device, temp_layout,
                                temp_arena.ptr(), temp_arena.size_bytes());
   
-  training_sink.report_tensor_factory_topology(runtime_cfg, tensor_factory);
+  session_controller.tensor_factory_topology_ready(runtime_cfg, tensor_factory);
   Ops ops(runtime_cfg.device, *backend);
   OptimizerAdamW opt(runtime_cfg.device);
   Transformer model(runtime_cfg, tensor_factory, ops, &training_sink);
@@ -202,8 +214,8 @@ int train_entry_point(const Config &cfg, const Command &cmd) {
   TrainerValidationUtils::print_dataset_stats(runtime_cfg, loader);
   std::cout << "\n[Trainer] Engine, memory arenas, tensor factory, model, optimizer, and dataset are initialized.\n\n";
 
-  Trainer trainer(runtime_cfg, tensor_factory, ops, opt, model, data_view, adam_view, *backend,
-                  cmd, cmd.runtime_flags, &training_sink);
+  Trainer trainer(runtime_cfg, tensor_factory, ops, opt, model, data_view, adam_view,
+                  *backend, session_controller, cmd.runtime_flags, &training_sink);
   trainer.train(loader);
 
   return 0;
