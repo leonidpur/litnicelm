@@ -102,6 +102,8 @@ void CliParser::print_usage() {
          "[--printmod N|--printmod=N]\n"
       << "  Inference:\n"
       << "    ./build/litnicegpt infer --config <config.yaml> [prompt]\n"
+      << "  Inspect next-token distribution:\n"
+      << "    ./build/litnicegpt inspect --config <config.yaml> [prompt]\n"
       << "  Interactive inference:\n"
       << "    ./build/litnicegpt inferloop --config <config.yaml>\n"
       << "  Backup:\n"
@@ -128,6 +130,9 @@ Command CliParser::parse(int argc, char **argv) {
       arg_start = 2;
     } else if (candidate == "infer") {
       cmd.target = Command::Target::INFER;
+      arg_start = 2;
+    } else if (candidate == "inspect") {
+      cmd.target = Command::Target::INSPECT;
       arg_start = 2;
     } else if (candidate == "inferloop") {
       cmd.target = Command::Target::INFERLOOP;
@@ -171,8 +176,9 @@ Command CliParser::parse(int argc, char **argv) {
     }
     break;
   case Command::Target::INFER:
+  case Command::Target::INSPECT:
     if (args.size() > 1) {
-      throw std::runtime_error("infer accepts at most one prompt argument");
+      throw std::runtime_error("infer/inspect accepts at most one prompt argument");
     }
     cmd.prompt = args.empty() ? "" : args[0];
     break;

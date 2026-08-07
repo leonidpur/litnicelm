@@ -491,7 +491,7 @@ int run_create_bpe_mode(const std::string &config_path, ReportSink *sink) {
   const Config cfg = Config::load_from_file(config_path);
   BPE_TrainingUtility utility(cfg.tokenizer.bpe_corpus_file,
                               cfg.tokenizer.bpe_artifacts_dir,
-                              cfg.model.target_vocab_size,
+                              cfg.tokenizer.target_vocab_size,
                               cfg.tokenizer.run_validation,
                               cfg.tokenizer.bpe_validation_num_threads,
                               cfg.tokenizer.bpe_validation_sample_rate,
@@ -503,7 +503,7 @@ int run_create_bpe_mode(const std::string &config_path, ReportSink *sink) {
       "Input Corpus: " + cfg.tokenizer.bpe_corpus_file + "\n\n"
       "Artifacts: " + (artifacts_dir / "vocab.txt").string() + ", " +
       (artifacts_dir / "merges.txt").string() + "\n\n"
-      "Vocab Size: " + std::to_string(cfg.model.target_vocab_size);
+      "Vocab Size: " + std::to_string(cfg.tokenizer.target_vocab_size);
   log_operation(cfg.paths.journal_file, "BPE_TOKENIZER_GEN", details);
   return 0;
 }

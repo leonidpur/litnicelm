@@ -135,10 +135,6 @@ bool map_model_fields(const std::string &key, const std::string &value, Config &
     cfg.model.d_ff = parse_u32_or_throw(value, key);
     return true;
   }
-  if (key == "model.target_vocab_size") {
-    cfg.model.target_vocab_size = parse_u32_or_throw(value, key);
-    return true;
-  }
   if (key == "model.window_capacity") {
     cfg.model.window_capacity = parse_u32_or_throw(value, key);
     return true;
@@ -169,6 +165,10 @@ bool map_paths_fields(const std::string &key, const std::string &value, Config &
 bool map_tokenizer_fields(const std::string &key, const std::string &value, Config &cfg) {
   if (key == "tokenizer.type") {
     cfg.tokenizer.type = value;
+    return true;
+  }
+  if (key == "tokenizer.target_vocab_size") {
+    cfg.tokenizer.target_vocab_size = parse_u32_or_throw(value, key);
     return true;
   }
   if (key == "tokenizer.training_corpus") {

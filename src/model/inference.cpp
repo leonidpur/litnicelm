@@ -13,10 +13,14 @@
 #include "transformer.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -100,25 +104,15 @@ void load_weights_or_throw(InferRuntime &rt) {
   }
 }
 
-bool is_forbidden_special_id(int64_t id) {
-  return id < 3;
-}
-
 int32_t argmax_last_row(const TensorView &logits) {
   const int64_t r = logits.shape().r - 1;
   const int64_t C = logits.shape().c;
-  if (C <= 3) {
-    throw std::runtime_error("Inference: vocab size must be > 3 to mask special ids");
-  }
 
-  int32_t best = -1;
-  float bestv = 0.0f;
-  for (int64_t c = 0; c < C; ++c) {
-    if (is_forbidden_special_id(c)) {
-      continue;
-    }
+  int32_t best = 0;
+  float bestv = logits.at_f32(r, 0);
+  for (int64_t c = 1; c < C; ++c) {
     const float v = logits.at_f32(r, c);
-    if (best < 0 || v > bestv) {
+    if (v > bestv) {
       bestv = v;
       best = static_cast<int32_t>(c);
     }
@@ -126,27 +120,45 @@ int32_t argmax_last_row(const TensorView &logits) {
   return best;
 }
 
-std::string generate_text(InferRuntime &rt, const std::string &prompt) {
-  std::vector<int32_t> ids = rt.tokenizer->encode(prompt);
+std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
+                                const std::string &prompt) {
+  std::vector<int32_t> ids = tokenizer.encode(prompt);
   if (ids.empty()) {
     ids.push_back(0);
   }
+  return ids;
+}
+
+TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
+  const int64_t T = static_cast<int64_t>(ids.size());
+  TensorView ids_t = rt.tensors.temp_infer_ids(T);
+  auto *p = reinterpret_cast<int32_t *>(ids_t.data());
+  for (size_t i = 0; i < ids.size(); ++i) {
+    p[i] = ids[i];
+  }
+
+  TensorView logits = rt.tensors.temp_infer_logits(T);
+  rt.model.forward(ids_t, logits);
+  return logits;
+}
+
+std::string decode_token_safe(const Tokenizer &tokenizer, int32_t id) {
+  try {
+    return tokenizer.decode({id});
+  } catch (...) {
+    return "<invalid>";
+  }
+}
+
+std::string generate_text(InferRuntime &rt, const std::string &prompt) {
+  std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
 
   const uint32_t max_seq = rt.cfg.model.window_capacity;
   const uint32_t max_new = rt.cfg.inference.window_inference;
   report_if(rt.sink, ReportEvent::START, 0, 0.0f,
             "Inference started: max_new=" + std::to_string(max_new));
   for (uint32_t step = 0; step < max_new && ids.size() < max_seq; ++step) {
-    const int64_t T = static_cast<int64_t>(ids.size());
-    TensorView ids_t = rt.tensors.temp_infer_ids(T);
-    auto *p = reinterpret_cast<int32_t *>(ids_t.data());
-    for (size_t i = 0; i < ids.size(); ++i) {
-      p[i] = ids[i];
-    }
-
-    TensorView logits = rt.tensors.temp_infer_logits(T);
-    rt.model.forward(ids_t, logits);
-
+    TensorView logits = forward_prompt(rt, ids);
     const int32_t next = argmax_last_row(logits);
     ids.push_back(next);
     report_if(rt.sink, ReportEvent::TOKEN_GEN, step + 1, static_cast<float>(next),
@@ -157,6 +169,68 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
             "Inference complete");
   return rt.tokenizer->decode(ids);
 }
+
+std::string inspect_distribution(InferRuntime &rt, const std::string &prompt) {
+  constexpr size_t kTopK = 5;
+
+  const std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
+  const TensorView logits = forward_prompt(rt, ids);
+  const int64_t row = logits.shape().r - 1;
+  const int64_t cols = logits.shape().c;
+
+  std::vector<float> row_logits(static_cast<size_t>(cols), 0.0f);
+  float max_logit = logits.at_f32(row, 0);
+  for (int64_t c = 0; c < cols; ++c) {
+    const float v = logits.at_f32(row, c);
+    row_logits[static_cast<size_t>(c)] = v;
+    if (v > max_logit) {
+      max_logit = v;
+    }
+  }
+
+  std::vector<double> probs(static_cast<size_t>(cols), 0.0);
+  double sum = 0.0;
+  for (int64_t c = 0; c < cols; ++c) {
+    const double w = std::exp(static_cast<double>(row_logits[static_cast<size_t>(c)] -
+                                                  max_logit));
+    probs[static_cast<size_t>(c)] = w;
+    sum += w;
+  }
+  for (double &p : probs) {
+    p /= sum;
+  }
+
+  std::vector<int32_t> order(static_cast<size_t>(cols), 0);
+  for (int64_t c = 0; c < cols; ++c) {
+    order[static_cast<size_t>(c)] = static_cast<int32_t>(c);
+  }
+  std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b) {
+    return probs[static_cast<size_t>(a)] > probs[static_cast<size_t>(b)];
+  });
+
+  double entropy = 0.0;
+  for (double p : probs) {
+    if (p > 0.0) {
+      entropy -= p * std::log(p);
+    }
+  }
+
+  std::ostringstream oss;
+  oss << "[INFERENCE][INSPECT] Prompt=\"" << prompt << "\"\n";
+  oss << "Argmax: id=" << order.front() << " token=\""
+      << decode_token_safe(*rt.tokenizer, order.front()) << "\"\n";
+  oss << "Entropy: " << std::fixed << std::setprecision(6) << entropy << "\n";
+  oss << "Top-" << std::min(kTopK, order.size()) << " next-token distribution:\n";
+  for (size_t i = 0; i < std::min(kTopK, order.size()); ++i) {
+    const int32_t id = order[i];
+    oss << (i + 1) << ". id=" << id << " token=\""
+        << decode_token_safe(*rt.tokenizer, id) << "\""
+        << " logit=" << std::fixed << std::setprecision(6)
+        << row_logits[static_cast<size_t>(id)]
+        << " prob=" << probs[static_cast<size_t>(id)] << "\n";
+  }
+  return oss.str();
+}
 } // namespace
 
 int run_infer_mode(const std::string &config_path, const std::string &prompt,
@@ -165,6 +239,15 @@ int run_infer_mode(const std::string &config_path, const std::string &prompt,
   load_weights_or_throw(rt);
   const std::string out = generate_text(rt, prompt);
   report_if(sink, ReportEvent::TOKEN_GEN, 0, 0.0f, out);
+  return 0;
+}
+
+int run_inspect_mode(const std::string &config_path, const std::string &prompt,
+                     ReportSink *sink) {
+  InferRuntime rt(config_path, sink);
+  load_weights_or_throw(rt);
+  report_if(sink, ReportEvent::TOKEN_GEN, 0, 0.0f,
+            inspect_distribution(rt, prompt));
   return 0;
 }
 
