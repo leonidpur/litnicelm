@@ -32,6 +32,7 @@ struct PathsConfig {
 
 struct TokenizerConfig {
   std::string type = "character";
+  uint32_t target_vocab_size = 256;
   std::string bpe_corpus_file;
   std::string bpe_artifacts_dir;
   std::string bpe_vocab_file;
@@ -116,6 +117,7 @@ struct Command {
     TOKENIZER_TRAINING,
     TOKENIZE,
     INFER,
+    INSPECT,
     INFERLOOP,
     BACKUP,
   };

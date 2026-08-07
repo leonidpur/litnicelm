@@ -40,28 +40,31 @@ void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
 
 int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink) {
   const Config cfg = Config::load_from_file(config_path);
-  const std::string training_corpus = resolve_tokenizer_training_corpus(cfg);
   const std::string artifacts_dir = resolve_tokenizer_artifacts_dir(cfg);
   if (artifacts_dir.empty()) {
     throw std::runtime_error(
         "run_tokenizer_training_mode: tokenizer.artifacts_dir is required");
   }
+  auto plugin = TokenizerFactory::create_plugin(cfg, sink);
+
+  const std::string training_corpus = resolve_tokenizer_training_corpus(cfg);
   if (training_corpus.empty()) {
-    throw std::runtime_error(
-        "run_tokenizer_training_mode: tokenizer.training_corpus is required");
+    if (std::string(plugin->name()).find("CharacterTokenizer") ==
+        std::string::npos) {
+      throw std::runtime_error(
+          "run_tokenizer_training_mode: tokenizer.training_corpus is required");
+    }
   }
 
-  auto plugin = TokenizerFactory::create_plugin(cfg, sink);
   const std::string create_message =
       "Tokenizer training plugin loaded: plugin=" +
       std::string(plugin->name()) + ", training_corpus=" + training_corpus +
       ", artifacts_dir=" + artifacts_dir +
-      ", target_vocab_size=" + std::to_string(cfg.model.target_vocab_size) +
-      ", outputs=[" + (fs::path(artifacts_dir) / "spm.model").string() + ", " +
-      (fs::path(artifacts_dir) / "spm.vocab").string() + "]";
+      ", target_vocab_size=" + std::to_string(cfg.tokenizer.target_vocab_size) +
+      ", artifacts_dir_out=" + artifacts_dir;
   std::cout << "[TOKENIZER_TRAINIG] " << create_message << "\n";
   report_if(sink, ReportEvent::START, 0, 0.0f, create_message);
-  plugin->train(training_corpus, artifacts_dir, cfg.model.target_vocab_size,
+  plugin->train(training_corpus, artifacts_dir, cfg.tokenizer.target_vocab_size,
                 sink);
 
   const std::string details =
@@ -69,7 +72,7 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
       "Training Corpus: " + training_corpus + "\n\n"
       "Artifacts Dir: " + artifacts_dir + "\n\n"
       "Tokenizer: " + plugin->name() + "\n\n"
-      "Vocab Size: " + std::to_string(cfg.model.target_vocab_size);
+      "Vocab Size: " + std::to_string(cfg.tokenizer.target_vocab_size);
   log_operation(cfg.paths.journal_file, "BPE_TOKENIZER_GEN", details);
   return 0;
 }

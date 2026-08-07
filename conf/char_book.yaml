@@ -1,11 +1,12 @@
 tokenizer:
   # Factory-facing tokenizer implementation id.
-  # Preferred values: "sentencepiece", "character".
-  type: "sentencepiece"
+  # Preferred values: "sentencepiece", "character", "only_seen_chars"
+  type: "only_seen_chars"
+  target_vocab_size: 128
 
   # Preferred normalized plugin config.
-  training_corpus: "/mnt/ext_ssd/litnicegpt/data/twain_test.txt"
-  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/bpe_char_book"
+  training_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data"
   chunk_size_mb: 64
 
   # Plugin/validation settings.
@@ -23,25 +24,24 @@ tokenizer:
   #   sample_rate: 50
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/twain_test.txt"
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
   output_binary: "/mnt/ext_ssd/litnicegpt/data/tokenized_dataset.bin"
   chunk_size_mb: 64
 
 model:
   n_layers: 2
   n_heads: 2
-  d_model: 64
-  d_ff: 256
-  target_vocab_size: 128
-  window_capacity: 16
+  d_model: 32
+  d_ff: 64
+  window_capacity: 8
 
 training:
   incremental: false
   window_training: 4
-  batch_size: 4 # 16-32: stable gradients without requiring massive RAM.
-  num_epochs_train: 20 # Small models need many passes to memorize single-author style.
+  batch_size: 2 # 16-32: stable gradients without requiring massive RAM.
+  num_epochs_train: 120 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 2
-  learning_rate: 0.001
+  learning_rate: 0.002
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
 
 paths:

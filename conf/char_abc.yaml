@@ -1,6 +1,7 @@
 tokenizer:
   # Factory-facing tokenizer implementation id.
   type: "character"
+  target_vocab_size: 256
 
   # Preferred normalized tokenizer shape.
   training_corpus: "data/abc.txt"
@@ -20,7 +21,6 @@ tokenization:
   chunk_size_mb: 64
 
 model:
-  target_vocab_size: 256
   window_capacity: 8
   n_layers: 3
   n_heads: 1

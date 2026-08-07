@@ -14,6 +14,8 @@ int CommandExecutor::run(const Command &cmd, const Config &cfg) {
     return run_tokenization_mode(cmd.config_path, &sink);
   case Command::Target::INFER:
     return run_infer_mode(cmd.config_path, cmd.prompt, &sink);
+  case Command::Target::INSPECT:
+    return run_inspect_mode(cmd.config_path, cmd.prompt, &sink);
   case Command::Target::INFERLOOP:
     return run_inferloop_mode(cmd.config_path, &sink);
   case Command::Target::BACKUP:
