@@ -15,6 +15,18 @@ TensorView to_tensor_view(const BackendTensorView &abi) {
                     abi.stride_r_bytes);
 }
 
+bool is_blas_compatible_f32_row_major(const TensorView &view) {
+  return view.device() == Device::CPU && view.dtype() == DType::F32 &&
+         view.data() != nullptr &&
+         view.stride_c_bytes() == static_cast<int64_t>(sizeof(float)) &&
+         view.stride_r_bytes() >=
+             view.shape().c * static_cast<int64_t>(sizeof(float));
+}
+
+int leading_dim_f32(const TensorView &view) {
+  return static_cast<int>(view.stride_r_bytes() / sizeof(float));
+}
+
 class OpenBlasPluginBackend final : public DeviceBackend {
 public:
   void *alloc(uint64_t bytes, uint32_t alignment) override {
@@ -59,9 +71,9 @@ public:
   }
 
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) override {
-    if (a.dtype() != DType::F32 || b.dtype() != DType::F32 ||
-        out.dtype() != DType::F32 || !a.is_contiguous_row_major() ||
-        !b.is_contiguous_row_major() || !out.is_contiguous_row_major()) {
+    if (!is_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_blas_compatible_f32_row_major(out)) {
       cpu_backend_.matmul(a, b, out);
       return;
     }
@@ -69,18 +81,21 @@ public:
     const int m = static_cast<int>(a.shape().r);
     const int k = static_cast<int>(a.shape().c);
     const int n = static_cast<int>(b.shape().c);
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
 
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), k,
-                static_cast<const float *>(b.data()), n, 0.0f,
-                static_cast<float *>(out.data()), n);
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
   }
 
   void matmul_left_transposed(const TensorView &a, const TensorView &b,
                               TensorView &out) override {
-    if (a.dtype() != DType::F32 || b.dtype() != DType::F32 ||
-        out.dtype() != DType::F32 || !a.is_contiguous_row_major() ||
-        !b.is_contiguous_row_major() || !out.is_contiguous_row_major()) {
+    if (!is_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_blas_compatible_f32_row_major(out)) {
       cpu_backend_.matmul_left_transposed(a, b, out);
       return;
     }
@@ -88,18 +103,21 @@ public:
     const int m = static_cast<int>(a.shape().c);
     const int k = static_cast<int>(a.shape().r);
     const int n = static_cast<int>(b.shape().c);
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
 
     cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), m,
-                static_cast<const float *>(b.data()), n, 0.0f,
-                static_cast<float *>(out.data()), n);
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
   }
 
   void matmul_right_transposed(const TensorView &a, const TensorView &b,
                                TensorView &out) override {
-    if (a.dtype() != DType::F32 || b.dtype() != DType::F32 ||
-        out.dtype() != DType::F32 || !a.is_contiguous_row_major() ||
-        !b.is_contiguous_row_major() || !out.is_contiguous_row_major()) {
+    if (!is_blas_compatible_f32_row_major(a) ||
+        !is_blas_compatible_f32_row_major(b) ||
+        !is_blas_compatible_f32_row_major(out)) {
       cpu_backend_.matmul_right_transposed(a, b, out);
       return;
     }
@@ -107,11 +125,14 @@ public:
     const int m = static_cast<int>(a.shape().r);
     const int k = static_cast<int>(a.shape().c);
     const int n = static_cast<int>(b.shape().r);
+    const int lda = leading_dim_f32(a);
+    const int ldb = leading_dim_f32(b);
+    const int ldc = leading_dim_f32(out);
 
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans, m, n, k, 1.0f,
-                static_cast<const float *>(a.data()), k,
-                static_cast<const float *>(b.data()), k, 0.0f,
-                static_cast<float *>(out.data()), n);
+                static_cast<const float *>(a.data()), lda,
+                static_cast<const float *>(b.data()), ldb, 0.0f,
+                static_cast<float *>(out.data()), ldc);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {

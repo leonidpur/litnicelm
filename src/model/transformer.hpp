@@ -59,5 +59,5 @@ private:
   TensorView cache_xn_;
   bool has_cache_ = false;
   ReportSink *sink_ = nullptr;
-  ITrainingObserver *observer_ = nullptr;
+  ITrainingObserver *observer_ = &default_training_observer();
 };

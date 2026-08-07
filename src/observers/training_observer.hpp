@@ -116,3 +116,9 @@ public:
     (void)epoch;
   }
 };
+
+inline ITrainingObserver &default_training_observer() {
+  class NullTrainingObserver final : public ITrainingObserver {};
+  static NullTrainingObserver observer;
+  return observer;
+}

@@ -41,5 +41,5 @@ private:
   TensorView cache_h_;
   TensorView cache_a_;
   bool has_cache_ = false;
-  ITrainingObserver *observer_ = nullptr;
+  ITrainingObserver *observer_ = &default_training_observer();
 };

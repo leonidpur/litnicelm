@@ -135,6 +135,8 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
 
   TensorView scores = tensorFactory_.temp_attn_scores(idx_, token_rows);
   TensorView weights = tensorFactory_.temp_attn_weights(idx_, token_rows);
+  TensorView cached_weights =
+      tensorFactory_.temp_attn_cached_weights(idx_, token_rows);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -148,6 +150,8 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
     ops_.mul_scalar(scores, scale, scores);
     ops_.apply_causal_mask_inplace(scores);
     ops_.softmax_rows(scores, weights);
+    TensorView cached_weights_h = cached_weights.subrows(h * token_rows, token_rows);
+    ops_.copy(weights, cached_weights_h);
 
     TensorView head = tensorFactory_.temp_attn_head(idx_, token_rows);
     ops_.matmul(weights, Vh, head);
@@ -202,15 +206,11 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
   TensorView Q = cache_qkv_.subcols(0, model_dim);
   TensorView K = cache_qkv_.subcols(model_dim, model_dim);
   TensorView V = cache_qkv_.subcols(2 * model_dim, model_dim);
+  TensorView cached_weights =
+      tensorFactory_.temp_attn_cached_weights(idx_, token_rows);
 
-  TensorView KhT = tensorFactory_.temp_attn_KhT(idx_, token_rows);
-  TensorView scores = tensorFactory_.temp_attn_scores(idx_, token_rows);
-  TensorView weights = tensorFactory_.temp_attn_weights(idx_, token_rows);
-  TensorView VhT = tensorFactory_.temp_attn_VhT(idx_, token_rows);
   TensorView dweights = tensorFactory_.temp_attn_dweights(idx_, token_rows);
-  TensorView weightsT = tensorFactory_.temp_attn_weightsT(idx_, token_rows);
   TensorView dscores = tensorFactory_.temp_attn_dscores(idx_, token_rows);
-  TensorView dscoresT = tensorFactory_.temp_attn_dscoresT(idx_, token_rows);
 
   for (int64_t h = 0; h < H; ++h) {
     const int64_t col0 = h * dh;
@@ -221,17 +221,10 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
     TensorView dKh = dK.subcols(col0, dh);
     TensorView dVh = dV.subcols(col0, dh);
     TensorView dhead = dcontext.subcols(col0, dh);
+    TensorView weights = cached_weights.subrows(h * token_rows, token_rows);
 
-    ops_.transpose(Kh, KhT);
-    ops_.matmul(Qh, KhT, scores);
-    ops_.mul_scalar(scores, scale, scores);
-    ops_.apply_causal_mask_inplace(scores);
-    ops_.softmax_rows(scores, weights);
-
-    ops_.transpose(Vh, VhT);
-    ops_.matmul(dhead, VhT, dweights);
-    ops_.transpose(weights, weightsT);
-    ops_.matmul(weightsT, dhead, dVh);
+    ops_.matmul_right_transposed(dhead, Vh, dweights);
+    ops_.matmul_left_transposed(weights, dhead, dVh);
 
     softmax_backward_rows_f32(weights, dweights, dscores);
     for (int64_t i = 0; i < token_rows; ++i) {
@@ -243,8 +236,7 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
     ops_.matmul(dscores, Kh, dQh);
     ops_.mul_scalar(dQh, scale, dQh);
 
-    ops_.transpose(dscores, dscoresT);
-    ops_.matmul(dscoresT, Qh, dKh);
+    ops_.matmul_left_transposed(dscores, Qh, dKh);
     ops_.mul_scalar(dKh, scale, dKh);
   }
 

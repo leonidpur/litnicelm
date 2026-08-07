@@ -1,0 +1,19 @@
+[TRAINING][START] init_tensors_X_Y: X=[240x64], Y=[240x64]
+[TRAINING][END] step=1730 val=0.000000 Dry-run complete
+[Profiling Summary]
+- train_step total_ms=1916948.360 count=1730 avg_ms=1108.063
+  - forward total_ms=693429.777 count=1730 avg_ms=400.826
+    - layer[0] total_ms=338886.714 count=1730 avg_ms=195.888
+      - self_attention[0] total_ms=293705.158 count=1730 avg_ms=169.772
+      - ffn[0] total_ms=27584.705 count=1730 avg_ms=15.945
+    - layer[1] total_ms=342564.261 count=1730 avg_ms=198.014
+      - self_attention[1] total_ms=297679.059 count=1730 avg_ms=172.069
+      - ffn[1] total_ms=27075.758 count=1730 avg_ms=15.651
+  - backward total_ms=1037325.192 count=1730 avg_ms=599.610
+    - layer[1] total_ms=494417.981 count=1730 avg_ms=285.791
+      - ffn[1] total_ms=24246.029 count=1730 avg_ms=14.015
+      - self_attention[1] total_ms=437824.592 count=1730 avg_ms=253.078
+    - layer[0] total_ms=493852.392 count=1730 avg_ms=285.464
+      - ffn[0] total_ms=22969.534 count=1730 avg_ms=13.277
+      - self_attention[0] total_ms=438625.971 count=1730 avg_ms=253.541
+[TRAINING][END] step=1730 val=0.000000 [ESTIMATE] Dry-run 2/2 | Projected full training: 45h 15m 42s | Remaining if continued: 44h 43m 45s

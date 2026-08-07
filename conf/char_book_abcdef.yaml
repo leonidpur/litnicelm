@@ -11,8 +11,8 @@ max_steps: 1
 backend:
   #library: ""
   #library: "./build-debug/liblitnice_backend_cpu.so"
-  library: "./build-debug/liblitnice_backend_openblas_plugin.so"
-  #library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build-debug/liblitnice_backend_openblas_plugin.so"
+  library: "./build/liblitnice_backend_openblas_plugin.so"
   #library: "./build/liblitnice_backend_cpu.so"
 
 tokenizer:
@@ -64,7 +64,7 @@ training:
   weight_decay: 0.01
   incremental: true
   dry_run: false
-  num_epochs_train: 113 # Small models need many passes to memorize single-author style.
+  num_epochs_train: 33 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 2
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
   grad_clip: 1.0

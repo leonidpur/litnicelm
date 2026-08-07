@@ -399,6 +399,13 @@ TensorView TensorFactory::temp_attn_weights(int layer, int64_t rows) const {
                                       {rows, rows});
 }
 
+TensorView TensorFactory::temp_attn_cached_weights(int layer, int64_t rows) const {
+  const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
+  return temp_by_name_prefix_subshape(layer, "attn.weights_cache",
+                                      {H * temp_token_rows(), temp_token_rows()},
+                                      {H * rows, rows});
+}
+
 TensorView TensorFactory::temp_attn_head(int layer, int64_t rows) const {
   const int64_t dh = static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads);
   return temp_by_name_prefix_subshape(layer, "attn.head",
