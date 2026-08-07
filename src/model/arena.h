@@ -16,6 +16,7 @@ public:
   Device device() const;
 
 private:
+  DeviceBackend *backend_;
   Device dev_;
   uint64_t bytes_;
   void *ptr_;

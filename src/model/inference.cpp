@@ -70,7 +70,7 @@ struct InferRuntime {
               static_cast<uint32_t>(resolved_tokenizer->vocab_size());
           return loaded;
         }()),
-        backend(make_device_backend(cfg.device)),
+        backend(make_device_backend(cfg)),
         tokenizer(TokenizerFactory::create(cfg, sink_in)),
         param_layout(build_param_layout(cfg)),
         temp_layout(build_temp_layout(cfg)),

@@ -5,7 +5,7 @@
 
 Arena::Arena(DeviceBackend &backend, Device dev, uint64_t bytes,
              uint32_t alignment)
-    : dev_(dev), bytes_(bytes), ptr_(nullptr) {
+    : backend_(&backend), dev_(dev), bytes_(bytes), ptr_(nullptr) {
   if (bytes_ == 0) {
     return;
   }
@@ -16,20 +16,7 @@ Arena::~Arena() {
   if (ptr_ == nullptr) {
     return;
   }
-
-  switch (dev_) {
-  case Device::CPU: {
-    CpuBackend backend;
-    backend.free(ptr_);
-    break;
-  }
-  case Device::GPU: {
-    // GPU allocation is not implemented yet, so there should be nothing to free here.
-    break;
-  }
-  default:
-    break;
-  }
+  backend_->free(ptr_);
 }
 
 void *Arena::ptr() { return ptr_; }

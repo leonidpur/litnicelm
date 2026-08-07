@@ -89,6 +89,7 @@ const std::vector<std::string> &required_keys() {
       "optimizer_bytes",
       "arena_alignment",
       "max_steps",
+      "backend.library",
       "model.n_layers",
       "model.n_heads",
       "model.d_model",
@@ -168,6 +169,15 @@ bool map_root_fields(const std::string &key, const std::string &value, Config &c
   }
   if (key == "max_steps") {
     cfg.max_steps = parse_u64_or_throw(value, key);
+    return true;
+  }
+  return false;
+}
+
+bool map_backend_fields(const std::string &key, const std::string &value,
+                        Config &cfg) {
+  if (key == "backend.library") {
+    cfg.backend.library = value;
     return true;
   }
   return false;
@@ -384,6 +394,7 @@ void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
   for (const auto &entry : entries) {
     const bool mapped =
         map_root_fields(entry.key, entry.value, cfg) ||
+        map_backend_fields(entry.key, entry.value, cfg) ||
         map_model_fields(entry.key, entry.value, cfg) ||
         map_memory_fields(entry.key, entry.value, cfg) ||
         map_paths_fields(entry.key, entry.value, cfg) ||

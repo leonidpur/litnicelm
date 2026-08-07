@@ -132,3 +132,4 @@ public:
 };
 
 std::unique_ptr<DeviceBackend> make_device_backend(Device device);
+std::unique_ptr<DeviceBackend> make_device_backend(const Config &cfg);

@@ -1,11 +1,15 @@
 #include "device_backend.hpp"
+#include "backend_plugin_api.hpp"
 
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <cstdint>
+#include <dlfcn.h>
 #include <fstream>
+#include <iostream>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -46,6 +50,220 @@ int64_t load_index_backend(const TensorView &t, int64_t r, int64_t c) {
   }
   throw std::runtime_error("DeviceBackend: unsupported index dtype");
 }
+
+BackendTensorView to_backend_tensor_view(const TensorView &view) {
+  return BackendTensorView{
+      static_cast<uint32_t>(view.device()),
+      static_cast<uint32_t>(view.dtype()),
+      view.data(),
+      view.shape().r,
+      view.shape().c,
+      view.stride_r_bytes(),
+      view.stride_c_bytes(),
+  };
+}
+
+class DynamicLibraryBackend final : public DeviceBackend {
+public:
+  DynamicLibraryBackend(const std::string &library_path, Device device) {
+    library_handle_ = dlopen(library_path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    if (library_handle_ == nullptr) {
+      throw std::runtime_error("DynamicLibraryBackend: failed to load " +
+                               library_path + ": " + dlerror());
+    }
+    std::cout << "\033[32m[DeviceBackend] Loaded backend library: "
+              << library_path << "\033[0m\n";
+
+    auto *get_api = reinterpret_cast<BackendGetApiFn>(
+        dlsym(library_handle_, "litnice_backend_get_api"));
+    if (get_api == nullptr) {
+      const std::string err = dlerror() != nullptr ? dlerror() : "missing symbol";
+      dlclose(library_handle_);
+      library_handle_ = nullptr;
+      throw std::runtime_error("DynamicLibraryBackend: failed to resolve backend API: " +
+                               err);
+    }
+
+    api_ = get_api();
+    if (api_ == nullptr || api_->abi_version != kBackendApiVersion) {
+      dlclose(library_handle_);
+      library_handle_ = nullptr;
+      throw std::runtime_error("DynamicLibraryBackend: backend ABI mismatch");
+    }
+    instance_ = api_->create(static_cast<uint32_t>(device));
+    if (instance_ == nullptr) {
+      dlclose(library_handle_);
+      library_handle_ = nullptr;
+      throw std::runtime_error("DynamicLibraryBackend: backend create failed");
+    }
+  }
+
+  ~DynamicLibraryBackend() override {
+    if (api_ != nullptr && instance_ != nullptr) {
+      api_->destroy(instance_);
+    }
+    if (library_handle_ != nullptr) {
+      dlclose(library_handle_);
+    }
+  }
+
+  void *alloc(uint64_t bytes, uint32_t alignment) override {
+    return api_->alloc(instance_, bytes, alignment);
+  }
+
+  void free(void *ptr) override { api_->free(instance_, ptr); }
+
+  void copy_host2device(void *dst, const void *src, uint64_t bytes) override {
+    api_->copy_host2device(instance_, dst, src, bytes);
+  }
+
+  void copy_device2host(void *dst, const void *src, uint64_t bytes) override {
+    api_->copy_device2host(instance_, dst, src, bytes);
+  }
+
+  void copy(const TensorView &src, TensorView &dst) override {
+    const BackendTensorView src_view = to_backend_tensor_view(src);
+    const BackendTensorView dst_view = to_backend_tensor_view(dst);
+    api_->copy(instance_, &src_view, &dst_view);
+  }
+
+  void fill(TensorView &t, float v) override {
+    const BackendTensorView t_view = to_backend_tensor_view(t);
+    api_->fill(instance_, &t_view, v);
+  }
+
+  void add(const TensorView &a, const TensorView &b, TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->add(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void add_inplace(TensorView &a, const TensorView &b) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    api_->add_inplace(instance_, &a_view, &b_view);
+  }
+
+  void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
+                        TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->add_bias_rowwise(instance_, &x_view, &bias_view, &out_view);
+  }
+
+  void mul_scalar(const TensorView &x, float s, TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->mul_scalar(instance_, &x_view, s, &out_view);
+  }
+
+  void relu(const TensorView &x, TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->relu(instance_, &x_view, &out_view);
+  }
+
+  void matmul(const TensorView &a, const TensorView &b, TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void matmul_transposed(const TensorView &a, const TensorView &b,
+                         TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->matmul_transposed(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void transpose(const TensorView &x, TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->transpose(instance_, &x_view, &out_view);
+  }
+
+  void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
+                         const TensorView &beta_1xC, TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView gamma_view = to_backend_tensor_view(gamma_1xC);
+    const BackendTensorView beta_view = to_backend_tensor_view(beta_1xC);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->layernorm_forward(instance_, &x_view, &gamma_view, &beta_view,
+                            &out_view);
+  }
+
+  void layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
+                          const TensorView &dout, TensorView &dx,
+                          TensorView &dgamma_1xC,
+                          TensorView &dbeta_1xC) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView gamma_view = to_backend_tensor_view(gamma_1xC);
+    const BackendTensorView dout_view = to_backend_tensor_view(dout);
+    const BackendTensorView dx_view = to_backend_tensor_view(dx);
+    const BackendTensorView dgamma_view = to_backend_tensor_view(dgamma_1xC);
+    const BackendTensorView dbeta_view = to_backend_tensor_view(dbeta_1xC);
+    api_->layernorm_backward(instance_, &x_view, &gamma_view, &dout_view,
+                             &dx_view, &dgamma_view, &dbeta_view);
+  }
+
+  void embedding_lookup(const TensorView &table, const TensorView &ids,
+                        TensorView &out) override {
+    const BackendTensorView table_view = to_backend_tensor_view(table);
+    const BackendTensorView ids_view = to_backend_tensor_view(ids);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->embedding_lookup(instance_, &table_view, &ids_view, &out_view);
+  }
+
+  void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
+                          TensorView &out_loss) override {
+    const BackendTensorView logits_view = to_backend_tensor_view(logits);
+    const BackendTensorView targets_view = to_backend_tensor_view(targets);
+    const BackendTensorView out_loss_view = to_backend_tensor_view(out_loss);
+    api_->cross_entropy_mean(instance_, &logits_view, &targets_view,
+                             &out_loss_view);
+  }
+
+  float read_scalar_f32(const TensorView &x) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    return api_->read_scalar_f32(instance_, &x_view);
+  }
+
+  void backward_from_logits_targets(TensorView &logits,
+                                    const TensorView &targets) override {
+    const BackendTensorView logits_view = to_backend_tensor_view(logits);
+    const BackendTensorView targets_view = to_backend_tensor_view(targets);
+    api_->backward_from_logits_targets(instance_, &logits_view, &targets_view);
+  }
+
+  void softmax_rows(const TensorView &x, TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->softmax_rows(instance_, &x_view, &out_view);
+  }
+
+  void apply_causal_mask_inplace(TensorView &scores, float neg_inf) override {
+    const BackendTensorView scores_view = to_backend_tensor_view(scores);
+    api_->apply_causal_mask_inplace(instance_, &scores_view, neg_inf);
+  }
+
+  bool is_file2device_read_supported() const override {
+    return api_->is_file2device_read_supported(instance_) != 0;
+  }
+
+  void read_file2device(const std::string &path, void *dst, uint64_t size,
+                        uint64_t file_offset) override {
+    api_->read_file2device(instance_, path.c_str(), dst, size, file_offset);
+  }
+
+private:
+  void *library_handle_ = nullptr;
+  const BackendApiV1 *api_ = nullptr;
+  void *instance_ = nullptr;
+};
 }
 
 void *CpuBackend::alloc(uint64_t bytes, uint32_t alignment) {
@@ -602,4 +820,11 @@ std::unique_ptr<DeviceBackend> make_device_backend(Device device) {
   default:
     throw std::runtime_error("make_device_backend: unsupported device");
   }
+}
+
+std::unique_ptr<DeviceBackend> make_device_backend(const Config &cfg) {
+  if (!cfg.backend.library.empty()) {
+    return std::make_unique<DynamicLibraryBackend>(cfg.backend.library, cfg.device);
+  }
+  return make_device_backend(cfg.device);
 }
