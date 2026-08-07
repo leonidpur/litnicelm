@@ -56,7 +56,7 @@ struct InferRuntime {
   Arena temp_arena;
   ArenaView data_view;
   AdamStateView adam_view;
-  TensorFactory tensors;
+  TensorFactory tensor_factory;
   Ops ops;
   OptimizerAdamW opt;
   Transformer model;
@@ -82,12 +82,12 @@ struct InferRuntime {
                    cfg.memory.alignment_bytes),
         data_view{param_arena.ptr(), param_arena.size_bytes(), cfg.device},
         adam_view{adam_arena.ptr(), adam_arena.size_bytes(), cfg.device},
-        tensors(cfg, param_layout, data_view.base, data_view.bytes,
-                data_view.device, temp_layout, temp_arena.ptr(),
-                temp_arena.size_bytes()),
-        ops(cfg.device),
+        tensor_factory(cfg, param_layout, data_view.base, data_view.bytes,
+                       data_view.device, temp_layout, temp_arena.ptr(),
+                       temp_arena.size_bytes()),
+        ops(cfg.device, *backend),
         opt(cfg.device),
-        model(cfg, tensors, ops, sink_in),
+        model(cfg, tensor_factory, ops, sink_in),
         sink(sink_in) {
     validate_vocab_contract_or_throw(cfg, *tokenizer);
   }
@@ -95,12 +95,13 @@ struct InferRuntime {
 
 void load_weights_or_throw(InferRuntime &rt) {
   uint64_t restored_step = 0;
+  uint32_t restored_epoch = 0;
   std::string ckpt_error;
   const bool ok =
       load_checkpoint(rt.cfg.paths.model_file, rt.cfg.model,
-                      rt.cfg.conf_version,
-                      rt.cfg.memory.alignment_bytes, rt.data_view, rt.adam_view,
-                      restored_step, &ckpt_error);
+                      rt.cfg.conf_version, rt.cfg.memory.alignment_bytes,
+                      *rt.backend, rt.data_view, rt.adam_view,
+                      restored_step, restored_epoch, &ckpt_error);
   if (!ok) {
     std::string msg = "Failed to load checkpoint: " + rt.cfg.paths.model_file;
     if (!ckpt_error.empty()) {
@@ -136,14 +137,14 @@ std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
 }
 
 TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
-  const int64_t T = static_cast<int64_t>(ids.size());
-  TensorView ids_t = rt.tensors.temp_infer_ids(T);
+  const int64_t prompt_token_rows = static_cast<int64_t>(ids.size());
+  TensorView ids_t = rt.tensor_factory.temp_infer_ids(prompt_token_rows);
   auto *p = reinterpret_cast<int32_t *>(ids_t.data());
   for (size_t i = 0; i < ids.size(); ++i) {
     p[i] = ids[i];
   }
 
-  TensorView logits = rt.tensors.temp_infer_logits(T);
+  TensorView logits = rt.tensor_factory.temp_infer_logits(prompt_token_rows);
   rt.model.forward(ids_t, logits);
   return logits;
 }

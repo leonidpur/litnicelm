@@ -30,6 +30,7 @@ public:
   virtual ~IDataLoader() = default;
   virtual void reset_epoch() = 0;
   virtual bool next(TrainBatch &out) = 0;
+  virtual uint64_t steps_per_epoch() const = 0;
 };
 
 class TrainingReportSink;
@@ -39,21 +40,21 @@ public:
   virtual ~DatasetBackend() = default;
   virtual void fill_batch(const int32_t *tokens, uint64_t ids_begin,
                           uint64_t tgt_begin, uint64_t block_span,
-                          TensorFactory &tensors, Device device,
+                          TensorFactory &tensor_factory, Device device,
                           TrainBatch &out) const = 0;
 };
 
 class DatasetCPU final : public DatasetBackend {
 public:
   void fill_batch(const int32_t *tokens, uint64_t ids_begin, uint64_t tgt_begin,
-                  uint64_t block_span, TensorFactory &tensors, Device device,
+                  uint64_t block_span, TensorFactory &tensor_factory, Device device,
                   TrainBatch &out) const override;
 };
 
 class DatasetGPU final : public DatasetBackend {
 public:
   void fill_batch(const int32_t *tokens, uint64_t ids_begin, uint64_t tgt_begin,
-                  uint64_t block_span, TensorFactory &tensors, Device device,
+                  uint64_t block_span, TensorFactory &tensor_factory, Device device,
                   TrainBatch &out) const override;
 };
 
@@ -67,7 +68,7 @@ public:
     TOKEN_U32 = 1,
   };
 
-  TextDataset(TensorFactory &tensors, const std::string &dataset_path,
+  TextDataset(TensorFactory &tensor_factory, const std::string &dataset_path,
               Device device, uint32_t seq_len,
               uint32_t batch_size, bool shuffle_blocks = false,
               TrainingReportSink *report_sink = nullptr);
@@ -76,6 +77,7 @@ public:
 
   void reset_epoch() override;
   bool next(TrainBatch &out) override;
+  uint64_t steps_per_epoch() const override { return block_starts_.size(); }
 
   uint64_t num_tokens() const { return num_tokens_; }
   uint32_t max_token_id() const;
@@ -86,8 +88,8 @@ private:
   TensorFactory &tensorFactory_;
   Device device_;
 
-  uint32_t T_ = 0;
-  uint32_t B_ = 0;
+  uint32_t seq_len_ = 0;
+  uint32_t batch_size_ = 0;
   bool shuffle_blocks_ = false;
 
   DatasetHeader header_{};

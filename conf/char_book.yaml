@@ -55,9 +55,9 @@ training:
   beta2: 0.999
   eps: 0.00000001
   weight_decay: 0.01
-  incremental: false
+  incremental: true
   dry_run: false
-  num_epochs_train: 70 # Small models need many passes to memorize single-author style.
+  num_epochs_train: 10 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 2
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
   grad_clip: 1.0
@@ -76,10 +76,11 @@ logging:
   show_train: true
   show_inference: true
   report_every_n_steps: 1
+  epoch_report_every: 13
 
 reporting:
   # k: start epoch index, m: duration (-1 for till the end)
-  # [k, m] -> [-1, 0] disables educational reports.
+  # [k, m] -> [-1, 0] disables educational reports. Not used yet.
   verbose_epoch_index: [0, 1]
   # If true, provide deep-dives during memory allocation and tensor setup.
   verbose_init: true

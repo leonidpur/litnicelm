@@ -41,9 +41,13 @@ public:
                             uint64_t adam_size, void *temp_base,
                             uint64_t temp_size);
   void report_tensor_factory_topology(const Config &cfg,
-                                      const TensorFactory &tensors);
+                                      const TensorFactory &tensor_factory);
 
   void report(ReportEvent event, const std::string &message) override;
+  void report_probe_tensor(const std::string &group, const std::string &name,
+                           const TensorView &tensor) override;
+  void report_probe_loss(const TensorView &loss_scalar, const TensorView &logits,
+                         const TensorView &targets) override;
   void init_tensors_X_Y(int64_t x_rows, int64_t x_cols, int64_t y_rows,
                         int64_t y_cols, const TensorView &tok_emb,
                         const TensorView &pos_emb) override;

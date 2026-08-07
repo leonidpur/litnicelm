@@ -32,7 +32,7 @@ public:
   using ParamUpdater =
       std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
 
-  Transformer(const Config &cfg, TensorFactory &tensors, Ops &ops,
+  Transformer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
               ReportSink *sink = nullptr);
 
   // ids: [T] int32/int64 (whatever your TensorFactory/Ops embedding expects)
@@ -41,9 +41,12 @@ public:
   void forward(const TensorView &ids, TensorView &logits,
                TensorView *last_hidden = nullptr);
   void backward(const TensorView &ids, const TensorView &dlogits,
-                const ParamUpdater &update_param, bool do_probe = false);
+                const ParamUpdater &update_param,
+                const RuntimeFlags::ProbeFlags &probe);
 
 private:
+  void validate_contract() const;
+
   const Config &cfg_;
   TensorFactory &tensorFactory_;
   Ops &ops_;

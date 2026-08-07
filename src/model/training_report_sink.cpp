@@ -121,6 +121,60 @@ bool all_finite_f32_cpu(const TensorView &t) {
   }
   return true;
 }
+
+struct ProbeStats {
+  double mean = 0.0;
+  double stddev = 0.0;
+  double min = 0.0;
+  double max = 0.0;
+  uint32_t hash = 2166136261u;
+};
+
+void hash_bytes(uint32_t &h, const void *ptr, size_t n) {
+  const auto *p = reinterpret_cast<const uint8_t *>(ptr);
+  for (size_t i = 0; i < n; ++i) {
+    h ^= static_cast<uint32_t>(p[i]);
+    h *= 16777619u;
+  }
+}
+
+ProbeStats probe_stats_f32(const TensorView &t) {
+  if (t.device() != Device::CPU || t.dtype() != DType::F32) {
+    return {};
+  }
+  ProbeStats s;
+  const int64_t R = t.shape().r;
+  const int64_t C = t.shape().c;
+  double sum = 0.0;
+  double sum_sq = 0.0;
+  bool init = false;
+  for (int64_t r = 0; r < R; ++r) {
+    for (int64_t c = 0; c < C; ++c) {
+      const float v = t.at_f32(r, c);
+      hash_bytes(s.hash, &v, sizeof(float));
+      const double x = static_cast<double>(v);
+      if (!init) {
+        s.min = s.max = x;
+        init = true;
+      } else {
+        if (x < s.min) s.min = x;
+        if (x > s.max) s.max = x;
+      }
+      sum += x;
+      sum_sq += x * x;
+    }
+  }
+  const double n = static_cast<double>(R * C);
+  if (n > 0.0) {
+    s.mean = sum / n;
+    double var = (sum_sq / n) - (s.mean * s.mean);
+    if (var < 0.0) {
+      var = 0.0;
+    }
+    s.stddev = std::sqrt(var);
+  }
+  return s;
+}
 } // namespace
 
 TrainingReportSink::TrainingReportSink(const LoggingConfig &logging)
@@ -128,6 +182,47 @@ TrainingReportSink::TrainingReportSink(const LoggingConfig &logging)
 
 void TrainingReportSink::report(ReportEvent event, const std::string &message) {
   console_.report(event, message);
+}
+
+void TrainingReportSink::report_probe_tensor(const std::string &group,
+                                             const std::string &name,
+                                             const TensorView &tensor) {
+  if (tensor.device() != Device::CPU || tensor.dtype() != DType::F32) {
+    return;
+  }
+  const ProbeStats s = probe_stats_f32(tensor);
+  std::ostringstream oss;
+  oss << "[TRAINING][STEP_COMPLETE] step=0 val=0.000000 [probe] "
+      << group << "." << name
+      << " shape=[" << tensor.shape().r << "," << tensor.shape().c << "]"
+      << std::fixed << std::setprecision(6)
+      << " mean=" << s.mean
+      << " std=" << s.stddev
+      << " min=" << s.min
+      << " max=" << s.max
+      << " hash=0x" << std::hex << s.hash << std::dec;
+  report(ReportEvent::STEP_COMPLETE, oss.str());
+}
+
+void TrainingReportSink::report_probe_loss(const TensorView &loss_scalar,
+                                           const TensorView &logits,
+                                           const TensorView &targets) {
+  if (loss_scalar.device() != Device::CPU || loss_scalar.dtype() != DType::F32 ||
+      logits.device() != Device::CPU || logits.dtype() != DType::F32) {
+    return;
+  }
+  const ProbeStats logits_stats = probe_stats_f32(logits);
+  std::ostringstream oss;
+  oss << "[TRAINING][STEP_COMPLETE] step=0 val=0.000000 [probe] loss"
+      << " scalar=" << std::fixed << std::setprecision(6) << loss_scalar.at_f32(0, 0)
+      << " logits_shape=[" << logits.shape().r << "," << logits.shape().c << "]"
+      << " logits_mean=" << logits_stats.mean
+      << " logits_std=" << logits_stats.stddev
+      << " logits_min=" << logits_stats.min
+      << " logits_max=" << logits_stats.max
+      << " logits_hash=0x" << std::hex << logits_stats.hash << std::dec
+      << " targets_shape=[" << targets.shape().r << "," << targets.shape().c << "]";
+  report(ReportEvent::STEP_COMPLETE, oss.str());
 }
 
 void TrainingReportSink::init_tensors_X_Y(int64_t x_rows, int64_t x_cols,
@@ -249,9 +344,10 @@ void TrainingReportSink::report_batch_step(uint32_t batch_cfg, uint32_t window_c
     return;
   }
   std::ostringstream oss;
-  oss << "[TRAINING][BATCH] Batch->Logit: B_cfg=" << batch_cfg
-      << " T_cfg=" << window_cfg << " T_flat=" << batch_flat_t
-      << " V=" << logit_dim_v << "\n";
+  oss << "[TRAINING][BATCH] Batch->Logit: batch_size=" << batch_cfg
+      << " window_training=" << window_cfg
+      << " token_rows=" << batch_flat_t
+      << " vocab_size=" << logit_dim_v << "\n";
   report(ReportEvent::STEP_COMPLETE, oss.str());
   batch_step_report_count_ += 1;
 }
@@ -400,7 +496,7 @@ void TrainingReportSink::report_init_topology(const NamedLayout &param_layout,
 }
 
 void TrainingReportSink::report_tensor_factory_topology(
-    const Config &cfg, const TensorFactory &tensors) {
+    const Config &cfg, const TensorFactory &tensor_factory) {
   if (!verbose_init_enabled_) {
     return;
   }
@@ -410,54 +506,54 @@ void TrainingReportSink::report_tensor_factory_topology(
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
   lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
-  lines.push_back(tensor_metadata_row("tok_embedding", tensors.param_tok_embedding(),
+  lines.push_back(tensor_metadata_row("tok_embedding", tensor_factory.param_tok_embedding(),
                                       infer_purpose("tok_embedding")));
-  lines.push_back(tensor_metadata_row("pos_embedding", tensors.param_pos_embedding(),
+  lines.push_back(tensor_metadata_row("pos_embedding", tensor_factory.param_pos_embedding(),
                                       infer_purpose("pos_embedding")));
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "layer" + std::to_string(l) + ".";
     lines.push_back(tensor_metadata_row(p + "ln1_gamma",
-                                        tensors.param_ln1_gamma(static_cast<int>(l)),
+                                        tensor_factory.param_ln1_gamma(static_cast<int>(l)),
                                         infer_purpose(p + "ln1_gamma")));
     lines.push_back(tensor_metadata_row(p + "ln1_beta",
-                                        tensors.param_ln1_beta(static_cast<int>(l)),
+                                        tensor_factory.param_ln1_beta(static_cast<int>(l)),
                                         infer_purpose(p + "ln1_beta")));
     lines.push_back(tensor_metadata_row(p + "attn_qkv_w",
-                                        tensors.param_attn_qkv_w(static_cast<int>(l)),
+                                        tensor_factory.param_attn_qkv_w(static_cast<int>(l)),
                                         infer_purpose(p + "attn_qkv_w")));
     lines.push_back(tensor_metadata_row(p + "attn_qkv_b",
-                                        tensors.param_attn_qkv_b(static_cast<int>(l)),
+                                        tensor_factory.param_attn_qkv_b(static_cast<int>(l)),
                                         infer_purpose(p + "attn_qkv_b")));
     lines.push_back(tensor_metadata_row(p + "attn_out_w",
-                                        tensors.param_attn_out_w(static_cast<int>(l)),
+                                        tensor_factory.param_attn_out_w(static_cast<int>(l)),
                                         infer_purpose(p + "attn_out_w")));
     lines.push_back(tensor_metadata_row(p + "attn_out_b",
-                                        tensors.param_attn_out_b(static_cast<int>(l)),
+                                        tensor_factory.param_attn_out_b(static_cast<int>(l)),
                                         infer_purpose(p + "attn_out_b")));
     lines.push_back(tensor_metadata_row(p + "ln2_gamma",
-                                        tensors.param_ln2_gamma(static_cast<int>(l)),
+                                        tensor_factory.param_ln2_gamma(static_cast<int>(l)),
                                         infer_purpose(p + "ln2_gamma")));
     lines.push_back(tensor_metadata_row(p + "ln2_beta",
-                                        tensors.param_ln2_beta(static_cast<int>(l)),
+                                        tensor_factory.param_ln2_beta(static_cast<int>(l)),
                                         infer_purpose(p + "ln2_beta")));
     lines.push_back(tensor_metadata_row(p + "ffn_w1",
-                                        tensors.param_ffn_w1(static_cast<int>(l)),
+                                        tensor_factory.param_ffn_w1(static_cast<int>(l)),
                                         infer_purpose(p + "ffn_w1")));
     lines.push_back(tensor_metadata_row(p + "ffn_b1",
-                                        tensors.param_ffn_b1(static_cast<int>(l)),
+                                        tensor_factory.param_ffn_b1(static_cast<int>(l)),
                                         infer_purpose(p + "ffn_b1")));
     lines.push_back(tensor_metadata_row(p + "ffn_w2",
-                                        tensors.param_ffn_w2(static_cast<int>(l)),
+                                        tensor_factory.param_ffn_w2(static_cast<int>(l)),
                                         infer_purpose(p + "ffn_w2")));
     lines.push_back(tensor_metadata_row(p + "ffn_b2",
-                                        tensors.param_ffn_b2(static_cast<int>(l)),
+                                        tensor_factory.param_ffn_b2(static_cast<int>(l)),
                                         infer_purpose(p + "ffn_b2")));
   }
-  lines.push_back(tensor_metadata_row("lnf_gamma", tensors.param_lnf_gamma(),
+  lines.push_back(tensor_metadata_row("lnf_gamma", tensor_factory.param_lnf_gamma(),
                                       infer_purpose("lnf_gamma")));
-  lines.push_back(tensor_metadata_row("lnf_beta", tensors.param_lnf_beta(),
+  lines.push_back(tensor_metadata_row("lnf_beta", tensor_factory.param_lnf_beta(),
                                       infer_purpose("lnf_beta")));
-  lines.push_back(tensor_metadata_row("lm_head_w", tensors.param_lm_head_w(),
+  lines.push_back(tensor_metadata_row("lm_head_w", tensor_factory.param_lm_head_w(),
                                       infer_purpose("lm_head_w")));
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 
@@ -472,78 +568,78 @@ void TrainingReportSink::report_tensor_factory_topology(
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
   lines.push_back("| Name               | Shape   | Layout                | Stride | Address        | Bytes   | Purpose                      |");
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
-  lines.push_back(tensor_metadata_row("ds.ids", tensors.temp_ds_ids(T), infer_temp_purpose("ds.ids")));
-  lines.push_back(tensor_metadata_row("ds.targets", tensors.temp_ds_targets(T), infer_temp_purpose("ds.targets")));
-  lines.push_back(tensor_metadata_row("infer.ids", tensors.temp_infer_ids(S), infer_temp_purpose("infer.ids")));
-  lines.push_back(tensor_metadata_row("infer.logits", tensors.temp_infer_logits(S), infer_temp_purpose("infer.logits")));
-  lines.push_back(tensor_metadata_row("tr.logits", tensors.temp_tr_logits(T), infer_temp_purpose("tr.logits")));
-  lines.push_back(tensor_metadata_row("tr.loss", tensors.temp_tr_loss(), infer_temp_purpose("tr.loss")));
-  lines.push_back(tensor_metadata_row("tr.X", tensors.temp_tr_X(T), infer_temp_purpose("tr.X")));
-  lines.push_back(tensor_metadata_row("tr.Y", tensors.temp_tr_Y(T), infer_temp_purpose("tr.Y")));
-  lines.push_back(tensor_metadata_row("tr.Xn", tensors.temp_tr_Xn(T), infer_temp_purpose("tr.Xn")));
-  lines.push_back(tensor_metadata_row("bw.XnT", tensors.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
-  lines.push_back(tensor_metadata_row("bw.d_lm_w", tensors.temp_bw_d_lm_w(T), infer_temp_purpose("bw.d_lm_w")));
-  lines.push_back(tensor_metadata_row("bw.lm_wT", tensors.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
-  lines.push_back(tensor_metadata_row("bw.d_xn", tensors.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
-  lines.push_back(tensor_metadata_row("bw.d_xlast", tensors.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
-  lines.push_back(tensor_metadata_row("bw.d_lnf_g", tensors.temp_bw_d_lnf_g(), infer_temp_purpose("bw.d_lnf_g")));
-  lines.push_back(tensor_metadata_row("bw.d_lnf_b", tensors.temp_bw_d_lnf_b(), infer_temp_purpose("bw.d_lnf_b")));
-  lines.push_back(tensor_metadata_row("bw.d_tok", tensors.temp_bw_d_tok(), infer_temp_purpose("bw.d_tok")));
-  lines.push_back(tensor_metadata_row("bw.d_pos", tensors.temp_bw_d_pos(), infer_temp_purpose("bw.d_pos")));
+  lines.push_back(tensor_metadata_row("ds.ids", tensor_factory.temp_ds_ids(T), infer_temp_purpose("ds.ids")));
+  lines.push_back(tensor_metadata_row("ds.targets", tensor_factory.temp_ds_targets(T), infer_temp_purpose("ds.targets")));
+  lines.push_back(tensor_metadata_row("infer.ids", tensor_factory.temp_infer_ids(S), infer_temp_purpose("infer.ids")));
+  lines.push_back(tensor_metadata_row("infer.logits", tensor_factory.temp_infer_logits(S), infer_temp_purpose("infer.logits")));
+  lines.push_back(tensor_metadata_row("tr.logits", tensor_factory.temp_tr_logits(T), infer_temp_purpose("tr.logits")));
+  lines.push_back(tensor_metadata_row("tr.loss", tensor_factory.temp_tr_loss(), infer_temp_purpose("tr.loss")));
+  lines.push_back(tensor_metadata_row("tr.X", tensor_factory.temp_tr_X(T), infer_temp_purpose("tr.X")));
+  lines.push_back(tensor_metadata_row("tr.Y", tensor_factory.temp_tr_Y(T), infer_temp_purpose("tr.Y")));
+  lines.push_back(tensor_metadata_row("tr.Xn", tensor_factory.temp_tr_Xn(T), infer_temp_purpose("tr.Xn")));
+  lines.push_back(tensor_metadata_row("bw.XnT", tensor_factory.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
+  lines.push_back(tensor_metadata_row("bw.d_lm_w", tensor_factory.temp_bw_d_lm_w(T), infer_temp_purpose("bw.d_lm_w")));
+  lines.push_back(tensor_metadata_row("bw.lm_wT", tensor_factory.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
+  lines.push_back(tensor_metadata_row("bw.d_xn", tensor_factory.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
+  lines.push_back(tensor_metadata_row("bw.d_xlast", tensor_factory.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
+  lines.push_back(tensor_metadata_row("bw.d_lnf_g", tensor_factory.temp_bw_d_lnf_g(), infer_temp_purpose("bw.d_lnf_g")));
+  lines.push_back(tensor_metadata_row("bw.d_lnf_b", tensor_factory.temp_bw_d_lnf_b(), infer_temp_purpose("bw.d_lnf_b")));
+  lines.push_back(tensor_metadata_row("bw.d_tok", tensor_factory.temp_bw_d_tok(), infer_temp_purpose("bw.d_tok")));
+  lines.push_back(tensor_metadata_row("bw.d_pos", tensor_factory.temp_bw_d_pos(), infer_temp_purpose("bw.d_pos")));
 
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const int li = static_cast<int>(l);
     const std::string p = "layer" + std::to_string(l) + ".";
-    lines.push_back(tensor_metadata_row(p + "ln1", tensors.temp_layer_ln1(li, T), infer_temp_purpose(p + "ln1")));
-    lines.push_back(tensor_metadata_row(p + "attn_out", tensors.temp_layer_attn_out(li, T), infer_temp_purpose(p + "attn_out")));
-    lines.push_back(tensor_metadata_row(p + "resid1", tensors.temp_layer_resid1(li, T), infer_temp_purpose(p + "resid1")));
-    lines.push_back(tensor_metadata_row(p + "ln2", tensors.temp_layer_ln2(li, T), infer_temp_purpose(p + "ln2")));
-    lines.push_back(tensor_metadata_row(p + "ffn_out", tensors.temp_layer_ffn_out(li, T), infer_temp_purpose(p + "ffn_out")));
-    lines.push_back(tensor_metadata_row(p + "bw.d_prev", tensors.temp_layer_bw_d_prev(li, T), infer_temp_purpose(p + "bw.d_prev")));
-    lines.push_back(tensor_metadata_row(p + "dln2", tensors.temp_layer_dln2(li, T), infer_temp_purpose(p + "dln2")));
-    lines.push_back(tensor_metadata_row(p + "dy_ln2", tensors.temp_layer_dy_ln2(li, T), infer_temp_purpose(p + "dy_ln2")));
-    lines.push_back(tensor_metadata_row(p + "dln2_gamma", tensors.temp_layer_dln2_gamma(li), infer_temp_purpose(p + "dln2_gamma")));
-    lines.push_back(tensor_metadata_row(p + "dln2_beta", tensors.temp_layer_dln2_beta(li), infer_temp_purpose(p + "dln2_beta")));
-    lines.push_back(tensor_metadata_row(p + "dy_total", tensors.temp_layer_dy_total(li, T), infer_temp_purpose(p + "dy_total")));
-    lines.push_back(tensor_metadata_row(p + "dln1", tensors.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
-    lines.push_back(tensor_metadata_row(p + "dx_ln1", tensors.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
-    lines.push_back(tensor_metadata_row(p + "dln1_gamma", tensors.temp_layer_dln1_gamma(li), infer_temp_purpose(p + "dln1_gamma")));
-    lines.push_back(tensor_metadata_row(p + "dln1_beta", tensors.temp_layer_dln1_beta(li), infer_temp_purpose(p + "dln1_beta")));
+    lines.push_back(tensor_metadata_row(p + "ln1", tensor_factory.temp_layer_ln1(li, T), infer_temp_purpose(p + "ln1")));
+    lines.push_back(tensor_metadata_row(p + "attn_out", tensor_factory.temp_layer_attn_out(li, T), infer_temp_purpose(p + "attn_out")));
+    lines.push_back(tensor_metadata_row(p + "resid1", tensor_factory.temp_layer_resid1(li, T), infer_temp_purpose(p + "resid1")));
+    lines.push_back(tensor_metadata_row(p + "ln2", tensor_factory.temp_layer_ln2(li, T), infer_temp_purpose(p + "ln2")));
+    lines.push_back(tensor_metadata_row(p + "ffn_out", tensor_factory.temp_layer_ffn_out(li, T), infer_temp_purpose(p + "ffn_out")));
+    lines.push_back(tensor_metadata_row(p + "bw.d_prev", tensor_factory.temp_layer_bw_d_prev(li, T), infer_temp_purpose(p + "bw.d_prev")));
+    lines.push_back(tensor_metadata_row(p + "dln2", tensor_factory.temp_layer_dln2(li, T), infer_temp_purpose(p + "dln2")));
+    lines.push_back(tensor_metadata_row(p + "dy_ln2", tensor_factory.temp_layer_dy_ln2(li, T), infer_temp_purpose(p + "dy_ln2")));
+    lines.push_back(tensor_metadata_row(p + "dln2_gamma", tensor_factory.temp_layer_dln2_gamma(li), infer_temp_purpose(p + "dln2_gamma")));
+    lines.push_back(tensor_metadata_row(p + "dln2_beta", tensor_factory.temp_layer_dln2_beta(li), infer_temp_purpose(p + "dln2_beta")));
+    lines.push_back(tensor_metadata_row(p + "dy_total", tensor_factory.temp_layer_dy_total(li, T), infer_temp_purpose(p + "dy_total")));
+    lines.push_back(tensor_metadata_row(p + "dln1", tensor_factory.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
+    lines.push_back(tensor_metadata_row(p + "dx_ln1", tensor_factory.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
+    lines.push_back(tensor_metadata_row(p + "dln1_gamma", tensor_factory.temp_layer_dln1_gamma(li), infer_temp_purpose(p + "dln1_gamma")));
+    lines.push_back(tensor_metadata_row(p + "dln1_beta", tensor_factory.temp_layer_dln1_beta(li), infer_temp_purpose(p + "dln1_beta")));
 
-    lines.push_back(tensor_metadata_row(p + "attn.qkv", tensors.temp_attn_qkv(li, T), infer_temp_purpose("attn.qkv")));
-    lines.push_back(tensor_metadata_row(p + "attn.context", tensors.temp_attn_context(li, T), infer_temp_purpose("attn.context")));
-    lines.push_back(tensor_metadata_row(p + "attn.scores", tensors.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
-    lines.push_back(tensor_metadata_row(p + "attn.weights", tensors.temp_attn_weights(li, T), infer_temp_purpose("attn.weights")));
-    lines.push_back(tensor_metadata_row(p + "attn.head", tensors.temp_attn_head(li, T), infer_temp_purpose("attn.head")));
-    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensors.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dWo", tensors.temp_attn_dWo(li), infer_temp_purpose("attn.dWo")));
-    lines.push_back(tensor_metadata_row(p + "attn.dbo", tensors.temp_attn_dbo(li), infer_temp_purpose("attn.dbo")));
-    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensors.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensors.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
-    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensors.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
-    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensors.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensors.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensors.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
-    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensors.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensors.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensors.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
-    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensors.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
-    lines.push_back(tensor_metadata_row(p + "attn.xT", tensors.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dWqkv", tensors.temp_attn_dWqkv(li), infer_temp_purpose("attn.dWqkv")));
-    lines.push_back(tensor_metadata_row(p + "attn.dbqkv", tensors.temp_attn_dbqkv(li), infer_temp_purpose("attn.dbqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.qkv", tensor_factory.temp_attn_qkv(li, T), infer_temp_purpose("attn.qkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.context", tensor_factory.temp_attn_context(li, T), infer_temp_purpose("attn.context")));
+    lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_factory.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
+    lines.push_back(tensor_metadata_row(p + "attn.weights", tensor_factory.temp_attn_weights(li, T), infer_temp_purpose("attn.weights")));
+    lines.push_back(tensor_metadata_row(p + "attn.head", tensor_factory.temp_attn_head(li, T), infer_temp_purpose("attn.head")));
+    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensor_factory.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dWo", tensor_factory.temp_attn_dWo(li), infer_temp_purpose("attn.dWo")));
+    lines.push_back(tensor_metadata_row(p + "attn.dbo", tensor_factory.temp_attn_dbo(li), infer_temp_purpose("attn.dbo")));
+    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensor_factory.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensor_factory.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
+    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensor_factory.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensor_factory.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensor_factory.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensor_factory.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
+    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensor_factory.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensor_factory.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
+    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensor_factory.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
+    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensor_factory.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
+    lines.push_back(tensor_metadata_row(p + "attn.xT", tensor_factory.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
+    lines.push_back(tensor_metadata_row(p + "attn.dWqkv", tensor_factory.temp_attn_dWqkv(li), infer_temp_purpose("attn.dWqkv")));
+    lines.push_back(tensor_metadata_row(p + "attn.dbqkv", tensor_factory.temp_attn_dbqkv(li), infer_temp_purpose("attn.dbqkv")));
 
-    lines.push_back(tensor_metadata_row(p + "ffn.h", tensors.temp_ffn_h(li, T), infer_temp_purpose("ffn.h")));
-    lines.push_back(tensor_metadata_row(p + "ffn.a", tensors.temp_ffn_a(li, T), infer_temp_purpose("ffn.a")));
-    lines.push_back(tensor_metadata_row(p + "ffn.aT", tensors.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.dW2", tensors.temp_ffn_dW2(li), infer_temp_purpose("ffn.dW2")));
-    lines.push_back(tensor_metadata_row(p + "ffn.db2", tensors.temp_ffn_db2(li), infer_temp_purpose("ffn.db2")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensors.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
-    lines.push_back(tensor_metadata_row(p + "ffn.da", tensors.temp_ffn_da(li, T), infer_temp_purpose("ffn.da")));
-    lines.push_back(tensor_metadata_row(p + "ffn.dh", tensors.temp_ffn_dh(li, T), infer_temp_purpose("ffn.dh")));
-    lines.push_back(tensor_metadata_row(p + "ffn.xT", tensors.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.dW1", tensors.temp_ffn_dW1(li), infer_temp_purpose("ffn.dW1")));
-    lines.push_back(tensor_metadata_row(p + "ffn.db1", tensors.temp_ffn_db1(li), infer_temp_purpose("ffn.db1")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensors.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
+    lines.push_back(tensor_metadata_row(p + "ffn.h", tensor_factory.temp_ffn_h(li, T), infer_temp_purpose("ffn.h")));
+    lines.push_back(tensor_metadata_row(p + "ffn.a", tensor_factory.temp_ffn_a(li, T), infer_temp_purpose("ffn.a")));
+    lines.push_back(tensor_metadata_row(p + "ffn.aT", tensor_factory.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dW2", tensor_factory.temp_ffn_dW2(li), infer_temp_purpose("ffn.dW2")));
+    lines.push_back(tensor_metadata_row(p + "ffn.db2", tensor_factory.temp_ffn_db2(li), infer_temp_purpose("ffn.db2")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensor_factory.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
+    lines.push_back(tensor_metadata_row(p + "ffn.da", tensor_factory.temp_ffn_da(li, T), infer_temp_purpose("ffn.da")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dh", tensor_factory.temp_ffn_dh(li, T), infer_temp_purpose("ffn.dh")));
+    lines.push_back(tensor_metadata_row(p + "ffn.xT", tensor_factory.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
+    lines.push_back(tensor_metadata_row(p + "ffn.dW1", tensor_factory.temp_ffn_dW1(li), infer_temp_purpose("ffn.dW1")));
+    lines.push_back(tensor_metadata_row(p + "ffn.db1", tensor_factory.temp_ffn_db1(li), infer_temp_purpose("ffn.db1")));
+    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensor_factory.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
   }
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 

@@ -20,7 +20,7 @@ public:
   using ParamUpdater =
       std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
 
-  FFN(int layer_index, const Config &cfg, TensorFactory &tensors, Ops &ops);
+  FFN(int layer_index, const Config &cfg, TensorFactory &tensor_factory, Ops &ops);
 
   // x:   [T, D]
   // out: [T, D]
@@ -29,6 +29,8 @@ public:
                 const ParamUpdater &update_param);
 
 private:
+  void validate_contract() const;
+
   int idx_;
   const Config &cfg_;
   TensorFactory &tensorFactory_;

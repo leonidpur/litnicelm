@@ -18,14 +18,14 @@ constexpr size_t kDatasetHeaderBytes = sizeof(uint32_t) * 3;
 
 void DatasetCPU::fill_batch(const int32_t *tokens, uint64_t ids_begin,
                             uint64_t tgt_begin, uint64_t block_span,
-                            TensorFactory &tensors, Device device,
+                            TensorFactory &tensor_factory, Device device,
                             TrainBatch &out) const {
   const int64_t rows = static_cast<int64_t>(block_span);
   const Shape2D shp{rows, 1};
 
   (void)device;
-  TensorView ids_t = tensors.temp_ds_ids(shp.r);
-  TensorView tgt_t = tensors.temp_ds_targets(shp.r);
+  TensorView ids_t = tensor_factory.temp_ds_ids(shp.r);
+  TensorView tgt_t = tensor_factory.temp_ds_targets(shp.r);
 
   auto *ids_ptr = reinterpret_cast<int32_t *>(ids_t.data());
   auto *tgt_ptr = reinterpret_cast<int32_t *>(tgt_t.data());
@@ -41,13 +41,13 @@ void DatasetCPU::fill_batch(const int32_t *tokens, uint64_t ids_begin,
 
 void DatasetGPU::fill_batch(const int32_t *tokens, uint64_t ids_begin,
                             uint64_t tgt_begin, uint64_t block_span,
-                            TensorFactory &tensors, Device device,
+                            TensorFactory &tensor_factory, Device device,
                             TrainBatch &out) const {
   (void)tokens;
   (void)ids_begin;
   (void)tgt_begin;
   (void)block_span;
-  (void)tensors;
+  (void)tensor_factory;
   (void)device;
   (void)out;
   throw std::runtime_error(
@@ -141,13 +141,13 @@ DatasetHeader TextDataset::read_header_or_throw(const std::string &path) {
   return header;
 }
 
-TextDataset::TextDataset(TensorFactory &tensors, const std::string &dataset_path,
+TextDataset::TextDataset(TensorFactory &tensor_factory, const std::string &dataset_path,
                          Device device, uint32_t seq_len, uint32_t batch_size,
                          bool shuffle_blocks, TrainingReportSink *report_sink)
-    : tensorFactory_(tensors),
+    : tensorFactory_(tensor_factory),
       device_(device),
-      T_(seq_len),
-      B_(batch_size),
+      seq_len_(seq_len),
+      batch_size_(batch_size),
       shuffle_blocks_(shuffle_blocks),
       report_sink_(report_sink) {
   if (device_ == Device::CPU) {
@@ -156,8 +156,8 @@ TextDataset::TextDataset(TensorFactory &tensors, const std::string &dataset_path
     backend_ = std::make_unique<DatasetGPU>();
   }
 
-  REQUIRE_DEBUG(T_ > 0, [&]() { return "TextDataset: seq_len must be > 0"; });
-  REQUIRE_DEBUG(B_ > 0, [&]() { return "TextDataset: batch_size must be > 0"; });
+  REQUIRE_DEBUG(seq_len_ > 0, [&]() { return "TextDataset: seq_len must be > 0"; });
+  REQUIRE_DEBUG(batch_size_ > 0, [&]() { return "TextDataset: batch_size must be > 0"; });
 
   if (!ends_with(dataset_path, ".bin")) {
     throw std::runtime_error(
@@ -205,7 +205,7 @@ TextDataset::TextDataset(TensorFactory &tensors, const std::string &dataset_path
   }
   source_format_ = SourceFormat::TOKEN_U32;
 
-  if (num_tokens_ < static_cast<uint64_t>(T_ + 1)) {
+  if (num_tokens_ < static_cast<uint64_t>(seq_len_ + 1)) {
     throw std::runtime_error("TextDataset: dataset is too small for training");
   }
 
@@ -237,7 +237,8 @@ uint32_t TextDataset::max_token_id() const {
 void TextDataset::build_blocks_() {
   block_starts_.clear();
 
-  const uint64_t block_span = static_cast<uint64_t>(B_) * static_cast<uint64_t>(T_);
+  const uint64_t block_span =
+      static_cast<uint64_t>(batch_size_) * static_cast<uint64_t>(seq_len_);
   const uint64_t min_needed = block_span + 1;
   const uint64_t N = num_tokens_;
   for (uint64_t start = 0; start + min_needed <= N; start += block_span) {
@@ -271,7 +272,8 @@ bool TextDataset::next(TrainBatch &out) {
   }
 
   const uint64_t start = block_starts_[block_index_++];
-  const uint64_t block_span = static_cast<uint64_t>(B_) * static_cast<uint64_t>(T_);
+  const uint64_t block_span =
+      static_cast<uint64_t>(batch_size_) * static_cast<uint64_t>(seq_len_);
   const uint64_t ids_begin = start;
   const uint64_t tgt_begin = start + 1;
   REQUIRE_DEBUG(tgt_begin + block_span <= num_tokens_, [&]() {
@@ -281,8 +283,8 @@ bool TextDataset::next(TrainBatch &out) {
   if (report_sink_ != nullptr && fetch_report_count_ < fetch_report_limit_) {
     TrainingFetchReportData data{};
     data.start_index = start;
-    data.batch_size = B_;
-    data.seq_len = T_;
+    data.batch_size = batch_size_;
+    data.seq_len = seq_len_;
     data.total_tokens = block_span;
     report_sink_->report_fetch(data);
     fetch_report_count_ += 1;

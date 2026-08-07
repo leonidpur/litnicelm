@@ -25,6 +25,20 @@ class ReportSink {
 public:
   virtual ~ReportSink() = default;
   virtual void report(ReportEvent event, const std::string &message) = 0;
+  virtual void report_probe_tensor(const std::string &group,
+                                   const std::string &name,
+                                   const TensorView &tensor) {
+    (void)group;
+    (void)name;
+    (void)tensor;
+  }
+  virtual void report_probe_loss(const TensorView &loss_scalar,
+                                 const TensorView &logits,
+                                 const TensorView &targets) {
+    (void)loss_scalar;
+    (void)logits;
+    (void)targets;
+  }
   virtual void init_tensors_X_Y(int64_t x_rows, int64_t x_cols, int64_t y_rows,
                                 int64_t y_cols, const TensorView &tok_emb,
                                 const TensorView &pos_emb) {
