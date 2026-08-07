@@ -1720,7 +1720,7 @@ private:
   }
 
   cublasHandle_t handle_ = nullptr;
-  CpuBackend cpu_backend_;
+  DefaultCpuBackend cpu_backend_;
 };
 
 CuBlasPluginBackend &to_cublas_backend(void *backend) {

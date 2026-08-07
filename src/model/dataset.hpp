@@ -26,6 +26,8 @@ struct TrainBatch {
   }
 };
 
+struct Config;
+
 struct DatasetHeader {
   uint32_t magic = 0;
   uint32_t version = 0;
@@ -107,12 +109,12 @@ public:
   };
 
   TextDataset(TensorFactory &tensor_factory, DeviceBackend &device_backend,
-              const std::string &dataset_path, Device device, uint32_t seq_len,
-              uint32_t window_stride, uint32_t batch_size,
+              const Config &cfg,
               bool shuffle_blocks = false,
               TrainingReportSink *report_sink = nullptr,
               class ITrainingObserver *load_observer = nullptr);
   ~TextDataset() override;
+  static std::string early_evaluate_input(const Config &cfg, bool report = true);
   static DatasetHeader read_header_or_throw(const std::string &path);
 
   void reset_epoch() override;

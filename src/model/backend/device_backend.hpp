@@ -11,6 +11,8 @@
 
 class DeviceBackend {
 public:
+  static std::unique_ptr<DeviceBackend> create_instance(const Config &cfg);
+
   virtual ~DeviceBackend() = default;
   virtual Device device() const = 0;
   virtual void *alloc(uint64_t bytes, uint32_t alignment) = 0;
@@ -75,9 +77,9 @@ public:
                                 uint64_t size, uint64_t file_offset) = 0;
 };
 
-class CpuBackend final : public DeviceBackend {
+class DefaultCpuBackend final : public DeviceBackend {
 public:
-  CpuBackend() = default;
+  DefaultCpuBackend() = default;
   Device device() const override;
   void *alloc(uint64_t bytes, uint32_t alignment) override;
   void free(void *ptr) override;
@@ -134,5 +136,3 @@ public:
   void read_file2device(const std::string &path, void *dst, uint64_t size,
                         uint64_t file_offset) override;
 };
-
-std::unique_ptr<DeviceBackend> make_device_backend(const Config &cfg);

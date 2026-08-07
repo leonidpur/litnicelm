@@ -48,21 +48,21 @@ TensorView to_tensor_view(const BackendTensorView &abi) {
                     static_cast<DType>(abi.dtype), abi.data, shape, strides);
 }
 
-CpuBackend &to_cpu_backend(void *backend) {
+DefaultCpuBackend &to_cpu_backend(void *backend) {
   if (backend == nullptr) {
     throw std::runtime_error("backend plugin: null backend instance");
   }
-  return *reinterpret_cast<CpuBackend *>(backend);
+  return *reinterpret_cast<DefaultCpuBackend *>(backend);
 }
 
 void *plugin_create(uint32_t device) {
   if (static_cast<Device>(device) != Device::CPU) {
     throw std::runtime_error("backend plugin: CPU plugin only supports cpu device");
   }
-  return new CpuBackend();
+  return new DefaultCpuBackend();
 }
 
-void plugin_destroy(void *backend) { delete reinterpret_cast<CpuBackend *>(backend); }
+void plugin_destroy(void *backend) { delete reinterpret_cast<DefaultCpuBackend *>(backend); }
 
 uint32_t plugin_device(void *backend) {
   return static_cast<uint32_t>(to_cpu_backend(backend).device());
