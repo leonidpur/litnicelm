@@ -1,6 +1,7 @@
 #pragma once
 
 #include <config.hpp>
+#include "training_observer.hpp"
 #include <report_interface.hpp>
 #include "ops.hpp"
 #include "tensor_factory.hpp"
@@ -34,6 +35,7 @@ public:
 
   Transformer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
               ReportSink *sink = nullptr);
+  void set_observer(ITrainingObserver *observer);
 
   // ids: [T] int32/int64 (whatever your TensorFactory/Ops embedding expects)
   // logits: [T, V] (same device/dtype as weights)
@@ -57,4 +59,5 @@ private:
   TensorView cache_xn_;
   bool has_cache_ = false;
   ReportSink *sink_ = nullptr;
+  ITrainingObserver *observer_ = nullptr;
 };

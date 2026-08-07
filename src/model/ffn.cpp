@@ -15,6 +15,10 @@ FFN::FFN(int layer_index, const Config &cfg, TensorFactory &tensor_factory, Ops 
   validate_contract();
 }
 
+void FFN::set_observer(ITrainingObserver *observer) {
+  observer_ = observer;
+}
+
 void FFN::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
@@ -81,6 +85,7 @@ static void relu_backward_f32(const TensorView &preact, const TensorView &dout,
 }
 
 void FFN::forward(const TensorView &x, TensorView &out) {
+  observer_->on_ffn_start(idx_);
   require(x.device() == out.device(), "x/out device mismatch");
   require(x.dtype() == out.dtype(), "x/out dtype mismatch");
 
@@ -114,10 +119,12 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   cache_h_ = h;
   cache_a_ = a;
   has_cache_ = true;
+  observer_->on_ffn_end(idx_);
 }
 
 void FFN::backward(const TensorView &dout, TensorView &dx,
                    const ParamUpdater &update_param) {
+  observer_->on_ffn_start(idx_);
   require(has_cache_, "backward called before forward");
   require(dout.device() == cache_x_.device(), "dout device mismatch");
   require(dout.dtype() == cache_x_.dtype(), "dout dtype mismatch");
@@ -132,37 +139,30 @@ void FFN::backward(const TensorView &dout, TensorView &dx,
   const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
-  TensorView aT = tensorFactory_.temp_ffn_aT(idx_, token_rows);
-  ops_.transpose(cache_a_, aT);
   TensorView dW2 = tensorFactory_.temp_ffn_dW2(idx_);
-  ops_.matmul(aT, dout, dW2);
+  ops_.matmul_left_transposed(cache_a_, dout, dW2);
   TensorView db2 = tensorFactory_.temp_ffn_db2(idx_);
   row_sum_f32(dout, db2);
 
-  TensorView W2T = tensorFactory_.temp_ffn_W2T(idx_);
-  ops_.transpose(W2, W2T);
   TensorView da = tensorFactory_.temp_ffn_da(idx_, token_rows);
-  ops_.matmul(dout, W2T, da);
+  ops_.matmul_right_transposed(dout, W2, da);
 
   TensorView dh = tensorFactory_.temp_ffn_dh(idx_, token_rows);
   relu_backward_f32(cache_h_, da, dh);
 
-  TensorView xT = tensorFactory_.temp_ffn_xT(idx_, token_rows);
-  ops_.transpose(cache_x_, xT);
   TensorView dW1 = tensorFactory_.temp_ffn_dW1(idx_);
-  ops_.matmul(xT, dh, dW1);
+  ops_.matmul_left_transposed(cache_x_, dh, dW1);
   TensorView db1 = tensorFactory_.temp_ffn_db1(idx_);
   row_sum_f32(dh, db1);
 
-  TensorView W1T = tensorFactory_.temp_ffn_W1T(idx_);
-  ops_.transpose(W1, W1T);
-  ops_.matmul(dh, W1T, dx);
+  ops_.matmul_right_transposed(dh, W1, dx);
 
   const std::string layer_prefix = "layer" + std::to_string(idx_) + ".";
   update_param(layer_prefix + "ffn_w1", const_cast<TensorView &>(W1), dW1, true);
   update_param(layer_prefix + "ffn_b1", const_cast<TensorView &>(b1), db1, false);
   update_param(layer_prefix + "ffn_w2", const_cast<TensorView &>(W2), dW2, true);
   update_param(layer_prefix + "ffn_b2", const_cast<TensorView &>(b2), db2, false);
+  observer_->on_ffn_end(idx_);
 }
 
 #undef require

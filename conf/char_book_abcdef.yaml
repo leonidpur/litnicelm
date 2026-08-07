@@ -10,7 +10,10 @@ max_steps: 1
 
 backend:
   #library: ""
-  library: "./build/liblitnice_backend_cpu.so"
+  #library: "./build-debug/liblitnice_backend_cpu.so"
+  library: "./build-debug/liblitnice_backend_openblas_plugin.so"
+  #library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build/liblitnice_backend_cpu.so"
 
 tokenizer:
   # Factory-facing tokenizer implementation id.
@@ -40,7 +43,7 @@ tokenizer:
 
 tokenization:
   input_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
-  output_binary: "/mnt/ext_ssd/litnicegpt/data/tokenized_dataset.bin"
+  output_binary: "/mnt/ext_ssd/litnicegpt/data/tokenized_dataset_syntetic1.bin"
   chunk_size_mb: 64
 
 memory:
@@ -61,7 +64,7 @@ training:
   weight_decay: 0.01
   incremental: true
   dry_run: false
-  num_epochs_train: 10 # Small models need many passes to memorize single-author style.
+  num_epochs_train: 113 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 2
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
   grad_clip: 1.0
@@ -69,7 +72,7 @@ training:
   batch_size: 2 # 16-32: stable gradients without requiring massive RAM.
 
 paths:
-  model_file: "/mnt/ext_ssd/litnicegpt/data/char_book.ckpt"
+  model_file: "/mnt/ext_ssd/litnicegpt/data/char_book_syntetic1.ckpt"
   journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
 
 inference:

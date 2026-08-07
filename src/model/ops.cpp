@@ -59,12 +59,21 @@ void Ops::matmul(const TensorView &a, const TensorView &b, TensorView &out) cons
               "matmul out shape mismatch");
   device_backend_.matmul(a, b, out);
 }
-void Ops::matmul_transposed(const TensorView &a, const TensorView &b,
-                            TensorView &out) const {
-  require_ops(b.shape().c == a.shape().c, "matmul_transposed inner dim mismatch");
+void Ops::matmul_left_transposed(const TensorView &a, const TensorView &b,
+                                 TensorView &out) const {
+  require_ops(a.shape().r == b.shape().r,
+              "matmul_left_transposed shared row dim mismatch");
+  require_ops(out.shape().r == a.shape().c && out.shape().c == b.shape().c,
+              "matmul_left_transposed out shape mismatch");
+  device_backend_.matmul_left_transposed(a, b, out);
+}
+void Ops::matmul_right_transposed(const TensorView &a, const TensorView &b,
+                                  TensorView &out) const {
+  require_ops(a.shape().c == b.shape().c,
+              "matmul_right_transposed inner dim mismatch");
   require_ops(out.shape().r == a.shape().r && out.shape().c == b.shape().r,
-              "matmul_transposed out shape mismatch");
-  device_backend_.matmul_transposed(a, b, out);
+              "matmul_right_transposed out shape mismatch");
+  device_backend_.matmul_right_transposed(a, b, out);
 }
 void Ops::transpose(const TensorView &x, TensorView &out) const {
   require_ops(out.shape().r == x.shape().c && out.shape().c == x.shape().r,

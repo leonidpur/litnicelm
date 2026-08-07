@@ -18,6 +18,8 @@ set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/*.cpp
     src/model/backend/*.cpp
+    src/observers/*.cpp
+    src/profiling/*.cpp
     src/config/*.cpp
     src/utils/*.cpp
 )
@@ -45,6 +47,8 @@ add_library(litnice_core STATIC
 target_include_directories(litnice_core PRIVATE 
     include 
     src/model 
+    src/observers
+    src/profiling
     src/config
     src/utils
     src/tokenizer
@@ -68,6 +72,11 @@ target_include_directories(litnice_backend_cpu PRIVATE
     src/utils
 )
 target_link_libraries(litnice_backend_cpu PRIVATE dl)
+set_target_properties(litnice_backend_cpu PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
+add_subdirectory(src/backend_libs/openblas_plugin)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicegpt ${MAIN_SOURCE})
@@ -76,6 +85,8 @@ target_include_directories(litnicegpt PRIVATE
     src/config
     src/utils
     src/model
+    src/observers
+    src/profiling
     src/tokenizer
     src/tokenizer/legacy
     ${SPM_INCLUDE_DIRS}

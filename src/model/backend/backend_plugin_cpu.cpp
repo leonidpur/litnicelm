@@ -94,12 +94,20 @@ void plugin_matmul(void *backend, const BackendTensorView *a,
   to_cpu_backend(backend).matmul(to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_matmul_transposed(void *backend, const BackendTensorView *a,
-                              const BackendTensorView *b,
-                              const BackendTensorView *out) {
+void plugin_matmul_left_transposed(void *backend, const BackendTensorView *a,
+                                   const BackendTensorView *b,
+                                   const BackendTensorView *out) {
   TensorView out_view = to_tensor_view(*out);
-  to_cpu_backend(backend).matmul_transposed(to_tensor_view(*a), to_tensor_view(*b),
-                                            out_view);
+  to_cpu_backend(backend).matmul_left_transposed(to_tensor_view(*a),
+                                                 to_tensor_view(*b), out_view);
+}
+
+void plugin_matmul_right_transposed(void *backend, const BackendTensorView *a,
+                                    const BackendTensorView *b,
+                                    const BackendTensorView *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).matmul_right_transposed(to_tensor_view(*a),
+                                                  to_tensor_view(*b), out_view);
 }
 
 void plugin_transpose(void *backend, const BackendTensorView *x,
@@ -199,7 +207,8 @@ const BackendApiV1 kBackendApi = {
     &plugin_mul_scalar,
     &plugin_relu,
     &plugin_matmul,
-    &plugin_matmul_transposed,
+    &plugin_matmul_left_transposed,
+    &plugin_matmul_right_transposed,
     &plugin_transpose,
     &plugin_layernorm_forward,
     &plugin_layernorm_backward,

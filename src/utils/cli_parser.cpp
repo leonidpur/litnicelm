@@ -209,8 +209,11 @@ void CliParser::print_usage() {
       << "  Backup:\n"
       << "    ./build/litnicegpt --backup --config <config.yaml> [input] [backup_root]\n"
       << "  Train tokenizer artifacts:\n"
-      << "    ./build/litnicegpt --tokenizer_trainig --config <config.yaml>\n"
+      << "    ./build/litnicegpt tokenizer_training --config <config.yaml>\n"
+      << "    ./build/litnicegpt --tokenizer_training --config <config.yaml>\n"
       << "  Tokenize corpus:\n"
+      << "    ./build/litnicegpt encode --config <config.yaml>\n"
+      << "    ./build/litnicegpt --encode --config <config.yaml>\n"
       << "    ./build/litnicegpt --tokenize --config <config.yaml>\n"
       << "  Help:\n"
       << "    ./build/litnicegpt --help\n";
@@ -241,10 +244,15 @@ Command CliParser::parse(int argc, char **argv) {
   size_t arg_start = 1;
   if (argc > 1) {
     const std::string candidate = argv[1];
-    if (candidate == "--tokenizer_trainig") {
+    if (candidate == "tokenizer_training") {
       cmd.target = Command::Target::TOKENIZER_TRAINING;
       arg_start = 2;
-    } else if (candidate == "--tokenize") {
+    } else if (candidate == "--tokenizer_training" ||
+               candidate == "--tokenizer_trainig") {
+      cmd.target = Command::Target::TOKENIZER_TRAINING;
+      arg_start = 2;
+    } else if (candidate == "encode" || candidate == "--encode" ||
+               candidate == "--tokenize") {
       cmd.target = Command::Target::TOKENIZE;
       arg_start = 2;
     } else if (candidate == "infer") {

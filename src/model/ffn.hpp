@@ -3,6 +3,7 @@
 #include <config.hpp>
 #include "ops.hpp"
 #include "tensor_factory.hpp"
+#include "training_observer.hpp"
 
 #include <functional>
 #include <string>
@@ -21,6 +22,7 @@ public:
       std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
 
   FFN(int layer_index, const Config &cfg, TensorFactory &tensor_factory, Ops &ops);
+  void set_observer(ITrainingObserver *observer);
 
   // x:   [T, D]
   // out: [T, D]
@@ -39,4 +41,5 @@ private:
   TensorView cache_h_;
   TensorView cache_a_;
   bool has_cache_ = false;
+  ITrainingObserver *observer_ = nullptr;
 };

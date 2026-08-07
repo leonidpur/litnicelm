@@ -17,6 +17,10 @@ SelfAttention::SelfAttention(int layer_index, const Config &cfg,
   validate_contract();
 }
 
+void SelfAttention::set_observer(ITrainingObserver *observer) {
+  observer_ = observer;
+}
+
 void SelfAttention::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t num_heads = static_cast<int64_t>(cfg_.model.n_heads);
@@ -94,6 +98,7 @@ static void softmax_backward_rows_f32(const TensorView &softmax,
 }
 
 void SelfAttention::forward(const TensorView &x, TensorView &out) {
+  observer_->on_attention_start(idx_);
   require(x.device() == out.device(), "x/out device mismatch");
   require(x.dtype() == out.dtype(), "x/out dtype mismatch");
 
@@ -138,7 +143,7 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
     TensorView Kh = K.subcols(col0, dh);
     TensorView Vh = V.subcols(col0, dh);
 
-    ops_.matmul_transposed(Qh, Kh, scores);
+    ops_.matmul_right_transposed(Qh, Kh, scores);
 
     ops_.mul_scalar(scores, scale, scores);
     ops_.apply_causal_mask_inplace(scores);
@@ -158,10 +163,12 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   cache_qkv_ = qkv;
   cache_context_ = context;
   has_cache_ = true;
+  observer_->on_attention_end(idx_);
 }
 
 void SelfAttention::backward(const TensorView &dout, TensorView &dx,
                              const ParamUpdater &update_param) {
+  observer_->on_attention_start(idx_);
   require(has_cache_, "backward called before forward");
   require(dout.shape().r == cache_x_.shape().r && dout.shape().c == cache_x_.shape().c,
           "dout shape mismatch");
@@ -178,17 +185,13 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
   const TensorView &bqkv = tensorFactory_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorFactory_.param_attn_out_w(idx_);
   const TensorView &bo = tensorFactory_.param_attn_out_b(idx_);
-  TensorView contextT = tensorFactory_.temp_attn_contextT(idx_, token_rows);
-  ops_.transpose(cache_context_, contextT);
   TensorView dWo = tensorFactory_.temp_attn_dWo(idx_);
-  ops_.matmul(contextT, dout, dWo);
+  ops_.matmul_left_transposed(cache_context_, dout, dWo);
   TensorView dbo = tensorFactory_.temp_attn_dbo(idx_);
   row_sum_f32(dout, dbo);
 
-  TensorView WoT = tensorFactory_.temp_attn_WoT(idx_);
-  ops_.transpose(Wo, WoT);
   TensorView dcontext = tensorFactory_.temp_attn_dcontext(idx_, token_rows);
-  ops_.matmul(dout, WoT, dcontext);
+  ops_.matmul_right_transposed(dout, Wo, dcontext);
 
   TensorView dqkv = tensorFactory_.temp_attn_dqkv(idx_, token_rows);
   ops_.fill(dqkv, 0.0f);
@@ -245,14 +248,10 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
     ops_.mul_scalar(dKh, scale, dKh);
   }
 
-  TensorView WqkvT = tensorFactory_.temp_attn_WqkvT(idx_);
-  ops_.transpose(Wqkv, WqkvT);
-  ops_.matmul(dqkv, WqkvT, dx);
+  ops_.matmul_right_transposed(dqkv, Wqkv, dx);
 
-  TensorView xT = tensorFactory_.temp_attn_xT(idx_, token_rows);
-  ops_.transpose(cache_x_, xT);
   TensorView dWqkv = tensorFactory_.temp_attn_dWqkv(idx_);
-  ops_.matmul(xT, dqkv, dWqkv);
+  ops_.matmul_left_transposed(cache_x_, dqkv, dWqkv);
   TensorView dbqkv = tensorFactory_.temp_attn_dbqkv(idx_);
   row_sum_f32(dqkv, dbqkv);
 
@@ -265,6 +264,7 @@ void SelfAttention::backward(const TensorView &dout, TensorView &dx,
                true);
   update_param(layer_prefix + "attn_out_b", const_cast<TensorView &>(bo), dbo,
                false);
+  observer_->on_attention_end(idx_);
 }
 
 #undef require

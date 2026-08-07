@@ -4,8 +4,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <chrono>
-#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <sstream>
@@ -22,6 +20,80 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      const Command &cmd)
     : cfg_(cfg), cmd_(cmd) {}
 
+void TrainingSessionController::add_observer(
+    std::unique_ptr<ITrainingObserver> observer) {
+  observers_.push_back(std::move(observer));
+}
+
+void TrainingSessionController::runtime_cfg_ready(const Config &cfg) {
+  for (const auto &observer : observers_) {
+    observer->runtime_cfg_ready(cfg);
+  }
+}
+
+void TrainingSessionController::init_config_ready(const Config &cfg,
+                                                  const NamedLayout &param_layout,
+                                                  const NamedLayout &temp_layout) {
+  for (const auto &observer : observers_) {
+    observer->init_config_ready(cfg, param_layout, temp_layout);
+  }
+}
+
+void TrainingSessionController::init_topology_ready(const NamedLayout &param_layout,
+                                                    void *param_base,
+                                                    uint64_t param_size,
+                                                    void *adam_base,
+                                                    uint64_t adam_size,
+                                                    void *temp_base,
+                                                    uint64_t temp_size) {
+  for (const auto &observer : observers_) {
+    observer->init_topology_ready(param_layout, param_base, param_size, adam_base,
+                                  adam_size, temp_base, temp_size);
+  }
+}
+
+void TrainingSessionController::tensor_factory_topology_ready(
+    const Config &cfg, const TensorFactory &tensor_factory) {
+  for (const auto &observer : observers_) {
+    observer->tensor_factory_topology_ready(cfg, tensor_factory);
+  }
+}
+
+void TrainingSessionController::batch_step_ready(uint32_t batch_size,
+                                                 uint32_t window_training,
+                                                 uint32_t token_rows,
+                                                 uint32_t vocab_size) {
+  for (const auto &observer : observers_) {
+    observer->batch_step_ready(batch_size, window_training, token_rows, vocab_size);
+  }
+}
+
+void TrainingSessionController::probe_loss_ready(const TensorView &loss_scalar,
+                                                 const TensorView &logits,
+                                                 const TensorView &targets) {
+  for (const auto &observer : observers_) {
+    observer->probe_loss_ready(loss_scalar, logits, targets);
+  }
+}
+
+void TrainingSessionController::probe_output_head_ready(
+    const TensorView &lm_head_w, const TensorView &d_lm_w) {
+  for (const auto &observer : observers_) {
+    observer->probe_output_head_ready(lm_head_w, d_lm_w);
+  }
+}
+
+void TrainingSessionController::init_tensors_xy_ready(int64_t x_rows,
+                                                      int64_t x_cols,
+                                                      int64_t y_rows,
+                                                      int64_t y_cols,
+                                                      const TensorView &tok_emb,
+                                                      const TensorView &pos_emb) {
+  for (const auto &observer : observers_) {
+    observer->init_tensors_xy_ready(x_rows, x_cols, y_rows, y_cols, tok_emb, pos_emb);
+  }
+}
+
 bool TrainingSessionController::training_loop_start(
     TrainingState &state, TensorFactory &tensor_factory, uint64_t steps_per_epoch,
     DeviceBackend &device_backend, ReportSink *sink,
@@ -36,6 +108,7 @@ bool TrainingSessionController::training_loop_start(
   } else {
     oss << "Training starting for " << cfg_.training.num_epochs_train << " epoch(s)";
   }
+  on_training_start();
   report_if(sink, ReportEvent::START, static_cast<uint32_t>(state.global_step),
             0.0f, oss.str());
 
@@ -69,8 +142,8 @@ bool TrainingSessionController::should_continue(uint32_t epoch) const {
 }
 
 void TrainingSessionController::on_epoch_start(uint32_t epoch) {
-  if (epoch == 1) {
-    start_time_ = std::chrono::steady_clock::now();
+  for (const auto &observer : observers_) {
+    observer->on_epoch_start(epoch);
   }
 }
 
@@ -81,28 +154,16 @@ void TrainingSessionController::on_epoch_end(uint32_t epoch, float mean_loss,
                                              ReportSink *sink,
                                              const ArenaView &data_arena,
                                              const AdamStateView &adam_state) {
-  const auto now = std::chrono::steady_clock::now();
-  const auto elapsed =
-      std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count();
-  ms_per_epoch_avg_ = (epoch > 0) ? (elapsed / epoch) : 0;
-  if ((epoch % epoch_report_every) == 0) {
-    std::ostringstream oss;
-    oss << "Epoch " << epoch << " mean_loss=" << mean_loss
-        << " " << get_eta_report(epoch);
-    report_if(sink, ReportEvent::STEP_COMPLETE, epoch, mean_loss, oss.str());
-  }
+  (void)epoch_report_every;
+  (void)sink;
   state.epoch = epoch;
+  this->on_epoch_end(epoch, mean_loss, state.global_step);
   maybe_save(state, true, device_backend, data_arena, adam_state);
 }
 
 void TrainingSessionController::training_loop_end(const TrainingState &state,
                                                   ReportSink *sink) {
   const bool estimate = is_estimation_mode();
-  if (estimate) {
-    report_if(sink, ReportEvent::END,
-              static_cast<uint32_t>(state.global_step), 0.0f,
-              get_eta_report(state.epoch));
-  }
 
   // 1. Final report message
   report_if(sink, ReportEvent::END,
@@ -126,6 +187,8 @@ void TrainingSessionController::training_loop_end(const TrainingState &state,
   log_operation(cfg_.paths.journal_file,
                 estimate ? "DRY_RUN" : "TRAIN_RUN",
                 oss.str());
+  on_training_end(state.global_step, state.epoch);
+  finalize(state.global_step, state.epoch);
 }
 
 bool TrainingSessionController::maybe_resume(TrainingState &state,
@@ -145,6 +208,7 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
   std::cout << "[Trainer] Resuming from " << cfg_.paths.model_file << "...\n";
 
   try {
+    on_checkpoint_load_start();
     std::string error_detail;
     if (!load_checkpoint(cfg_.paths.model_file, cfg_.model, cfg_.conf_version,
                          cfg_.memory.alignment_bytes, device_backend,
@@ -153,6 +217,7 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
       throw std::runtime_error("Failed to load checkpoint: " +
                                cfg_.paths.model_file + " | " + error_detail);
     }
+    on_checkpoint_load_end(true);
     const uint64_t total_steps =
         steps_per_epoch_ * static_cast<uint64_t>(total_epochs());
     std::cout << "  -> Success. Resumed at Step [" << state.global_step << "/"
@@ -160,6 +225,7 @@ bool TrainingSessionController::maybe_resume(TrainingState &state,
               << total_epochs() << "]\n";
     return true;
   } catch (const std::exception &e) {
+    on_checkpoint_load_end(false);
     std::cerr << "[Trainer] ERROR during resume: " << e.what()
               << "\n[Trainer] Falling back to fresh initialization.\n";
     return false;
@@ -186,6 +252,7 @@ void TrainingSessionController::maybe_save(const TrainingState &state,
             << "...\n";
 
   try {
+    on_checkpoint_save_start(state.global_step, state.epoch);
     std::filesystem::path p(cfg_.paths.model_file);
     if (p.has_parent_path()) {
       std::filesystem::create_directories(p.parent_path());
@@ -199,6 +266,7 @@ void TrainingSessionController::maybe_save(const TrainingState &state,
     if (!ok) {
       throw std::runtime_error("save_checkpoint failed");
     }
+    on_checkpoint_save_end(true);
     const uint32_t total_epochs = this->total_epochs();
     const uint64_t total_steps =
         steps_per_epoch_ * static_cast<uint64_t>(total_epochs);
@@ -206,59 +274,131 @@ void TrainingSessionController::maybe_save(const TrainingState &state,
               << state.global_step << "/" << total_steps << "]"
               << ", epoch[" << state.epoch << "/" << total_epochs << "]\n";
   } catch (const std::exception &e) {
+    on_checkpoint_save_end(false);
     std::cerr << "[Trainer] CRITICAL: Failed to save checkpoint: " << e.what()
               << "\n";
   }
 }
 
-std::string TrainingSessionController::get_eta_report(uint32_t current_epoch) const {
-  if (ms_per_epoch_avg_ == 0) {
-    return "Calculating...";
+void TrainingSessionController::on_training_start() {
+  for (const auto &observer : observers_) {
+    observer->on_training_start();
   }
-
-  if (is_estimation_mode()) {
-    const uint32_t dry_total = cfg_.training.num_epochs_dry_run;
-    const uint32_t train_total = cfg_.training.num_epochs_train;
-    const int64_t projected_total =
-        static_cast<int64_t>(train_total) * ms_per_epoch_avg_;
-    const int64_t projected_remaining =
-        std::max<int64_t>(
-            0, static_cast<int64_t>(train_total) -
-                   static_cast<int64_t>(current_epoch)) *
-        ms_per_epoch_avg_;
-
-    return "[ESTIMATE] Dry-run " + std::to_string(current_epoch) + "/" +
-           std::to_string(dry_total) + " | Projected full training: " +
-           format_duration(projected_total) + " | Remaining if continued: " +
-           format_duration(projected_remaining);
-  }
-
-  const uint32_t train_total = cfg_.training.num_epochs_train;
-  const int64_t remaining_epochs =
-      std::max<int64_t>(0, static_cast<int64_t>(train_total) -
-                               static_cast<int64_t>(current_epoch));
-  const int64_t remaining = remaining_epochs * ms_per_epoch_avg_;
-  return "[TRAIN] Epoch " + std::to_string(current_epoch) + "/" +
-         std::to_string(train_total) + " | Rem: " + format_duration(remaining);
 }
 
-std::string TrainingSessionController::format_duration(int64_t ms) const {
-  if (ms < 0) {
-    ms = 0;
+void TrainingSessionController::on_training_end(uint64_t global_step,
+                                                uint32_t epoch) {
+  for (const auto &observer : observers_) {
+    observer->on_training_end(global_step, epoch);
   }
+}
 
-  const int64_t total_seconds = ms / 1000;
-  const int64_t hours = total_seconds / 3600;
-  const int64_t minutes = (total_seconds % 3600) / 60;
-  const int64_t seconds = total_seconds % 60;
-
-  std::ostringstream oss;
-  if (hours > 0) {
-    oss << hours << "h " << minutes << "m " << seconds << "s";
-  } else if (minutes > 0) {
-    oss << minutes << "m " << seconds << "s";
-  } else {
-    oss << seconds << "s";
+void TrainingSessionController::on_epoch_end(uint32_t epoch, float mean_loss,
+                                             uint64_t global_step) {
+  for (const auto &observer : observers_) {
+    observer->on_epoch_end(epoch, mean_loss, global_step);
   }
-  return oss.str();
+}
+
+void TrainingSessionController::on_batch_start(uint64_t global_step) {
+  for (const auto &observer : observers_) {
+    observer->on_batch_start(global_step);
+  }
+}
+
+void TrainingSessionController::on_batch_end(uint64_t global_step, double loss) {
+  for (const auto &observer : observers_) {
+    observer->on_batch_end(global_step, loss);
+  }
+}
+
+void TrainingSessionController::on_forward_start() {
+  for (const auto &observer : observers_) {
+    observer->on_forward_start();
+  }
+}
+
+void TrainingSessionController::on_forward_end() {
+  for (const auto &observer : observers_) {
+    observer->on_forward_end();
+  }
+}
+
+void TrainingSessionController::on_backward_start() {
+  for (const auto &observer : observers_) {
+    observer->on_backward_start();
+  }
+}
+
+void TrainingSessionController::on_backward_end() {
+  for (const auto &observer : observers_) {
+    observer->on_backward_end();
+  }
+}
+
+void TrainingSessionController::on_layer_start(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_layer_start(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_layer_end(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_layer_end(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_attention_start(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_attention_start(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_attention_end(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_attention_end(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_ffn_start(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_ffn_start(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_ffn_end(int layer_idx) {
+  for (const auto &observer : observers_) {
+    observer->on_ffn_end(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_checkpoint_load_start() {
+  for (const auto &observer : observers_) {
+    observer->on_checkpoint_load_start();
+  }
+}
+
+void TrainingSessionController::on_checkpoint_load_end(bool ok) {
+  for (const auto &observer : observers_) {
+    observer->on_checkpoint_load_end(ok);
+  }
+}
+
+void TrainingSessionController::on_checkpoint_save_start(uint64_t global_step,
+                                                         uint32_t epoch) {
+  for (const auto &observer : observers_) {
+    observer->on_checkpoint_save_start(global_step, epoch);
+  }
+}
+
+void TrainingSessionController::on_checkpoint_save_end(bool ok) {
+  for (const auto &observer : observers_) {
+    observer->on_checkpoint_save_end(ok);
+  }
+}
+
+void TrainingSessionController::finalize(uint64_t global_step, uint32_t epoch) {
+  for (const auto &observer : observers_) {
+    observer->finalize(global_step, epoch);
+  }
 }

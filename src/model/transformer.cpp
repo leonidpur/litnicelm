@@ -27,6 +27,13 @@ Transformer::Transformer(const Config &cfg, TensorFactory &tensor_factory, Ops &
   validate_contract();
 }
 
+void Transformer::set_observer(ITrainingObserver *observer) {
+  observer_ = observer;
+  for (auto &layer : layers_) {
+    layer.set_observer(observer);
+  }
+}
+
 void Transformer::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
@@ -65,6 +72,7 @@ void Transformer::validate_contract() const {
 
 void Transformer::forward(const TensorView &ids, TensorView &logits,
                           TensorView *last_hidden) {
+  observer_->on_forward_start();
   const int64_t token_rows = ids.shape().r;
   const int64_t ids_cols = ids.shape().c;
   require(ids_cols == 1 || ids_cols == 0, "ids must be [T] or [T,1]");
@@ -103,13 +111,13 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   cache_x0_ = X;
 
   TensorView Y = tensorFactory_.temp_tr_Y(token_rows);
-  if (sink_ != nullptr) {
-    sink_->init_tensors_X_Y(X.shape().r, X.shape().c, Y.shape().r, Y.shape().c,
-                            tok_emb, pos_emb);
-  }
+  observer_->init_tensors_xy_ready(X.shape().r, X.shape().c, Y.shape().r, Y.shape().c,
+                                   tok_emb, pos_emb);
 
   for (size_t l = 0; l < layers_.size(); ++l) {
+    observer_->on_layer_start(static_cast<int>(l));
     layers_[l].forward(X, Y);
+    observer_->on_layer_end(static_cast<int>(l));
 
     TensorView tmp = X;
     X = Y;
@@ -133,11 +141,13 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
 
   ops_.matmul(Xn, lm_w, logits);
   has_cache_ = true;
+  observer_->on_forward_end();
 }
 
 void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
                            const ParamUpdater &update_param,
                            const RuntimeFlags::ProbeFlags &probe) {
+  observer_->on_backward_start();
   require(has_cache_, "backward called before forward");
   require(ids.device() == dlogits.device(), "ids/dlogits device mismatch");
   require(ids.dtype() == DType::I32 || ids.dtype() == DType::F32,
@@ -166,10 +176,8 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   ops_.transpose(cache_xn_, XnT);
   TensorView d_lm_w = tensorFactory_.temp_bw_d_lm_w(token_rows);
   ops_.matmul(XnT, dlogits, d_lm_w);
-  if (probe.output_head && sink_ != nullptr) {
-    sink_->report_probe_tensor("output_head", "lm_head_w", lm_w);
-    sink_->report_probe_tensor("output_head", "d_lm_w", d_lm_w);
-  }
+  (void)probe;
+  observer_->probe_output_head_ready(lm_w, d_lm_w);
   update_param("lm_head_w", const_cast<TensorView &>(lm_w), d_lm_w, true);
 
   TensorView lm_wT = tensorFactory_.temp_bw_lm_wT();
@@ -187,8 +195,10 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
 
   TensorView d_cur = d_xlast;
   for (int l = static_cast<int>(layers_.size()) - 1; l >= 0; --l) {
+    observer_->on_layer_start(l);
     TensorView d_prev = tensorFactory_.temp_layer_bw_d_prev(l, token_rows);
     layers_[static_cast<size_t>(l)].backward(d_cur, d_prev, update_param);
+    observer_->on_layer_end(l);
     d_cur = d_prev;
   }
 
@@ -220,6 +230,7 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
 
   update_param("tok_embedding", const_cast<TensorView &>(tok_emb), d_tok, true);
   update_param("pos_embedding", const_cast<TensorView &>(pos_emb), d_pos, true);
+  observer_->on_backward_end();
 }
 
 #undef require
