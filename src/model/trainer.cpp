@@ -161,7 +161,7 @@ int train_entry_point(const Config &cfg, const Command &cmd) {
   //////////////////////////
   // Asset construction
   //////////////////////////
-  std::unique_ptr<DeviceBackend> backend = make_device_backend(runtime_cfg.device);
+  std::unique_ptr<DeviceBackend> backend = make_device_backend(runtime_cfg);
 
   NamedLayout param_layout = build_param_layout(runtime_cfg);
   NamedLayout temp_layout = build_temp_layout(runtime_cfg);

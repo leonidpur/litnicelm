@@ -21,6 +21,9 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/config/*.cpp
     src/utils/*.cpp
 )
+list(REMOVE_ITEM MODEL_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/model/backend/backend_plugin_cpu.cpp
+)
 
 file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
     src/tokenizer/*.cpp
@@ -51,7 +54,20 @@ target_include_directories(litnice_core PRIVATE
 
 # Link SentencePiece to the core library
 target_link_libraries(litnice_core PRIVATE ${SPM_LIBRARIES})
+target_link_libraries(litnice_core PRIVATE dl)
 target_compile_definitions(litnice_core PRIVATE LITNICEGPT_HAVE_SENTENCEPIECE=1)
+
+add_library(litnice_backend_cpu SHARED
+    src/model/backend/device_backend.cpp
+    src/model/backend/backend_plugin_cpu.cpp
+)
+target_include_directories(litnice_backend_cpu PRIVATE
+    include
+    src/model
+    src/config
+    src/utils
+)
+target_link_libraries(litnice_backend_cpu PRIVATE dl)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicegpt ${MAIN_SOURCE})

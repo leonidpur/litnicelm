@@ -30,6 +30,10 @@ struct PathsConfig {
   std::string journal_file;
 };
 
+struct BackendConfig {
+  std::string library;
+};
+
 struct TokenizerConfig {
   std::string type;
   uint32_t target_vocab_size;
@@ -91,6 +95,7 @@ struct Config {
   ModelConfig model;
   MemoryConfig memory;
   PathsConfig paths;
+  BackendConfig backend;
   TokenizerConfig tokenizer;
   TokenizationConfig tokenization;
   TrainingConfig training;

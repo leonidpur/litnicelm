@@ -8,6 +8,10 @@ optimizer_bytes: 0
 arena_alignment: 64
 max_steps: 1
 
+backend:
+  #library: ""
+  library: "./build/liblitnice_backend_cpu.so"
+
 tokenizer:
   # Factory-facing tokenizer implementation id.
   # Preferred values: "sentencepiece", "character", "only_seen_chars"
