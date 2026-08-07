@@ -1,19 +1,22 @@
-build/
-build-*/
-cmake-build-*/
-.vscode/
-.idea/
+# Compiler/linker artifacts
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
 
-data/
-data_ln/
-datasets/
-checkpoints/
-models/
+# CMake-generated files
+out/
+/CMakeFiles/
+/CMakeCache.txt
+/Makefile
+/cmake_install.cmake
+/compile_commands.json
 
-*.bin
-*.ckpt
-*.checkpoint
-*.log
-
-.DS_Store
-*~
+# Editor/runtime noise
+*.swp
+*.swo
+journal/

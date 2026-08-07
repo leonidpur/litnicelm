@@ -65,7 +65,7 @@ std::string tokenizer_load_failure_message(const std::string &type,
   }
 
   if (type == "bpe" || type == "sentencepiece" || type == "spm") {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
     const fs::path model = dir / "spm.model";
     if (!fs::exists(model, ec)) {
       oss << " (missing artifact file: " << model.string() << ")";

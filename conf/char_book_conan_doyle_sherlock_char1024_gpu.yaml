@@ -13,9 +13,9 @@ backend:
 tokenizer:
   type: "only_seen_chars"
   target_vocab_size: 128
-  training_corpus: "/mnt/ext_ssd/litnicegpt/data/c.doyle"
+  training_corpus: "/mnt/ext_ssd/litnicelm/data/c.doyle"
   inter_file_boundary: "\n<|book_boundary|>\n"
-  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-gpu"
+  artifacts_dir: "/mnt/ext_ssd/litnicelm/data/conan-doyle-sherlock-char1024-gpu"
   bpe_vocab_file: ""
   bpe_merges_file: ""
   bpe_validation_num_threads: 1
@@ -23,8 +23,8 @@ tokenizer:
   run_validation: true
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/c.doyle"
-  output_binary: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-gpu_tokenized_dataset.bin"
+  input_corpus: "/mnt/ext_ssd/litnicelm/data/c.doyle"
+  output_binary: "/mnt/ext_ssd/litnicelm/data/conan-doyle-sherlock-char1024-gpu_tokenized_dataset.bin"
   chunk_size_mb: 64
 
 memory:
@@ -105,9 +105,9 @@ training:
     bk_attn_dbqkv: false
 
 paths:
-  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-gpu_latest.ckpt"
-  model_file_best: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-gpu_best.ckpt"
-  journal_file: "/mnt/ext_ssd/litnicegpt/data/conan-doyle-sherlock-char1024-gpu_journal.txt"
+  model_file_latest: "/mnt/ext_ssd/litnicelm/data/conan-doyle-sherlock-char1024-gpu_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicelm/data/conan-doyle-sherlock-char1024-gpu_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicelm/data/conan-doyle-sherlock-char1024-gpu_journal.txt"
 
 inference:
   prompt: "Mr. Sherlock Holmes sat at the breakfast table.\n"

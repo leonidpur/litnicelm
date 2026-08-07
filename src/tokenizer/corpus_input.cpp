@@ -64,7 +64,7 @@ std::string unique_temp_path(const std::string &name_hint) {
                        .count();
   const std::string safe_hint = name_hint.empty() ? "corpus" : name_hint;
   return (fs::temp_directory_path() /
-          ("litnicegpt_" + safe_hint + "_" + std::to_string(now) + ".txt"))
+          ("litnicelm_" + safe_hint + "_" + std::to_string(now) + ".txt"))
       .string();
 }
 

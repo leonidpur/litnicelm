@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
 #include <sentencepiece_processor.h>
 #include <sentencepiece_trainer.h>
 #endif
@@ -16,7 +16,7 @@
 namespace fs = std::filesystem;
 
 namespace SentencePiecePluginUtils {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
 std::string model_path_for(const std::string &artifacts_dir) {
   return (fs::path(artifacts_dir) / "spm.model").string();
 }
@@ -34,7 +34,7 @@ void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
 } // namespace SentencePiecePluginUtils
 
 struct SentencePiecePlugin::Impl {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   sentencepiece::SentencePieceProcessor processor;
   bool loaded = false;
 #endif
@@ -59,7 +59,7 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
         "SentencePiecePlugin: target_vocab_size must be > 0");
   }
 
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   fs::create_directories(artifacts_dir);
   const std::string model_prefix = (fs::path(artifacts_dir) / "spm").string();
   SentencePiecePluginUtils::report_if(
@@ -98,7 +98,7 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
 }
 
 bool SentencePiecePlugin::load(const std::string &artifacts_dir) {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   if (artifacts_dir.empty()) {
     return false;
   }
@@ -114,7 +114,7 @@ bool SentencePiecePlugin::load(const std::string &artifacts_dir) {
 }
 
 std::vector<int32_t> SentencePiecePlugin::encode(const std::string &text) const {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   if (!impl_->loaded) {
     throw std::runtime_error("SentencePiecePlugin::encode: plugin not loaded");
   }
@@ -135,7 +135,7 @@ std::vector<int32_t> SentencePiecePlugin::encode(const std::string &text) const 
 }
 
 std::string SentencePiecePlugin::decode(const std::vector<int32_t> &ids) const {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   if (!impl_->loaded) {
     throw std::runtime_error("SentencePiecePlugin::decode: plugin not loaded");
   }
@@ -156,7 +156,7 @@ std::string SentencePiecePlugin::decode(const std::vector<int32_t> &ids) const {
 }
 
 int32_t SentencePiecePlugin::vocab_size() const {
-#if LITNICEGPT_HAVE_SENTENCEPIECE
+#if LITNICELM_HAVE_SENTENCEPIECE
   return static_cast<int32_t>(impl_->processor.GetPieceSize());
 #else
   return 0;

@@ -46,9 +46,9 @@ def parse_inference_log(log_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Run all syntetic1 staged experiments.")
-    parser.add_argument("--manifest", default="/mnt/ext_ssd/litnicegpt/syntetic1_stages/manifest.tsv")
-    parser.add_argument("--repo", default="/home/leonastu/projects/litnicegpt")
-    parser.add_argument("--runs-dir", default="/mnt/ext_ssd/litnicegpt/syntetic1_stages/runs")
+    parser.add_argument("--manifest", default="/mnt/ext_ssd/litnicelm/syntetic1_stages/manifest.tsv")
+    parser.add_argument("--repo", default="/home/leonastu/projects/litnicelm")
+    parser.add_argument("--runs-dir", default="/mnt/ext_ssd/litnicelm/syntetic1_stages/runs")
     parser.add_argument("--prompt", default="m n ")
     parser.add_argument("--limit", type=int, default=0, help="0 means all stages")
     args = parser.parse_args()
@@ -94,7 +94,7 @@ def main():
 
             print(f"[{idx}] {stage}: infer", flush=True)
             infer_log = runs_dir / f"{stage}_infer.log"
-            infer_cmd = f'./build/litnicegpt infer --config {config} --temp 0 "{args.prompt}"'
+            infer_cmd = f'./build/litnicelm infer --config {config} --temp 0 "{args.prompt}"'
             rc, _ = run_command(infer_cmd, repo, infer_log)
             if rc != 0:
                 raise RuntimeError(f"{stage}: infer failed, see {infer_log}")

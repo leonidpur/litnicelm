@@ -14,8 +14,8 @@ tokenizer:
   # Character-level training is best for memorizing this small 19 KB excerpt.
   type: "only_seen_chars"
   target_vocab_size: 128
-  training_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short.txt"
-  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2"
+  training_corpus: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short-memorize-v2"
   bpe_vocab_file: ""
   bpe_merges_file: ""
   bpe_validation_num_threads: 1
@@ -23,8 +23,8 @@ tokenizer:
   run_validation: true
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short.txt"
-  output_binary: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2_tokenized_dataset.bin"
+  input_corpus: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short.txt"
+  output_binary: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short-memorize-v2_tokenized_dataset.bin"
   chunk_size_mb: 64
 
 memory:
@@ -105,9 +105,9 @@ training:
     bk_attn_dbqkv: false
 
 paths:
-  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-nice-gpu_latest.ckpt"
-  model_file_best: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-nice-gpu_best.ckpt"
-  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+  model_file_latest: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short-nice-gpu_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicelm/data/tinyshakespeare-short-nice-gpu_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicelm/data/journal.txt"
 
 inference:
   prompt: "First Citizen:\n"
