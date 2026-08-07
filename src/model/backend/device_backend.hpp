@@ -39,11 +39,19 @@ public:
   virtual void relu_backward_inplace(const TensorView &preact,
                                      TensorView &dout_dx) = 0;
   virtual void row_sum(const TensorView &x, TensorView &out_1xC) = 0;
-  virtual void matmul(const TensorView &a, const TensorView &b, TensorView &out) = 0;
-  virtual void matmul_left_transposed(const TensorView &a, const TensorView &b,
+  virtual void gemm(const TensorView &a, const TensorView &b, TensorView &out) = 0;
+  virtual void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                                       TensorView &out) = 0;
-  virtual void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                                       TensorView &out) = 0;
+  virtual void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                        TensorView &out) = 0;
+  virtual void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                        TensorView &out) = 0;
+  virtual void gemm_batched(const TensorView &a, const TensorView &b,
+                            TensorView &out) = 0;
+  virtual void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                                  TensorView &out) = 0;
+  virtual void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                                  TensorView &out) = 0;
   virtual void transpose(const TensorView &x, TensorView &out) = 0;
   virtual void layernorm_forward(const TensorView &x,
                                  const TensorView &gamma_1xC,
@@ -80,14 +88,15 @@ public:
   virtual void finish_exec_context_iteration() = 0;
   virtual void start_exec_context_group() = 0;
   virtual void finish_exec_context_group() = 0;
-  virtual void matmul_exec_context(const TensorView &a, const TensorView &b,
-                                   TensorView &out) = 0;
-  virtual void matmul_left_transposed_exec_context(const TensorView &a,
-                                                  const TensorView &b,
-                                                  TensorView &out) = 0;
-  virtual void matmul_right_transposed_exec_context(const TensorView &a,
-                                                   const TensorView &b,
-                                                   TensorView &out) = 0;
+  virtual void gemm_batched_exec_context(const TensorView &a,
+                                         const TensorView &b,
+                                         TensorView &out) = 0;
+  virtual void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                              const TensorView &b,
+                                              TensorView &out) = 0;
+  virtual void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                              const TensorView &b,
+                                              TensorView &out) = 0;
   virtual void scaled_causal_softmax_rows_exec_context(
       const TensorView &scores, float scale, TensorView &out) = 0;
   virtual void softmax_backward_causal_rows_exec_context(
@@ -134,11 +143,19 @@ public:
   void relu_backward_inplace(const TensorView &preact,
                              TensorView &dout_dx) override;
   void row_sum(const TensorView &x, TensorView &out_1xC) override;
-  void matmul(const TensorView &a, const TensorView &b, TensorView &out) override;
-  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+  void gemm(const TensorView &a, const TensorView &b, TensorView &out) override;
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                               TensorView &out) override;
-  void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                               TensorView &out) override;
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override;
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override;
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) override;
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override;
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override;
   void transpose(const TensorView &x, TensorView &out) override;
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override;
@@ -169,14 +186,14 @@ public:
   void finish_exec_context_iteration() override;
   void start_exec_context_group() override;
   void finish_exec_context_group() override;
-  void matmul_exec_context(const TensorView &a, const TensorView &b,
-                           TensorView &out) override;
-  void matmul_left_transposed_exec_context(const TensorView &a,
-                                          const TensorView &b,
-                                          TensorView &out) override;
-  void matmul_right_transposed_exec_context(const TensorView &a,
-                                           const TensorView &b,
-                                           TensorView &out) override;
+  void gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                 TensorView &out) override;
+  void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override;
+  void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override;
   void scaled_causal_softmax_rows_exec_context(
       const TensorView &scores, float scale, TensorView &out) override;
   void softmax_backward_causal_rows_exec_context(

@@ -348,27 +348,59 @@ public:
     api_->row_sum(instance_, &x_view, &out_view);
   }
 
-  void matmul(const TensorView &a, const TensorView &b, TensorView &out) override {
+  void gemm(const TensorView &a, const TensorView &b, TensorView &out) override {
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul(instance_, &a_view, &b_view, &out_view);
+    api_->gemm(instance_, &a_view, &b_view, &out_view);
   }
 
-  void matmul_left_transposed(const TensorView &a, const TensorView &b,
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                               TensorView &out) override {
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_left_transposed(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_ranked_matrix_rhs(instance_, &a_view, &b_view, &out_view);
   }
 
-  void matmul_right_transposed(const TensorView &a, const TensorView &b,
-                               TensorView &out) override {
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_right_transposed(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_ranked_matrix_rhs_t(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->gemm_ranked_reduce_lhs_t(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->gemm_batched(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->gemm_batched_lhs_t(instance_, &a_view, &b_view, &out_view);
+  }
+
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override {
+    const BackendTensorView a_view = to_backend_tensor_view(a);
+    const BackendTensorView b_view = to_backend_tensor_view(b);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->gemm_batched_rhs_t(instance_, &a_view, &b_view, &out_view);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
@@ -511,44 +543,44 @@ public:
     api_->finish_exec_context_group(instance_);
   }
 
-  void matmul_exec_context(const TensorView &a, const TensorView &b,
-                           TensorView &out) override {
-    if (api_->matmul_exec_context == nullptr) {
+  void gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                 TensorView &out) override {
+    if (api_->gemm_batched_exec_context == nullptr) {
       throw std::runtime_error(
-          "DynamicLibraryBackend: exec context matmul is not supported");
+          "DynamicLibraryBackend: exec context batched gemm is not supported");
     }
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_exec_context(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_batched_exec_context(instance_, &a_view, &b_view, &out_view);
   }
 
-  void matmul_right_transposed_exec_context(const TensorView &a,
-                                           const TensorView &b,
-                                           TensorView &out) override {
-    if (api_->matmul_right_transposed_exec_context == nullptr) {
+  void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override {
+    if (api_->gemm_batched_rhs_t_exec_context == nullptr) {
       throw std::runtime_error(
-          "DynamicLibraryBackend: exec context right-transposed matmul is not supported");
+          "DynamicLibraryBackend: exec context rhs-transposed batched gemm is not supported");
     }
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_right_transposed_exec_context(instance_, &a_view, &b_view,
-                                               &out_view);
+    api_->gemm_batched_rhs_t_exec_context(instance_, &a_view, &b_view,
+                                          &out_view);
   }
 
-  void matmul_left_transposed_exec_context(const TensorView &a,
-                                          const TensorView &b,
-                                          TensorView &out) override {
-    if (api_->matmul_left_transposed_exec_context == nullptr) {
+  void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override {
+    if (api_->gemm_batched_lhs_t_exec_context == nullptr) {
       throw std::runtime_error(
-          "DynamicLibraryBackend: exec context left-transposed matmul is not supported");
+          "DynamicLibraryBackend: exec context lhs-transposed batched gemm is not supported");
     }
     const BackendTensorView a_view = to_backend_tensor_view(a);
     const BackendTensorView b_view = to_backend_tensor_view(b);
     const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->matmul_left_transposed_exec_context(instance_, &a_view, &b_view,
-                                              &out_view);
+    api_->gemm_batched_lhs_t_exec_context(instance_, &a_view, &b_view,
+                                          &out_view);
   }
 
   void scaled_causal_softmax_rows_exec_context(
@@ -1061,29 +1093,8 @@ void DefaultCpuBackend::row_sum(const TensorView &x, TensorView &out_1xC) {
   }
 }
 
-void DefaultCpuBackend::matmul(const TensorView &a, const TensorView &b,
-                        TensorView &out) {
-  if (a.rank() >= 3 && out.rank() == a.rank() &&
-      (b.rank() == a.rank() || b.rank() == 2)) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
-    const int64_t m = a.dim(a.rank() - 2);
-    const int64_t k = a.dim(a.rank() - 1);
-    const int64_t n = b.dim(b.rank() - 1);
-    for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-      for (int64_t r = 0; r < m; ++r) {
-        for (int64_t c = 0; c < n; ++c) {
-          float acc = 0.0f;
-          for (int64_t kk = 0; kk < k; ++kk) {
-            acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
-                   (b.rank() == 2 ? CpuMemOperations::load_f32(b, kk, c)
-                                  : CpuMemOperations::load_f32_prefix_last2(b, prefix, kk, c));
-          }
-          CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
-        }
-      }
-    }
-    return;
-  }
+void DefaultCpuBackend::gemm(const TensorView &a, const TensorView &b,
+                             TensorView &out) {
   const int64_t row_count = a.shape().dim(0);
   const int64_t inner_dim = a.shape().dim(1);
   const int64_t col_count = b.shape().dim(1);
@@ -1098,79 +1109,127 @@ void DefaultCpuBackend::matmul(const TensorView &a, const TensorView &b,
   }
 }
 
-void DefaultCpuBackend::matmul_left_transposed(const TensorView &a, const TensorView &b,
-                                        TensorView &out) {
-  if (a.rank() >= 3 && b.rank() == a.rank()) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
-    const int64_t shared_dim = a.dim(a.rank() - 2);
-    const int64_t out_rows = a.dim(a.rank() - 1);
-    const int64_t out_cols = b.dim(b.rank() - 1);
-    for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-      for (int64_t r = 0; r < out_rows; ++r) {
-        for (int64_t c = 0; c < out_cols; ++c) {
-          float acc = 0.0f;
-          for (int64_t k = 0; k < shared_dim; ++k) {
-            acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, k, r) *
-                   CpuMemOperations::load_f32_prefix_last2(b, prefix, k, c);
-          }
-          if (out.rank() == 2) {
-            CpuMemOperations::store_f32(out, r, c,
-                              CpuMemOperations::load_f32(out, r, c) + acc);
-          } else {
-            CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
-          }
+void DefaultCpuBackend::gemm_ranked_matrix_rhs(const TensorView &a,
+                                               const TensorView &b,
+                                               TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t m = a.dim(a.rank() - 2);
+  const int64_t k = a.dim(a.rank() - 1);
+  const int64_t n = b.dim(1);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    for (int64_t r = 0; r < m; ++r) {
+      for (int64_t c = 0; c < n; ++c) {
+        float acc = 0.0f;
+        for (int64_t kk = 0; kk < k; ++kk) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
+                 CpuMemOperations::load_f32(b, kk, c);
         }
+        CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
       }
     }
-    return;
   }
-  const int64_t row_count = a.shape().dim(1);
-  const int64_t inner_dim = a.shape().dim(0);
-  const int64_t col_count = b.shape().dim(1);
-  for (int64_t r = 0; r < row_count; ++r) {
-    for (int64_t c = 0; c < col_count; ++c) {
+}
+
+void DefaultCpuBackend::gemm_ranked_matrix_rhs_t(const TensorView &a,
+                                                 const TensorView &b,
+                                                 TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t m = a.dim(a.rank() - 2);
+  const int64_t k = a.dim(a.rank() - 1);
+  const int64_t n = b.dim(0);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    for (int64_t r = 0; r < m; ++r) {
+      for (int64_t c = 0; c < n; ++c) {
+        float acc = 0.0f;
+        for (int64_t kk = 0; kk < k; ++kk) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
+                 CpuMemOperations::load_f32(b, c, kk);
+        }
+        CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
+      }
+    }
+  }
+}
+
+void DefaultCpuBackend::gemm_ranked_reduce_lhs_t(const TensorView &a,
+                                                 const TensorView &b,
+                                                 TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t shared_dim = a.dim(a.rank() - 2);
+  const int64_t out_rows = a.dim(a.rank() - 1);
+  const int64_t out_cols = b.dim(b.rank() - 1);
+  for (int64_t r = 0; r < out_rows; ++r) {
+    for (int64_t c = 0; c < out_cols; ++c) {
       float acc = 0.0f;
-      for (int64_t k = 0; k < inner_dim; ++k) {
-        acc += CpuMemOperations::load_f32(a, k, r) * CpuMemOperations::load_f32(b, k, c);
+      for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+        for (int64_t k = 0; k < shared_dim; ++k) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, k, r) *
+                 CpuMemOperations::load_f32_prefix_last2(b, prefix, k, c);
+        }
       }
       CpuMemOperations::store_f32(out, r, c, acc);
     }
   }
 }
 
-void DefaultCpuBackend::matmul_right_transposed(const TensorView &a, const TensorView &b,
-                                         TensorView &out) {
-  if (a.rank() >= 3 && out.rank() == a.rank() &&
-      (b.rank() == a.rank() || b.rank() == 2)) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
-    const int64_t m = a.dim(a.rank() - 2);
-    const int64_t k = a.dim(a.rank() - 1);
-    const int64_t n = b.rank() == 2 ? b.dim(0) : b.dim(b.rank() - 2);
-    for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-      for (int64_t r = 0; r < m; ++r) {
-        for (int64_t c = 0; c < n; ++c) {
-          float acc = 0.0f;
-          for (int64_t kk = 0; kk < k; ++kk) {
-            acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
-                   (b.rank() == 2 ? CpuMemOperations::load_f32(b, c, kk)
-                                  : CpuMemOperations::load_f32_prefix_last2(b, prefix, c, kk));
-          }
-          CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
+void DefaultCpuBackend::gemm_batched(const TensorView &a, const TensorView &b,
+                                     TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t m = a.dim(a.rank() - 2);
+  const int64_t k = a.dim(a.rank() - 1);
+  const int64_t n = b.dim(b.rank() - 1);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    for (int64_t r = 0; r < m; ++r) {
+      for (int64_t c = 0; c < n; ++c) {
+        float acc = 0.0f;
+        for (int64_t kk = 0; kk < k; ++kk) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
+                 CpuMemOperations::load_f32_prefix_last2(b, prefix, kk, c);
         }
+        CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
       }
     }
-    return;
   }
-  const int64_t row_count = a.shape().dim(0);
-  const int64_t inner_dim = a.shape().dim(1);
-  const int64_t col_count = b.shape().dim(0);
-  for (int64_t r = 0; r < row_count; ++r) {
-    for (int64_t c = 0; c < col_count; ++c) {
-      float acc = 0.0f;
-      for (int64_t k = 0; k < inner_dim; ++k) {
-        acc += CpuMemOperations::load_f32(a, r, k) * CpuMemOperations::load_f32(b, c, k);
+}
+
+void DefaultCpuBackend::gemm_batched_lhs_t(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t shared_dim = a.dim(a.rank() - 2);
+  const int64_t out_rows = a.dim(a.rank() - 1);
+  const int64_t out_cols = b.dim(b.rank() - 1);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    for (int64_t r = 0; r < out_rows; ++r) {
+      for (int64_t c = 0; c < out_cols; ++c) {
+        float acc = 0.0f;
+        for (int64_t k = 0; k < shared_dim; ++k) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, k, r) *
+                 CpuMemOperations::load_f32_prefix_last2(b, prefix, k, c);
+        }
+        CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
       }
-      CpuMemOperations::store_f32(out, r, c, acc);
+    }
+  }
+}
+
+void DefaultCpuBackend::gemm_batched_rhs_t(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) {
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const int64_t m = a.dim(a.rank() - 2);
+  const int64_t k = a.dim(a.rank() - 1);
+  const int64_t n = b.dim(b.rank() - 2);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    for (int64_t r = 0; r < m; ++r) {
+      for (int64_t c = 0; c < n; ++c) {
+        float acc = 0.0f;
+        for (int64_t kk = 0; kk < k; ++kk) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, r, kk) *
+                 CpuMemOperations::load_f32_prefix_last2(b, prefix, c, kk);
+        }
+        CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
+      }
     }
   }
 }
@@ -1556,22 +1615,23 @@ void DefaultCpuBackend::finish_exec_context_group() {
       "DefaultCpuBackend: exec context group is not supported");
 }
 
-void DefaultCpuBackend::matmul_exec_context(const TensorView &,
-                                            const TensorView &, TensorView &) {
+void DefaultCpuBackend::gemm_batched_exec_context(const TensorView &,
+                                                  const TensorView &,
+                                                  TensorView &) {
   throw std::runtime_error(
-      "DefaultCpuBackend: exec context matmul is not supported");
+      "DefaultCpuBackend: exec context batched gemm is not supported");
 }
 
-void DefaultCpuBackend::matmul_right_transposed_exec_context(
+void DefaultCpuBackend::gemm_batched_rhs_t_exec_context(
     const TensorView &, const TensorView &, TensorView &) {
   throw std::runtime_error(
-      "DefaultCpuBackend: exec context right-transposed matmul is not supported");
+      "DefaultCpuBackend: exec context rhs-transposed batched gemm is not supported");
 }
 
-void DefaultCpuBackend::matmul_left_transposed_exec_context(
+void DefaultCpuBackend::gemm_batched_lhs_t_exec_context(
     const TensorView &, const TensorView &, TensorView &) {
   throw std::runtime_error(
-      "DefaultCpuBackend: exec context left-transposed matmul is not supported");
+      "DefaultCpuBackend: exec context lhs-transposed batched gemm is not supported");
 }
 
 void DefaultCpuBackend::scaled_causal_softmax_rows_exec_context(

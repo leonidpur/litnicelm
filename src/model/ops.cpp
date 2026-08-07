@@ -121,98 +121,103 @@ void Ops::row_sum(const TensorView &x, TensorView &out_1xC) const {
   device_backend_.row_sum(x, out_1xC);
 }
 
-void Ops::matmul(const TensorView &a, const TensorView &b, TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 2),
-                "matmul inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul out shape mismatch");
-    device_backend_.matmul(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(0), "matmul inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(1),
-                "matmul out shape mismatch");
-    device_backend_.matmul(a, b, out);
-    return;
-  }
+void Ops::gemm(const TensorView &a, const TensorView &b, TensorView &out) const {
+  require_ops(a.rank() == 2 && b.rank() == 2 && out.rank() == 2,
+              "gemm requires rank-2 tensors");
   require_ops(b.dim(0) == a.dim(1), "matmul inner dim mismatch");
   require_ops(out.dim(0) == a.dim(0) && out.dim(1) == b.dim(1),
               "matmul out shape mismatch");
-  device_backend_.matmul(a, b, out);
+  device_backend_.gemm(a, b, out);
 }
-void Ops::matmul_left_transposed(const TensorView &a, const TensorView &b,
+
+void Ops::gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                                  TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_left_transposed prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_left_transposed out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
-                "matmul_left_transposed shared dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 1) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul_left_transposed out shape mismatch");
-    device_backend_.matmul_left_transposed(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == 2) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_left_transposed prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
-                "matmul_left_transposed shared dim mismatch");
-    require_ops(out.dim(0) == a.dim(a.rank() - 1) &&
-                    out.dim(1) == b.dim(b.rank() - 1),
-                "matmul_left_transposed out shape mismatch");
-    device_backend_.matmul_left_transposed(a, b, out);
-    return;
-  }
-  require_ops(a.dim(0) == b.dim(0),
-              "matmul_left_transposed shared row dim mismatch");
-  require_ops(out.dim(0) == a.dim(1) && out.dim(1) == b.dim(1),
-              "matmul_left_transposed out shape mismatch");
-  device_backend_.matmul_left_transposed(a, b, out);
+  require_ops(a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank(),
+              "gemm_ranked_matrix_rhs rank mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_ranked_matrix_rhs out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(0),
+              "gemm_ranked_matrix_rhs inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(1),
+              "gemm_ranked_matrix_rhs out shape mismatch");
+  device_backend_.gemm_ranked_matrix_rhs(a, b, out);
 }
-void Ops::matmul_right_transposed(const TensorView &a, const TensorView &b,
-                                  TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_right_transposed prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_right_transposed out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul_right_transposed inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 2),
-                "matmul_right_transposed out shape mismatch");
-    device_backend_.matmul_right_transposed(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_right_transposed out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(1),
-                "matmul_right_transposed inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(0),
-                "matmul_right_transposed out shape mismatch");
-    device_backend_.matmul_right_transposed(a, b, out);
-    return;
-  }
-  require_ops(a.dim(1) == b.dim(1),
-              "matmul_right_transposed inner dim mismatch");
-  require_ops(out.dim(0) == a.dim(0) && out.dim(1) == b.dim(0),
-              "matmul_right_transposed out shape mismatch");
-  device_backend_.matmul_right_transposed(a, b, out);
+
+void Ops::gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                   TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank(),
+              "gemm_ranked_matrix_rhs_t rank mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_ranked_matrix_rhs_t out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(1),
+              "gemm_ranked_matrix_rhs_t inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(0),
+              "gemm_ranked_matrix_rhs_t out shape mismatch");
+  device_backend_.gemm_ranked_matrix_rhs_t(a, b, out);
+}
+
+void Ops::gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                   TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == 2,
+              "gemm_ranked_reduce_lhs_t rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_ranked_reduce_lhs_t prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
+              "gemm_ranked_reduce_lhs_t shared dim mismatch");
+  require_ops(out.dim(0) == a.dim(a.rank() - 1) &&
+                  out.dim(1) == b.dim(b.rank() - 1),
+              "gemm_ranked_reduce_lhs_t out shape mismatch");
+  device_backend_.gemm_ranked_reduce_lhs_t(a, b, out);
+}
+
+void Ops::gemm_batched(const TensorView &a, const TensorView &b,
+                       TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 2),
+              "gemm_batched inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched out shape mismatch");
+  device_backend_.gemm_batched(a, b, out);
+}
+
+void Ops::gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                             TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched_lhs_t rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched_lhs_t prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched_lhs_t out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
+              "gemm_batched_lhs_t shared dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 1) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched_lhs_t out shape mismatch");
+  device_backend_.gemm_batched_lhs_t(a, b, out);
+}
+
+void Ops::gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                             TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched_rhs_t rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched_rhs_t prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched_rhs_t out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched_rhs_t inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 2),
+              "gemm_batched_rhs_t out shape mismatch");
+  device_backend_.gemm_batched_rhs_t(a, b, out);
 }
 void Ops::transpose(const TensorView &x, TensorView &out) const {
   require_ops(out.dim(0) == x.dim(1) && out.dim(1) == x.dim(0),
@@ -369,104 +374,54 @@ void Ops::finish_exec_context_group() const {
   device_backend_.finish_exec_context_group();
 }
 
-void Ops::matmul_exec_context(const TensorView &a, const TensorView &b,
-                              TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_exec_context prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_exec_context out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 2),
-                "matmul_exec_context inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul_exec_context out shape mismatch");
-    device_backend_.matmul_exec_context(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_exec_context out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(0),
-                "matmul_exec_context inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(1),
-                "matmul_exec_context out shape mismatch");
-    device_backend_.matmul_exec_context(a, b, out);
-    return;
-  }
-  require_ops(b.dim(0) == a.dim(1), "matmul_exec_context inner dim mismatch");
-  require_ops(out.dim(0) == a.dim(0) && out.dim(1) == b.dim(1),
-              "matmul_exec_context out shape mismatch");
-  device_backend_.matmul_exec_context(a, b, out);
+void Ops::gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                    TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched_exec_context rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched_exec_context prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched_exec_context out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 2),
+              "gemm_batched_exec_context inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched_exec_context out shape mismatch");
+  device_backend_.gemm_batched_exec_context(a, b, out);
 }
 
-void Ops::matmul_right_transposed_exec_context(const TensorView &a,
-                                               const TensorView &b,
-                                               TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_right_transposed_exec_context prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_right_transposed_exec_context out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul_right_transposed_exec_context inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 2),
-                "matmul_right_transposed_exec_context out shape mismatch");
-    device_backend_.matmul_right_transposed_exec_context(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == 2 && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_right_transposed_exec_context out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 1) == b.dim(1),
-                "matmul_right_transposed_exec_context inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
-                    out.dim(out.rank() - 1) == b.dim(0),
-                "matmul_right_transposed_exec_context out shape mismatch");
-    device_backend_.matmul_right_transposed_exec_context(a, b, out);
-    return;
-  }
-  require_ops(a.dim(1) == b.dim(1),
-              "matmul_right_transposed_exec_context inner dim mismatch");
-  require_ops(out.dim(0) == a.dim(0) && out.dim(1) == b.dim(0),
-              "matmul_right_transposed_exec_context out shape mismatch");
-  device_backend_.matmul_right_transposed_exec_context(a, b, out);
+void Ops::gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched_rhs_t_exec_context rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched_rhs_t_exec_context prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched_rhs_t_exec_context out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched_rhs_t_exec_context inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 2) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 2),
+              "gemm_batched_rhs_t_exec_context out shape mismatch");
+  device_backend_.gemm_batched_rhs_t_exec_context(a, b, out);
 }
 
-void Ops::matmul_left_transposed_exec_context(const TensorView &a,
-                                              const TensorView &b,
-                                              TensorView &out) const {
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == 2) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_left_transposed_exec_context prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
-                "matmul_left_transposed_exec_context inner dim mismatch");
-    require_ops(out.dim(0) == a.dim(a.rank() - 1) &&
-                    out.dim(1) == b.dim(b.rank() - 1),
-                "matmul_left_transposed_exec_context out shape mismatch");
-    device_backend_.matmul_left_transposed_exec_context(a, b, out);
-    return;
-  }
-  if (a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank()) {
-    require_ops(same_ranked_prefix(a, b, a.rank() - 2),
-                "matmul_left_transposed_exec_context prefix dim mismatch");
-    require_ops(same_ranked_prefix(a, out, a.rank() - 2),
-                "matmul_left_transposed_exec_context out prefix dim mismatch");
-    require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
-                "matmul_left_transposed_exec_context inner dim mismatch");
-    require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 1) &&
-                    out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
-                "matmul_left_transposed_exec_context out shape mismatch");
-    device_backend_.matmul_left_transposed_exec_context(a, b, out);
-    return;
-  }
-  require_ops(a.dim(0) == b.dim(0),
-              "matmul_left_transposed_exec_context inner dim mismatch");
-  require_ops(out.dim(0) == a.dim(1) && out.dim(1) == b.dim(1),
-              "matmul_left_transposed_exec_context out shape mismatch");
-  device_backend_.matmul_left_transposed_exec_context(a, b, out);
+void Ops::gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                          const TensorView &b,
+                                          TensorView &out) const {
+  require_ops(a.rank() >= 3 && b.rank() == a.rank() && out.rank() == a.rank(),
+              "gemm_batched_lhs_t_exec_context rank mismatch");
+  require_ops(same_ranked_prefix(a, b, a.rank() - 2),
+              "gemm_batched_lhs_t_exec_context prefix dim mismatch");
+  require_ops(same_ranked_prefix(a, out, a.rank() - 2),
+              "gemm_batched_lhs_t_exec_context out prefix dim mismatch");
+  require_ops(a.dim(a.rank() - 2) == b.dim(b.rank() - 2),
+              "gemm_batched_lhs_t_exec_context inner dim mismatch");
+  require_ops(out.dim(out.rank() - 2) == a.dim(a.rank() - 1) &&
+                  out.dim(out.rank() - 1) == b.dim(b.rank() - 1),
+              "gemm_batched_lhs_t_exec_context out shape mismatch");
+  device_backend_.gemm_batched_lhs_t_exec_context(a, b, out);
 }
 
 void Ops::scaled_causal_softmax_rows_exec_context(const TensorView &scores,

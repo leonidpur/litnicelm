@@ -56,7 +56,7 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
       Wo, x, "SelfAttentionFusedInplaceMultistream", "Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
-  ops_.matmul(x, Wqkv, qkv);
+  ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
 
   TensorView Q = qkv.subcols(0, model_dim);
@@ -79,14 +79,14 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
     TensorView weights_h = cached_weights.select(0, h);
 
     ops_.start_exec_context_group();
-    ops_.matmul_right_transposed_exec_context(Qh, Kh, weights_h);
+    ops_.gemm_batched_rhs_t_exec_context(Qh, Kh, weights_h);
     ops_.scaled_causal_softmax_rows_exec_context(weights_h, scale, weights_h);
-    ops_.matmul_exec_context(weights_h, Vh, context_h);
+    ops_.gemm_batched_exec_context(weights_h, Vh, context_h);
     ops_.finish_exec_context_group();
   }
   ops_.finish_exec_context_iteration();
 
-  ops_.matmul(context, Wo, out);
+  ops_.gemm_ranked_matrix_rhs(context, Wo, out);
   ops_.add_bias_rowwise(out, bo, out);
 
   cache_x_ = x;
@@ -121,7 +121,7 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
   TensorView dWo = gradientStore_->grad_for_param(Wo);
-  ops_.matmul_left_transposed(cache_context_, dout, dWo);
+  ops_.gemm_ranked_reduce_lhs_t(cache_context_, dout, dWo);
   diagnostics_->bk_attn_dWo(idx_, dWo);
   TensorView dbo = gradientStore_->grad_for_param(bo);
   ops_.row_sum(dout, dbo);
@@ -129,7 +129,7 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
 
   TensorView dcontext =
       tensorStore_.temp_attn_dcontext(idx_, batch_size, seq_len);
-  ops_.matmul_right_transposed(dout, Wo, dcontext);
+  ops_.gemm_ranked_matrix_rhs_t(dout, Wo, dcontext);
   diagnostics_->bk_attn_dcontext(idx_, dcontext);
 
   TensorView dqkv = tensorStore_.temp_attn_dqkv(idx_, batch_size, seq_len);
@@ -168,12 +168,12 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
       TensorView dweights_lane = lane == 0 ? dweights : dscores;
 
       ops_.start_exec_context_group();
-      ops_.matmul_right_transposed_exec_context(dhead, Vh, dweights_lane);
-      ops_.matmul_left_transposed_exec_context(weights_h, dhead, dVh);
+      ops_.gemm_batched_rhs_t_exec_context(dhead, Vh, dweights_lane);
+      ops_.gemm_batched_lhs_t_exec_context(weights_h, dhead, dVh);
       ops_.softmax_backward_causal_rows_exec_context(weights_h, dweights_lane,
                                                      weights_h);
-      ops_.matmul_exec_context(weights_h, Kh, dQh);
-      ops_.matmul_left_transposed_exec_context(weights_h, Qh, dKh);
+      ops_.gemm_batched_exec_context(weights_h, Kh, dQh);
+      ops_.gemm_batched_lhs_t_exec_context(weights_h, Qh, dKh);
       ops_.finish_exec_context_group();
     }
     ops_.finish_exec_context_iteration();
@@ -200,11 +200,11 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
     }
   }
 
-  ops_.matmul_right_transposed(dqkv, Wqkv, dx);
+  ops_.gemm_ranked_matrix_rhs_t(dqkv, Wqkv, dx);
   diagnostics_->bk_attn_dx(idx_, dx);
 
   TensorView dWqkv = gradientStore_->grad_for_param(Wqkv);
-  ops_.matmul_left_transposed(cache_x_, dqkv, dWqkv);
+  ops_.gemm_ranked_reduce_lhs_t(cache_x_, dqkv, dWqkv);
   diagnostics_->bk_attn_dWqkv(idx_, dWqkv);
   TensorView dbqkv = gradientStore_->grad_for_param(bqkv);
   ops_.row_sum(dqkv, dbqkv);
