@@ -10,7 +10,7 @@
 #include <string>
 
 class ReportSink;
-class TensorFactory;
+class TensorStore;
 struct TrainingState;
 
 class ModelConvergenceAndCheckpointListener final : public ITrainingObserver {
@@ -19,7 +19,7 @@ public:
   void set_observer_relay(ITrainingObserver &observer_relay);
 
   void on_training_start(TrainingState &state,
-                         TensorFactory &tensor_factory,
+                         TensorStore &tensor_store,
                          uint64_t steps_per_epoch,
                          DeviceBackend &device_backend,
                          ReportSink *sink,

@@ -2,7 +2,7 @@
 
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include "training_observer.hpp"
 
 #include <report_interface.hpp>
@@ -31,8 +31,8 @@ public:
                            uint64_t adam_size, void *temp_base,
                            uint64_t temp_size) override;
   void memory_usage_ready(const TrainingMemoryUsage &usage) override;
-  void tensor_factory_topology_ready(const Config &cfg,
-                                     const TensorFactory &tensor_factory) override;
+  void tensor_store_topology_ready(const Config &cfg,
+                                     const TensorStore &tensor_store) override;
   void batch_step_ready(uint32_t batch_size, uint32_t seq_len,
                         uint32_t token_rows, uint32_t vocab_size) override;
   void probe_loss_ready(const TensorView &loss_scalar, const TensorView &logits,
@@ -44,7 +44,7 @@ public:
                              const TensorView &pos_emb) override;
 
   void on_training_start(TrainingState &state,
-                         TensorFactory &tensor_factory,
+                         TensorStore &tensor_store,
                          uint64_t steps_per_epoch,
                          DeviceBackend &device_backend,
                          ReportSink *sink,
@@ -74,6 +74,8 @@ public:
   void on_attention_end(int layer_idx) override;
   void on_ffn_start(int layer_idx) override;
   void on_ffn_end(int layer_idx) override;
+  void on_output_head_start() override;
+  void on_output_head_end() override;
   void on_checkpoint_load_start() override;
   void on_checkpoint_load_end(bool ok) override;
   void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) override;

@@ -7,7 +7,7 @@ struct Config;
 class DeviceBackend;
 class NamedLayout;
 class ReportSink;
-class TensorFactory;
+class TensorStore;
 class TensorView;
 struct AdamStateView;
 struct ArenaView;
@@ -47,10 +47,10 @@ public:
   virtual void memory_usage_ready(const TrainingMemoryUsage &usage) {
     (void)usage;
   }
-  virtual void tensor_factory_topology_ready(const Config &cfg,
-                                             const TensorFactory &tensor_factory) {
+  virtual void tensor_store_topology_ready(const Config &cfg,
+                                             const TensorStore &tensor_store) {
     (void)cfg;
-    (void)tensor_factory;
+    (void)tensor_store;
   }
   virtual void batch_step_ready(uint32_t batch_size, uint32_t seq_len,
                                 uint32_t token_rows, uint32_t vocab_size) {
@@ -84,14 +84,14 @@ public:
   }
 
   virtual void on_training_start(TrainingState &state,
-                                 TensorFactory &tensor_factory,
+                                 TensorStore &tensor_store,
                                  uint64_t steps_per_epoch,
                                  DeviceBackend &device_backend,
                                  ReportSink *sink,
                                  const ArenaView &data_arena,
                                  const AdamStateView &adam_state) {
     (void)state;
-    (void)tensor_factory;
+    (void)tensor_store;
     (void)steps_per_epoch;
     (void)device_backend;
     (void)sink;
@@ -150,6 +150,9 @@ public:
 
   virtual void on_ffn_start(int layer_idx) { (void)layer_idx; }
   virtual void on_ffn_end(int layer_idx) { (void)layer_idx; }
+
+  virtual void on_output_head_start() {}
+  virtual void on_output_head_end() {}
 
   virtual void on_checkpoint_load_start() {}
   virtual void on_checkpoint_load_end(bool ok) { (void)ok; }

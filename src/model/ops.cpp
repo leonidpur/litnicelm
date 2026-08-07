@@ -69,6 +69,26 @@ void Ops::add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
   device_backend_.add_bias_rowwise(x, bias_1xC, out);
 }
 
+void Ops::add_bias_relu_rowwise(const TensorView &x,
+                                const TensorView &bias_1xC,
+                                TensorView &out) const {
+  const int64_t last_dim = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
+  require_ops(bias_1xC.rank() == 2 && bias_1xC.dim(0) == 1,
+              "bias must be [1,C]");
+  require_ops(bias_1xC.dim(1) == last_dim, "bias C mismatch");
+  require_ops(same_shape(out, x), "add_bias_relu out shape mismatch");
+  device_backend_.add_bias_relu_rowwise(x, bias_1xC, out);
+}
+
+void Ops::add_bias_relu_rowwise_inplace(TensorView &x,
+                                        const TensorView &bias_1xC) const {
+  const int64_t last_dim = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
+  require_ops(bias_1xC.rank() == 2 && bias_1xC.dim(0) == 1,
+              "bias must be [1,C]");
+  require_ops(bias_1xC.dim(1) == last_dim, "bias C mismatch");
+  device_backend_.add_bias_relu_rowwise_inplace(x, bias_1xC);
+}
+
 void Ops::mul_scalar(const TensorView &x, float s, TensorView &out) const {
   require_ops(same_shape(out, x), "mul_scalar shape mismatch");
   device_backend_.mul_scalar(x, s, out);
@@ -86,6 +106,12 @@ void Ops::relu_backward(const TensorView &preact, const TensorView &dout,
   require_ops(same_shape(preact, dout), "relu_backward shape mismatch");
   require_ops(same_shape(dx, preact), "relu_backward dx shape mismatch");
   device_backend_.relu_backward(preact, dout, dx);
+}
+void Ops::relu_backward_inplace(const TensorView &preact,
+                                TensorView &dout_dx) const {
+  require_ops(same_shape(preact, dout_dx),
+              "relu_backward_inplace shape mismatch");
+  device_backend_.relu_backward_inplace(preact, dout_dx);
 }
 void Ops::row_sum(const TensorView &x, TensorView &out_1xC) const {
   const int64_t last_dim = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
@@ -312,6 +338,29 @@ void Ops::softmax_backward_rows(const TensorView &softmax,
   require_ops(same_shape(softmax, dout), "softmax_backward_rows shape mismatch");
   require_ops(same_shape(dx, softmax), "softmax_backward_rows dx shape mismatch");
   device_backend_.softmax_backward_rows(softmax, dout, dx);
+}
+void Ops::scaled_causal_softmax_rows(const TensorView &scores, float scale,
+                                     TensorView &out) const {
+  require_ops(same_shape(out, scores) || same_ranked_shape(out, scores),
+              "scaled_causal_softmax_rows out shape mismatch");
+  require_ops(scores.rank() >= 2, "scaled_causal_softmax_rows requires rank >= 2");
+  require_ops(scores.dim(scores.rank() - 2) == scores.dim(scores.rank() - 1),
+              "scaled_causal_softmax_rows requires trailing [T,T]");
+  device_backend_.scaled_causal_softmax_rows(scores, scale, out);
+}
+void Ops::softmax_backward_causal_rows(const TensorView &softmax,
+                                       const TensorView &dout,
+                                       TensorView &dx) const {
+  require_ops(same_shape(softmax, dout) || same_ranked_shape(softmax, dout),
+              "softmax_backward_causal_rows shape mismatch");
+  require_ops(same_shape(dx, softmax) || same_ranked_shape(dx, softmax),
+              "softmax_backward_causal_rows dx shape mismatch");
+  require_ops(softmax.rank() >= 2,
+              "softmax_backward_causal_rows requires rank >= 2");
+  require_ops(softmax.dim(softmax.rank() - 2) ==
+                  softmax.dim(softmax.rank() - 1),
+              "softmax_backward_causal_rows requires trailing [T,T]");
+  device_backend_.softmax_backward_causal_rows(softmax, dout, dx);
 }
 void Ops::apply_causal_mask_inplace(TensorView &scores, float neg_inf) const {
   if (scores.rank() >= 2) {

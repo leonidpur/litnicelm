@@ -1,4 +1,5 @@
 #include "tokenizer_utils.hpp"
+#include "corpus_input.hpp"
 
 #include <report_interface.hpp>
 
@@ -28,7 +29,8 @@ namespace TokenizerUtils {
 
 void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
                      const std::string &output_path, uint32_t chunk_size_mb,
-                     ReportSink *sink) {
+                     const std::string &inter_file_boundary,
+                     bool validate_decode_identity, ReportSink *sink) {
   if (plugin == nullptr) {
     throw std::runtime_error("TokenizerUtils::stream_tokenize: plugin is null");
   }
@@ -47,12 +49,8 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
         "TokenizerUtils::stream_tokenize: plugin vocab_size must be > 0");
   }
 
-  std::ifstream in(input_path, std::ios::binary);
-  if (!in) {
-    throw std::runtime_error(
-        "TokenizerUtils::stream_tokenize: failed to open input corpus: " +
-        input_path);
-  }
+  const std::vector<std::string> input_files =
+      CorpusInput::resolve_files(input_path);
 
   const fs::path out_path(output_path);
   if (!out_path.parent_path().empty()) {
@@ -81,21 +79,32 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
   report_if(sink, ReportEvent::START, 0, 0.0f,
             "Streaming tokenization started: input=" + input_path +
                 ", output=" + output_path + ", chunk_size_mb=" +
-                std::to_string(effective_chunk_mb));
+                std::to_string(effective_chunk_mb) + ", " +
+                CorpusInput::describe_files(input_files));
 
-  while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) ||
-         in.gcount() > 0) {
-    const size_t bytes_read = static_cast<size_t>(in.gcount());
-    if (bytes_read == 0) {
-      break;
-    }
-
-    const std::string chunk(buffer.data(), bytes_read);
+  CorpusInput::for_each_text_chunk(
+      input_files, inter_file_boundary, buffer.size(), [&](const std::string &chunk) {
+    const size_t bytes_read = chunk.size();
     std::vector<int32_t> tokens = plugin->encode(chunk);
     for (int32_t token : tokens) {
       if (token < 0 || static_cast<uint32_t>(token) >= vocab_size) {
         throw std::runtime_error(
             "TokenizerUtils::stream_tokenize: token id out of range");
+      }
+    }
+    if (validate_decode_identity) {
+      const std::string decoded = plugin->decode(tokens);
+      if (decoded != chunk) {
+        size_t first_diff = 0;
+        while (first_diff < decoded.size() && first_diff < chunk.size() &&
+               decoded[first_diff] == chunk[first_diff]) {
+          ++first_diff;
+        }
+        throw std::runtime_error(
+            "TokenizerUtils::stream_tokenize: decode(encode(chunk)) does not "
+            "match source at chunk " +
+            std::to_string(chunk_index + 1) +
+            ", first_diff=" + std::to_string(first_diff));
       }
     }
 
@@ -110,7 +119,7 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
               "Tokenized chunk " + std::to_string(chunk_index) +
                   ": bytes=" + std::to_string(bytes_read) +
                   ", tokens=" + std::to_string(tokens.size()));
-  }
+  });
 
   if (!out) {
     throw std::runtime_error(

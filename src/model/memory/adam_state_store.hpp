@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-class AdamStateFactory {
+class AdamStateStore {
 public:
   struct StatePair {
     TensorView m;
@@ -33,7 +33,7 @@ public:
     StatePair ffn_b2;
   };
 
-  AdamStateFactory(const Config &cfg, const NamedLayout &param_layout,
+  AdamStateStore(const Config &cfg, const NamedLayout &param_layout,
                    void *params_base, uint64_t params_bytes,
                    const AdamStateView &adam_state);
 

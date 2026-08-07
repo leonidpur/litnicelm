@@ -2,10 +2,10 @@
 
 #include "backend/device_backend.hpp"
 #include "dataset.hpp"
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
 #include "ops.hpp"
 #include "tensor.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include <config.hpp>
 #include <types.hpp>
 
@@ -17,9 +17,9 @@ class Transformer;
 
 class TrainingDiagnosticsController {
 public:
-  TrainingDiagnosticsController(TensorFactory &tensor_factory, Ops &ops,
+  TrainingDiagnosticsController(TensorStore &tensor_store, Ops &ops,
                                 Transformer &model,
-                                GradientFactory &gradient_factory,
+                                GradientStore &gradient_store,
                                 DeviceBackend &device_backend,
                                 const RuntimeFlags &runtime_flags,
                                 const Config &cfg);
@@ -86,10 +86,10 @@ public:
       const std::function<void()> &zero_gradients) const;
 
 private:
-  TensorFactory &tensorFactory_;
+  TensorStore &tensorStore_;
   Ops &ops_;
   Transformer &model_;
-  GradientFactory &gradientFactory_;
+  GradientStore &gradientStore_;
   DeviceBackend &deviceBackend_;
   const RuntimeFlags &runtimeFlags_;
   const Config &cfg_;

@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 
@@ -294,6 +295,21 @@ public:
     api_->add_bias_rowwise(instance_, &x_view, &bias_view, &out_view);
   }
 
+  void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
+                             TensorView &out) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->add_bias_relu_rowwise(instance_, &x_view, &bias_view, &out_view);
+  }
+
+  void add_bias_relu_rowwise_inplace(TensorView &x,
+                                     const TensorView &bias_1xC) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
+    api_->add_bias_relu_rowwise_inplace(instance_, &x_view, &bias_view);
+  }
+
   void mul_scalar(const TensorView &x, float s, TensorView &out) override {
     const BackendTensorView x_view = to_backend_tensor_view(x);
     const BackendTensorView out_view = to_backend_tensor_view(out);
@@ -317,6 +333,13 @@ public:
     const BackendTensorView dout_view = to_backend_tensor_view(dout);
     const BackendTensorView dx_view = to_backend_tensor_view(dx);
     api_->relu_backward(instance_, &preact_view, &dout_view, &dx_view);
+  }
+
+  void relu_backward_inplace(const TensorView &preact,
+                             TensorView &dout_dx) override {
+    const BackendTensorView preact_view = to_backend_tensor_view(preact);
+    const BackendTensorView dout_dx_view = to_backend_tensor_view(dout_dx);
+    api_->relu_backward_inplace(instance_, &preact_view, &dout_dx_view);
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
@@ -442,6 +465,23 @@ public:
     const BackendTensorView dx_view = to_backend_tensor_view(dx);
     api_->softmax_backward_rows(instance_, &softmax_view, &dout_view,
                                 &dx_view);
+  }
+
+  void scaled_causal_softmax_rows(const TensorView &scores, float scale,
+                                  TensorView &out) override {
+    const BackendTensorView scores_view = to_backend_tensor_view(scores);
+    const BackendTensorView out_view = to_backend_tensor_view(out);
+    api_->scaled_causal_softmax_rows(instance_, &scores_view, scale, &out_view);
+  }
+
+  void softmax_backward_causal_rows(const TensorView &softmax,
+                                    const TensorView &dout,
+                                    TensorView &dx) override {
+    const BackendTensorView softmax_view = to_backend_tensor_view(softmax);
+    const BackendTensorView dout_view = to_backend_tensor_view(dout);
+    const BackendTensorView dx_view = to_backend_tensor_view(dx);
+    api_->softmax_backward_causal_rows(instance_, &softmax_view, &dout_view,
+                                       &dx_view);
   }
 
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf) override {
@@ -696,6 +736,74 @@ void DefaultCpuBackend::add_bias_rowwise(const TensorView &x,
   }
 }
 
+void DefaultCpuBackend::add_bias_relu_rowwise(const TensorView &x,
+                                              const TensorView &bias_1xC,
+                                              TensorView &out) {
+  if (x.is_contiguous() && bias_1xC.is_contiguous() && out.is_contiguous() &&
+      x.dtype() == DType::F32 && bias_1xC.dtype() == DType::F32 &&
+      out.dtype() == DType::F32) {
+    const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
+    const uint64_t total = x.numel();
+    if (col_count <= 0 ||
+        total % static_cast<uint64_t>(col_count) != 0 ||
+        bias_1xC.numel() != static_cast<uint64_t>(col_count) ||
+        out.numel() != total) {
+      throw std::runtime_error(
+          "DefaultCpuBackend::add_bias_relu_rowwise: semantic shape mismatch");
+    }
+    const float *xp = reinterpret_cast<const float *>(x.data());
+    const float *bp = reinterpret_cast<const float *>(bias_1xC.data());
+    float *op = reinterpret_cast<float *>(out.data());
+    for (uint64_t i = 0; i < total; ++i) {
+      const float value = xp[i] + bp[i % static_cast<uint64_t>(col_count)];
+      op[i] = value > 0.0f ? value : 0.0f;
+    }
+    return;
+  }
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const int64_t col_count = x.dim(x.rank() - 1);
+  for (uint64_t r = 0; r < prefix_count; ++r) {
+    for (int64_t c = 0; c < col_count; ++c) {
+      const float value = CpuMemOperations::load_f32_prefix_last1(x, r, c) +
+                          CpuMemOperations::load_f32(bias_1xC, 0, c);
+      CpuMemOperations::store_f32_prefix_last1(
+          out, r, c, value > 0.0f ? value : 0.0f);
+    }
+  }
+}
+
+void DefaultCpuBackend::add_bias_relu_rowwise_inplace(
+    TensorView &x, const TensorView &bias_1xC) {
+  if (x.is_contiguous() && bias_1xC.is_contiguous() &&
+      x.dtype() == DType::F32 && bias_1xC.dtype() == DType::F32) {
+    const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
+    const uint64_t total = x.numel();
+    if (col_count <= 0 ||
+        total % static_cast<uint64_t>(col_count) != 0 ||
+        bias_1xC.numel() != static_cast<uint64_t>(col_count)) {
+      throw std::runtime_error(
+          "DefaultCpuBackend::add_bias_relu_rowwise_inplace: semantic shape mismatch");
+    }
+    float *xp = reinterpret_cast<float *>(x.data());
+    const float *bp = reinterpret_cast<const float *>(bias_1xC.data());
+    for (uint64_t i = 0; i < total; ++i) {
+      const float value = xp[i] + bp[i % static_cast<uint64_t>(col_count)];
+      xp[i] = value > 0.0f ? value : 0.0f;
+    }
+    return;
+  }
+  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const int64_t col_count = x.dim(x.rank() - 1);
+  for (uint64_t r = 0; r < prefix_count; ++r) {
+    for (int64_t c = 0; c < col_count; ++c) {
+      const float value = CpuMemOperations::load_f32_prefix_last1(x, r, c) +
+                          CpuMemOperations::load_f32(bias_1xC, 0, c);
+      CpuMemOperations::store_f32_prefix_last1(
+          x, r, c, value > 0.0f ? value : 0.0f);
+    }
+  }
+}
+
 void DefaultCpuBackend::mul_scalar(const TensorView &x, float s, TensorView &out) {
   if (x.is_contiguous() && out.is_contiguous() && x.dtype() == DType::F32 &&
       out.dtype() == DType::F32) {
@@ -782,6 +890,36 @@ void DefaultCpuBackend::relu_backward(const TensorView &preact, const TensorView
                           ? CpuMemOperations::load_f32_prefix_last1(dout, r, c)
                           : 0.0f;
       CpuMemOperations::store_f32_prefix_last1(dx, r, c, g);
+    }
+  }
+}
+
+void DefaultCpuBackend::relu_backward_inplace(const TensorView &preact,
+                                              TensorView &dout_dx) {
+  if (preact.is_contiguous() && dout_dx.is_contiguous() &&
+      preact.dtype() == DType::F32 && dout_dx.dtype() == DType::F32) {
+    const uint64_t n = preact.numel();
+    if (n != dout_dx.numel()) {
+      throw std::runtime_error(
+          "DefaultCpuBackend::relu_backward_inplace: numel mismatch");
+    }
+    const float *pp = reinterpret_cast<const float *>(preact.data());
+    float *dp = reinterpret_cast<float *>(dout_dx.data());
+    for (uint64_t i = 0; i < n; ++i) {
+      dp[i] = pp[i] > 0.0f ? dp[i] : 0.0f;
+    }
+    return;
+  }
+  const uint64_t prefix_count =
+      CpuMemOperations::logical_prefix_count(preact, 1);
+  const int64_t col_count = preact.dim(preact.rank() - 1);
+  for (uint64_t r = 0; r < prefix_count; ++r) {
+    for (int64_t c = 0; c < col_count; ++c) {
+      const float g =
+          CpuMemOperations::load_f32_prefix_last1(preact, r, c) > 0.0f
+              ? CpuMemOperations::load_f32_prefix_last1(dout_dx, r, c)
+              : 0.0f;
+      CpuMemOperations::store_f32_prefix_last1(dout_dx, r, c, g);
     }
   }
 }
@@ -1247,6 +1385,72 @@ void DefaultCpuBackend::softmax_backward_rows(const TensorView &softmax,
       const float s = CpuMemOperations::load_f32(softmax, r, c);
       const float g = s * (CpuMemOperations::load_f32(dout, r, c) - dot);
       CpuMemOperations::store_f32(dx, r, c, g);
+    }
+  }
+}
+
+void DefaultCpuBackend::scaled_causal_softmax_rows(const TensorView &scores,
+                                                   float scale,
+                                                   TensorView &out) {
+  const uint64_t prefix_count =
+      CpuMemOperations::logical_prefix_count(scores, 1);
+  const int64_t col_count = scores.dim(scores.rank() - 1);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    const int64_t local_row = static_cast<int64_t>(prefix % col_count);
+    float max_value = -std::numeric_limits<float>::max();
+    for (int64_t c = 0; c <= local_row; ++c) {
+      max_value = std::max(
+          max_value,
+          CpuMemOperations::load_f32_prefix_last1(scores, prefix, c) * scale);
+    }
+
+    double sum = 0.0;
+    for (int64_t c = 0; c < col_count; ++c) {
+      float value = 0.0f;
+      if (c <= local_row) {
+        value = std::exp(
+            CpuMemOperations::load_f32_prefix_last1(scores, prefix, c) *
+                scale -
+            max_value);
+        sum += static_cast<double>(value);
+      }
+      CpuMemOperations::store_f32_prefix_last1(out, prefix, c, value);
+    }
+    if (sum <= 0.0) {
+      throw std::runtime_error(
+          "DefaultCpuBackend::scaled_causal_softmax_rows: softmax sum <= 0");
+    }
+    const float inv_sum = static_cast<float>(1.0 / sum);
+    for (int64_t c = 0; c <= local_row; ++c) {
+      CpuMemOperations::store_f32_prefix_last1(
+          out, prefix, c,
+          CpuMemOperations::load_f32_prefix_last1(out, prefix, c) * inv_sum);
+    }
+  }
+}
+
+void DefaultCpuBackend::softmax_backward_causal_rows(const TensorView &softmax,
+                                                     const TensorView &dout,
+                                                     TensorView &dx) {
+  const uint64_t prefix_count =
+      CpuMemOperations::logical_prefix_count(softmax, 1);
+  const int64_t col_count = softmax.dim(softmax.rank() - 1);
+  for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+    const int64_t local_row = static_cast<int64_t>(prefix % col_count);
+    float dot = 0.0f;
+    for (int64_t c = 0; c <= local_row; ++c) {
+      dot += CpuMemOperations::load_f32_prefix_last1(softmax, prefix, c) *
+             CpuMemOperations::load_f32_prefix_last1(dout, prefix, c);
+    }
+    for (int64_t c = 0; c < col_count; ++c) {
+      float g = 0.0f;
+      if (c <= local_row) {
+        const float s =
+            CpuMemOperations::load_f32_prefix_last1(softmax, prefix, c);
+        g = s * (CpuMemOperations::load_f32_prefix_last1(dout, prefix, c) -
+                 dot);
+      }
+      CpuMemOperations::store_f32_prefix_last1(dx, prefix, c, g);
     }
   }
 }

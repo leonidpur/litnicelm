@@ -15,7 +15,7 @@ public:
                   const ModelConvergenceAndCheckpointListener &convergence);
 
   void on_training_start(TrainingState &state,
-                         TensorFactory &tensor_factory,
+                         TensorStore &tensor_store,
                          uint64_t steps_per_epoch,
                          DeviceBackend &device_backend,
                          ReportSink *sink,

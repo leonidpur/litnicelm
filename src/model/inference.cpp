@@ -8,7 +8,7 @@
 #include "memory/inference_memory_manager.hpp"
 #include "ops.hpp"
 #include <tokenizer_factory.hpp>
-#include "transformer.hpp"
+#include "algo/transformer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -66,7 +66,7 @@ struct InferRuntime {
     validate_vocab_contract_or_throw(cfg, *tokenizer);
     memory_manager = std::make_unique<InferenceMemoryManager>(cfg, *backend);
     model = std::make_unique<Transformer>(
-        cfg, memory_manager->tensor_factory(), nullptr, ops, sink_in);
+        cfg, memory_manager->tensor_store(), nullptr, ops, sink_in);
   }
 };
 
@@ -127,7 +127,7 @@ std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
 TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
   const int64_t prompt_token_rows = static_cast<int64_t>(ids.size());
   TensorView ids_t =
-      rt.memory_manager->tensor_factory().temp_infer_ids(prompt_token_rows);
+      rt.memory_manager->tensor_store().temp_infer_ids(prompt_token_rows);
   Tensor ids_host = Tensor::make_cpu(DType::I32, ids_t.shape());
   auto *p = reinterpret_cast<int32_t *>(ids_host.view().data());
   for (size_t i = 0; i < ids.size(); ++i) {
@@ -137,7 +137,7 @@ TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
                                    "Inference::forward_prompt(ids)");
 
   TensorView logits =
-      rt.memory_manager->tensor_factory().temp_infer_logits(prompt_token_rows);
+      rt.memory_manager->tensor_store().temp_infer_logits(prompt_token_rows);
   rt.model->forward(ids_t, logits);
   return logits;
 }

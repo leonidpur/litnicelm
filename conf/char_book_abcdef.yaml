@@ -10,9 +10,9 @@ max_steps: 1
 backend:
   #library: ""
   #library: "./build/liblitnice_backend_cpu.so"
-  library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build/liblitnice_backend_openblas_plugin.so"
   #library: "./build-debug/liblitnice_backend_openblas_plugin.so"
-  #library: "./build-debug/liblitnice_backend_cublas_plugin.so"
+  library: "./build-debug/liblitnice_backend_cublas_plugin.so"
   #library: "./build/liblitnice_backend_cublas_plugin.so"
   #library: "./build/liblitnice_backend_cpu.so"
 
@@ -24,6 +24,7 @@ tokenizer:
 
   # Preferred normalized plugin config.
   training_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
+  inter_file_boundary: "\n<|book_boundary|>\n"
   artifacts_dir: "/mnt/ext_ssd/litnicegpt/data"
   bpe_vocab_file: ""
   bpe_merges_file: ""

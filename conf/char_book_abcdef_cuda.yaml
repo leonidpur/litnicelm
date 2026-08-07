@@ -23,6 +23,7 @@ tokenizer:
 
   # Preferred normalized plugin config.
   training_corpus: "/mnt/ext_ssd/litnicegpt/data/syntetic1.txt"
+  inter_file_boundary: "\n<|book_boundary|>\n"
   artifacts_dir: "/mnt/ext_ssd/litnicegpt/data"
   bpe_vocab_file: ""
   bpe_merges_file: ""
@@ -56,6 +57,10 @@ model:
   d_ff: 64
   max_seq_len: 8
 
+model_algo:
+  attention: "fused_inplace"
+  ffn: "inplace_fused_bias_relu"
+
 training:
   learning_rate: 0.002
   beta1: 0.9
@@ -71,7 +76,7 @@ training:
   train_seq_len: 4
   window_stride: 8
   batch_size: 2 # 16-32: stable gradients without requiring massive RAM.
-  target_loss: 0.75
+  target_loss: 0.5
   min_delta: 0.0
   patience_epochs: 0
   min_epochs: 0

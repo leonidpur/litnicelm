@@ -1,4 +1,4 @@
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 
 #include <utils/assert.hpp>
 
@@ -7,10 +7,25 @@
 
 #define require(cond, msg)                                                      \
   REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("TensorFactory: ") + std::string(msg);                   \
+    return std::string("TensorStore: ") + std::string(msg);                   \
   })
 
 namespace {
+bool uses_inplace_ffn_activation(const Config &cfg) {
+  return cfg.model_algo.ffn == "inplace_fused_bias_relu";
+}
+
+bool uses_fused_inplace_attention(const Config &cfg) {
+  return cfg.model_algo.attention == "fused_inplace";
+}
+
+uint64_t splitmix64(uint64_t x) {
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31);
+}
+
 class LayoutCursor {
 public:
   LayoutCursor(const std::vector<LayoutSlice> &slices, const char *label)
@@ -39,45 +54,255 @@ private:
 
 } // namespace
 
-TensorFactory::TensorFactory(const Config &cfg, const NamedLayout &param_layout,
+class TensorStore::TempTensorSubStore {
+public:
+  TempTensorSubStore(const Config &cfg, uint8_t *temp_base,
+                       uint64_t temp_bytes, Device device)
+      : cfg_(cfg), temp_base_(temp_base), temp_bytes_(temp_bytes),
+        device_(device) {}
+  virtual ~TempTensorSubStore() = default;
+
+  TensorView temp_ds_ids() const;
+  TensorView temp_ds_ids(int64_t rows) const;
+  TensorView temp_ds_ids(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_ds_targets() const;
+  TensorView temp_ds_targets(int64_t rows) const;
+  TensorView temp_ds_targets(int64_t batch_size, int64_t seq_len) const;
+  bool has_inference_io_temps() const;
+  TensorView temp_infer_ids(int64_t rows) const;
+  TensorView temp_infer_logits(int64_t rows) const;
+  TensorView temp_tr_logits(int64_t rows) const;
+  TensorView temp_tr_logits(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_tr_loss() const;
+  TensorView temp_tr_X(int64_t rows) const;
+  TensorView temp_tr_X(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_tr_Y(int64_t rows) const;
+  TensorView temp_tr_Y(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_tr_Xn(int64_t rows) const;
+  TensorView temp_tr_Xn(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_bw_XnT(int64_t rows) const;
+  TensorView temp_bw_lm_wT() const;
+  TensorView temp_bw_d_xn(int64_t rows) const;
+  TensorView temp_bw_d_xn(int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_bw_d_xlast(int64_t rows) const;
+  TensorView temp_bw_d_xlast(int64_t batch_size, int64_t seq_len) const;
+
+  TensorView temp_layer_ln1(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_layer_attn_out(int layer, int64_t batch_size,
+                                 int64_t seq_len) const;
+  TensorView temp_layer_resid1(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_layer_ln2(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_layer_ffn_out(int layer, int64_t batch_size,
+                                int64_t seq_len) const;
+  TensorView temp_layer_hidden(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_layer_bw_d_prev(int layer, int64_t rows) const;
+  TensorView temp_layer_bw_d_prev(int layer, int64_t batch_size,
+                                  int64_t seq_len) const;
+  TensorView temp_layer_dln2(int layer, int64_t rows) const;
+  TensorView temp_layer_dln2(int layer, int64_t batch_size,
+                             int64_t seq_len) const;
+  TensorView temp_layer_dy_ln2(int layer, int64_t rows) const;
+  TensorView temp_layer_dy_ln2(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_layer_dy_total(int layer, int64_t rows) const;
+  TensorView temp_layer_dy_total(int layer, int64_t batch_size,
+                                 int64_t seq_len) const;
+  TensorView temp_layer_dln1(int layer, int64_t rows) const;
+  TensorView temp_layer_dln1(int layer, int64_t batch_size,
+                             int64_t seq_len) const;
+  TensorView temp_layer_dx_ln1(int layer, int64_t rows) const;
+  TensorView temp_layer_dx_ln1(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+
+  TensorView temp_attn_qkv(int layer, int64_t rows) const;
+  TensorView temp_attn_qkv(int layer, int64_t batch_size,
+                           int64_t seq_len) const;
+  TensorView temp_attn_context(int layer, int64_t rows) const;
+  TensorView temp_attn_context(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_attn_scores(int layer, int64_t rows) const;
+  TensorView temp_attn_scores(int layer, int64_t batch_size,
+                              int64_t seq_len) const;
+  TensorView temp_attn_weights(int layer, int64_t rows) const;
+  TensorView temp_attn_weights(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_attn_cached_weights(int layer, int64_t rows) const;
+  TensorView temp_attn_cached_weights(int layer, int64_t batch_size,
+                                      int64_t seq_len) const;
+  TensorView temp_attn_head(int layer, int64_t batch_size,
+                            int64_t seq_len) const;
+  TensorView temp_attn_contextT(int layer, int64_t rows) const;
+  TensorView temp_attn_WoT(int layer) const;
+  TensorView temp_attn_dcontext(int layer, int64_t rows) const;
+  TensorView temp_attn_dcontext(int layer, int64_t batch_size,
+                                int64_t seq_len) const;
+  TensorView temp_attn_dqkv(int layer, int64_t rows) const;
+  TensorView temp_attn_dqkv(int layer, int64_t batch_size,
+                            int64_t seq_len) const;
+  TensorView temp_attn_KhT(int layer, int64_t rows) const;
+  TensorView temp_attn_VhT(int layer, int64_t rows) const;
+  TensorView temp_attn_dweights(int layer, int64_t rows) const;
+  TensorView temp_attn_dweights(int layer, int64_t batch_size,
+                                int64_t seq_len) const;
+  TensorView temp_attn_weightsT(int layer, int64_t rows) const;
+  TensorView temp_attn_dscores(int layer, int64_t rows) const;
+  TensorView temp_attn_dscores(int layer, int64_t batch_size,
+                               int64_t seq_len) const;
+  TensorView temp_attn_dscoresT(int layer, int64_t rows) const;
+  TensorView temp_attn_WqkvT(int layer) const;
+  TensorView temp_attn_xT(int layer, int64_t rows) const;
+
+  TensorView temp_ffn_h(int layer, int64_t rows) const;
+  TensorView temp_ffn_h(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_ffn_a(int layer, int64_t rows) const;
+  TensorView temp_ffn_a(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_ffn_aT(int layer, int64_t rows) const;
+  TensorView temp_ffn_W2T(int layer) const;
+  TensorView temp_ffn_da(int layer, int64_t rows) const;
+  TensorView temp_ffn_da(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_ffn_dh(int layer, int64_t rows) const;
+  TensorView temp_ffn_dh(int layer, int64_t batch_size, int64_t seq_len) const;
+  TensorView temp_ffn_xT(int layer, int64_t rows) const;
+  TensorView temp_ffn_W1T(int layer) const;
+
+protected:
+  const Config &cfg_;
+  uint8_t *temp_base_ = nullptr;
+  uint64_t temp_bytes_ = 0;
+  Device device_ = Device::CPU;
+
+  TensorView ds_ids_;
+  TensorView ds_targets_;
+  TensorView infer_ids_;
+  TensorView infer_logits_;
+  TensorView tr_logits_;
+  TensorView tr_loss_;
+  TensorView tr_X_;
+  TensorView tr_Y_;
+  TensorView tr_Xn_;
+  TensorView bw_XnT_;
+  TensorView bw_lm_wT_;
+  TensorView bw_d_xn_;
+  TensorView bw_d_xlast_;
+  std::vector<TensorStore::LayerTempViews> layer_temp_views_;
+
+  void check_layer(int layer) const;
+  TensorView make_temp_view(const LayoutSlice &s, Shape shape) const;
+  TensorView prefix_storage(const TensorView &view, Shape shape) const;
+  virtual TensorView prefix_batch_seq(const TensorView &view,
+                                      int64_t batch_size, int64_t seq_len,
+                                      const char *label,
+                                      int64_t expected_last_dim = -1) const = 0;
+  virtual TensorView prefix_batch_seq_square(const TensorView &view,
+                                             int64_t batch_size,
+                                             int64_t seq_len,
+                                             const char *label) const = 0;
+  virtual TensorView prefix_head_batch_seq_square(
+      const TensorView &view, int64_t batch_size, int64_t seq_len,
+      const char *label) const = 0;
+  int64_t temp_batch_tokens() const;
+  std::string lname(int layer, const char *suffix) const;
+  std::string infer_lname(int layer, const char *suffix) const;
+};
+
+class TrainingTempTensorSubStore final
+    : public TensorStore::TempTensorSubStore {
+public:
+  TrainingTempTensorSubStore(const Config &cfg, const NamedLayout &temp_layout,
+                               uint8_t *temp_base, uint64_t temp_bytes,
+                               Device device);
+
+private:
+  TensorView prefix_batch_seq(const TensorView &view, int64_t batch_size,
+                              int64_t seq_len, const char *label,
+                              int64_t expected_last_dim) const override;
+  TensorView prefix_batch_seq_square(const TensorView &view,
+                                     int64_t batch_size, int64_t seq_len,
+                                     const char *label) const override;
+  TensorView prefix_head_batch_seq_square(const TensorView &view,
+                                          int64_t batch_size,
+                                          int64_t seq_len,
+                                          const char *label) const override;
+};
+
+class InferenceTempTensorSubStore final
+    : public TensorStore::TempTensorSubStore {
+public:
+  InferenceTempTensorSubStore(const Config &cfg,
+                                const NamedLayout &temp_layout,
+                                uint8_t *temp_base, uint64_t temp_bytes,
+                                Device device);
+
+private:
+  TensorView prefix_batch_seq(const TensorView &view, int64_t batch_size,
+                              int64_t seq_len, const char *label,
+                              int64_t expected_last_dim) const override;
+  TensorView prefix_batch_seq_square(const TensorView &view,
+                                     int64_t batch_size, int64_t seq_len,
+                                     const char *label) const override;
+  TensorView prefix_head_batch_seq_square(const TensorView &view,
+                                          int64_t batch_size,
+                                          int64_t seq_len,
+                                          const char *label) const override;
+};
+
+TensorStore::~TensorStore() = default;
+
+TensorStore::TensorStore(const Config &cfg, const NamedLayout &param_layout,
                              void *params_base, uint64_t params_bytes,
                              Device device, const NamedLayout &temp_layout,
                              void *temp_base, uint64_t temp_bytes,
                              TempLayoutKind temp_kind)
     : cfg_(cfg), base_(reinterpret_cast<uint8_t *>(params_base)),
-      bytes_(params_bytes), temp_base_(reinterpret_cast<uint8_t *>(temp_base)),
-      temp_bytes_(temp_bytes), device_(device), temp_kind_(temp_kind) {
+      bytes_(params_bytes), device_(device) {
   require(base_ != nullptr, "params_base is null");
   require(bytes_ > 0, "params_bytes must be > 0");
   require(param_layout.total_bytes() <= bytes_,
           "param_layout.total_bytes() exceeds provided params_bytes");
-  require(temp_base_ != nullptr, "temp_base is null");
-  require(temp_bytes_ > 0, "temp_bytes must be > 0");
-  require(temp_layout.total_bytes() <= temp_bytes_,
+  auto *temp_base_bytes = reinterpret_cast<uint8_t *>(temp_base);
+  require(temp_base_bytes != nullptr, "temp_base is null");
+  require(temp_bytes > 0, "temp_bytes must be > 0");
+  require(temp_layout.total_bytes() <= temp_bytes,
           "temp_layout.total_bytes() exceeds provided temp_bytes");
   build_param_views(param_layout);
-  if (temp_kind_ == TempLayoutKind::Training) {
-    build_training_temp_views(temp_layout);
+  if (temp_kind == TempLayoutKind::Training) {
+    temp_tensor_substore_ = std::make_unique<TrainingTempTensorSubStore>(
+        cfg_, temp_layout, temp_base_bytes, temp_bytes, device_);
   } else {
-    build_inference_temp_views(temp_layout);
+    temp_tensor_substore_ = std::make_unique<InferenceTempTensorSubStore>(
+        cfg_, temp_layout, temp_base_bytes, temp_bytes, device_);
   }
 }
 
-void TensorFactory::check_layer(int layer) const {
+void TensorStore::check_layer(int layer) const {
   require(layer >= 0, "layer < 0");
   require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
           "layer out of range");
 }
 
-std::string TensorFactory::lname(int layer, const char *suffix) const {
+std::string TensorStore::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
 }
 
-std::string TensorFactory::infer_lname(int layer, const char *suffix) const {
+void TensorStore::TempTensorSubStore::check_layer(int layer) const {
+  require(layer >= 0, "layer < 0");
+  require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
+          "layer out of range");
+}
+
+std::string TensorStore::TempTensorSubStore::lname(int layer,
+                                                       const char *suffix) const {
+  return "layer" + std::to_string(layer) + "." + suffix;
+}
+
+std::string TensorStore::TempTensorSubStore::infer_lname(
+    int layer, const char *suffix) const {
   return "infer." + lname(layer, suffix);
 }
 
-void TensorFactory::build_param_views(const NamedLayout &param_layout) {
+void TensorStore::build_param_views(const NamedLayout &param_layout) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -136,7 +361,10 @@ void TensorFactory::build_param_views(const NamedLayout &param_layout) {
   cursor.finish();
 }
 
-void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
+TrainingTempTensorSubStore::TrainingTempTensorSubStore(
+    const Config &cfg, const NamedLayout &temp_layout, uint8_t *temp_base,
+    uint64_t temp_bytes, Device device)
+    : TempTensorSubStore(cfg, temp_base, temp_bytes, device) {
   const int64_t training_batch_size =
       static_cast<int64_t>(cfg_.training.batch_size);
   const int64_t training_seq_len =
@@ -179,7 +407,7 @@ void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
       Shape{training_batch_size, training_seq_len, model_dim});
 
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
-    LayerTempViews views;
+    TensorStore::LayerTempViews views;
     views.ln1 = make_temp_view(cursor.next(lname(static_cast<int>(layer), "ln1")),
                                Shape{training_batch_size, training_seq_len, model_dim});
     views.bw_d_prev =
@@ -209,9 +437,11 @@ void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
     views.attn_scores = make_temp_view(
         cursor.next(lname(static_cast<int>(layer), "attn.scores")),
         Shape{training_batch_size, training_seq_len, training_seq_len});
-    views.attn_weights = make_temp_view(
-        cursor.next(lname(static_cast<int>(layer), "attn.weights")),
-        Shape{training_batch_size, training_seq_len, training_seq_len});
+    if (!uses_fused_inplace_attention(cfg_)) {
+      views.attn_weights = make_temp_view(
+          cursor.next(lname(static_cast<int>(layer), "attn.weights")),
+          Shape{training_batch_size, training_seq_len, training_seq_len});
+    }
     views.attn_weights_cache =
         make_temp_view(cursor.next(lname(static_cast<int>(layer),
                                          "attn.weights_cache")),
@@ -224,9 +454,11 @@ void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
     views.ffn_h =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.h")),
                        Shape{training_batch_size, training_seq_len, ffn_dim});
-    views.ffn_a =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.a")),
-                       Shape{training_batch_size, training_seq_len, ffn_dim});
+    if (!uses_inplace_ffn_activation(cfg_)) {
+      views.ffn_a =
+          make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.a")),
+                         Shape{training_batch_size, training_seq_len, ffn_dim});
+    }
 
     views.dln2 = make_temp_view(
         cursor.next(lname(static_cast<int>(layer), "dln2")),
@@ -290,9 +522,11 @@ void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
     views.ffn_da =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.da")),
                        Shape{training_batch_size, training_seq_len, ffn_dim});
-    views.ffn_dh =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.dh")),
-                       Shape{training_batch_size, training_seq_len, ffn_dim});
+    if (!uses_inplace_ffn_activation(cfg_)) {
+      views.ffn_dh =
+          make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.dh")),
+                         Shape{training_batch_size, training_seq_len, ffn_dim});
+    }
     views.ffn_xT =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.xT")),
                        Shape{model_dim, temp_token_count});
@@ -305,7 +539,10 @@ void TensorFactory::build_training_temp_views(const NamedLayout &temp_layout) {
   cursor.finish();
 }
 
-void TensorFactory::build_inference_temp_views(const NamedLayout &temp_layout) {
+InferenceTempTensorSubStore::InferenceTempTensorSubStore(
+    const Config &cfg, const NamedLayout &temp_layout, uint8_t *temp_base,
+    uint64_t temp_bytes, Device device)
+    : TempTensorSubStore(cfg, temp_base, temp_bytes, device) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t qkv_dim = 3 * model_dim;
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
@@ -331,7 +568,7 @@ void TensorFactory::build_inference_temp_views(const NamedLayout &temp_layout) {
                           Shape{1, max_seq_len, model_dim});
 
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
-    LayerTempViews views;
+    TensorStore::LayerTempViews views;
     views.ln1 = make_temp_view(cursor.next(infer_lname(static_cast<int>(layer), "ln1")),
                                Shape{1, max_seq_len, model_dim});
     views.attn_out = make_temp_view(
@@ -358,9 +595,11 @@ void TensorFactory::build_inference_temp_views(const NamedLayout &temp_layout) {
     views.attn_scores = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "attn.scores")),
         Shape{1, max_seq_len, max_seq_len});
-    views.attn_weights = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.weights")),
-        Shape{1, max_seq_len, max_seq_len});
+    if (!uses_fused_inplace_attention(cfg_)) {
+      views.attn_weights = make_temp_view(
+          cursor.next(infer_lname(static_cast<int>(layer), "attn.weights")),
+          Shape{1, max_seq_len, max_seq_len});
+    }
     views.attn_weights_cache = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "attn.weights_cache")),
         Shape{head_count, 1, max_seq_len, max_seq_len});
@@ -371,16 +610,18 @@ void TensorFactory::build_inference_temp_views(const NamedLayout &temp_layout) {
     views.ffn_h = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "ffn.h")),
         Shape{1, max_seq_len, ffn_dim});
-    views.ffn_a = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "ffn.a")),
-        Shape{1, max_seq_len, ffn_dim});
+    if (!uses_inplace_ffn_activation(cfg_)) {
+      views.ffn_a = make_temp_view(
+          cursor.next(infer_lname(static_cast<int>(layer), "ffn.a")),
+          Shape{1, max_seq_len, ffn_dim});
+    }
 
     layer_temp_views_.push_back(views);
   }
   cursor.finish();
 }
 
-TensorView TensorFactory::make_view_f32(const LayoutSlice &s,
+TensorView TensorStore::make_view_f32(const LayoutSlice &s,
                                         Shape shape) const {
   const uint64_t expected = nbytes(shape, DType::F32);
   require(expected == s.bytes,
@@ -395,7 +636,7 @@ TensorView TensorFactory::make_view_f32(const LayoutSlice &s,
   return TensorView(device_, DType::F32, ptr, shape);
 }
 
-TensorView TensorFactory::make_subview_f32(const TensorView &view,
+TensorView TensorStore::make_subview_f32(const TensorView &view,
                                            int64_t col_offset,
                                            Shape sub_shape) const {
   require(view.dtype() == DType::F32, "subview source must be f32");
@@ -407,7 +648,8 @@ TensorView TensorFactory::make_subview_f32(const TensorView &view,
   return view.subcols(col_offset, sub_shape.dim(1));
 }
 
-TensorView TensorFactory::make_temp_view(const LayoutSlice &s, Shape shape) const {
+TensorView TensorStore::TempTensorSubStore::make_temp_view(
+    const LayoutSlice &s, Shape shape) const {
   const uint64_t expected = nbytes(shape, s.dtype);
   require(expected == s.bytes,
           "temporary shape bytes mismatch for " + s.name + ": expected " +
@@ -418,8 +660,8 @@ TensorView TensorFactory::make_temp_view(const LayoutSlice &s, Shape shape) cons
   return TensorView(device_, s.dtype, ptr, shape);
 }
 
-TensorView TensorFactory::prefix_storage(const TensorView &view,
-                                         Shape shape) const {
+TensorView TensorStore::TempTensorSubStore::prefix_storage(
+    const TensorView &view, Shape shape) const {
   require(shape.dim(0) >= 0 && shape.dim(0) <= view.shape().dim(0),
           "shape row prefix out of bounds");
   require(shape.dim(1) >= 0 && shape.dim(1) <= view.shape().dim(1),
@@ -427,35 +669,67 @@ TensorView TensorFactory::prefix_storage(const TensorView &view,
   return view.subrows(0, shape.dim(0)).subcols(0, shape.dim(1));
 }
 
-TensorView TensorFactory::prefix_batch_seq(const TensorView &view,
-                                           int64_t batch_size,
-                                           int64_t seq_len,
-                                           const char *label,
-                                           int64_t expected_last_dim) const {
+TensorView TrainingTempTensorSubStore::prefix_batch_seq(
+    const TensorView &view, int64_t batch_size, int64_t seq_len,
+    const char *label, int64_t expected_last_dim) const {
   require(view.rank() == 3, std::string(label) + " rank mismatch");
-  require(batch_size >= 0 && batch_size <= view.dim(0) &&
-              seq_len >= 0 && seq_len <= view.dim(1),
-          std::string(label) + " shape mismatch");
   if (expected_last_dim >= 0) {
     require(view.dim(2) == expected_last_dim,
             std::string(label) + " last-dim mismatch");
   }
+  require(view.dim(0) == batch_size && view.dim(1) == seq_len,
+          std::string(label) + " training shape mismatch");
+  return view;
+}
+
+TensorView TrainingTempTensorSubStore::prefix_batch_seq_square(
+    const TensorView &view, int64_t batch_size, int64_t seq_len,
+    const char *label) const {
+  require(view.rank() == 3, std::string(label) + " rank mismatch");
+  require(view.dim(0) == batch_size && view.dim(1) == seq_len &&
+              view.dim(2) == seq_len,
+          std::string(label) + " training shape mismatch");
+  return view;
+}
+
+TensorView TrainingTempTensorSubStore::prefix_head_batch_seq_square(
+    const TensorView &view, int64_t batch_size, int64_t seq_len,
+    const char *label) const {
+  require(view.rank() == 4, std::string(label) + " rank mismatch");
+  require(view.dim(0) == static_cast<int64_t>(cfg_.model.n_heads),
+          std::string(label) + " head-count mismatch");
+  require(view.dim(1) == batch_size && view.dim(2) == seq_len &&
+              view.dim(3) == seq_len,
+          std::string(label) + " training shape mismatch");
+  return view;
+}
+
+TensorView InferenceTempTensorSubStore::prefix_batch_seq(
+    const TensorView &view, int64_t batch_size, int64_t seq_len,
+    const char *label, int64_t expected_last_dim) const {
+  require(view.rank() == 3, std::string(label) + " rank mismatch");
+  if (expected_last_dim >= 0) {
+    require(view.dim(2) == expected_last_dim,
+            std::string(label) + " last-dim mismatch");
+  }
+  require(batch_size >= 0 && batch_size <= view.dim(0) &&
+              seq_len >= 0 && seq_len <= view.dim(1),
+          std::string(label) + " inference shape mismatch");
   return view.slice(0, 0, batch_size).slice(1, 0, seq_len);
 }
 
-TensorView TensorFactory::prefix_batch_seq_square(const TensorView &view,
-                                                  int64_t batch_size,
-                                                  int64_t seq_len,
-                                                  const char *label) const {
+TensorView InferenceTempTensorSubStore::prefix_batch_seq_square(
+    const TensorView &view, int64_t batch_size, int64_t seq_len,
+    const char *label) const {
   require(view.rank() == 3, std::string(label) + " rank mismatch");
   require(batch_size >= 0 && batch_size <= view.dim(0) &&
               seq_len >= 0 && seq_len <= view.dim(1) &&
-              seq_len <= view.dim(2),
-          std::string(label) + " shape mismatch");
+              seq_len >= 0 && seq_len <= view.dim(2),
+          std::string(label) + " inference shape mismatch");
   return view.slice(0, 0, batch_size).slice(1, 0, seq_len).slice(2, 0, seq_len);
 }
 
-TensorView TensorFactory::prefix_head_batch_seq_square(
+TensorView InferenceTempTensorSubStore::prefix_head_batch_seq_square(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label) const {
   require(view.rank() == 4, std::string(label) + " rank mismatch");
@@ -463,44 +737,44 @@ TensorView TensorFactory::prefix_head_batch_seq_square(
           std::string(label) + " head-count mismatch");
   require(batch_size >= 0 && batch_size <= view.dim(1) &&
               seq_len >= 0 && seq_len <= view.dim(2) &&
-              seq_len <= view.dim(3),
-          std::string(label) + " shape mismatch");
+              seq_len >= 0 && seq_len <= view.dim(3),
+          std::string(label) + " inference shape mismatch");
   return view.slice(1, 0, batch_size).slice(2, 0, seq_len).slice(3, 0, seq_len);
 }
 
-int64_t TensorFactory::temp_batch_tokens() const {
+int64_t TensorStore::TempTensorSubStore::temp_batch_tokens() const {
   const uint64_t training_batch_tokens =
       static_cast<uint64_t>(cfg_.training.batch_size) *
       static_cast<uint64_t>(cfg_.training.train_seq_len);
   return static_cast<int64_t>(training_batch_tokens);
 }
 
-TensorView TensorFactory::temp_ds_ids(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ds_ids(int64_t rows) const {
   return prefix_storage(
       TensorView(ds_ids_.device(), ds_ids_.dtype(), ds_ids_.data(),
                  Shape{static_cast<int64_t>(ds_ids_.numel()), 1}),
       {rows, 1});
 }
 
-TensorView TensorFactory::temp_ds_ids() const { return ds_ids_; }
+TensorView TensorStore::TempTensorSubStore::temp_ds_ids() const { return ds_ids_; }
 
-TensorView TensorFactory::temp_ds_ids(int64_t batch_size, int64_t seq_len) const {
+TensorView TensorStore::TempTensorSubStore::temp_ds_ids(int64_t batch_size, int64_t seq_len) const {
   require(ds_ids_.rank() == 2 && ds_ids_.dim(0) == batch_size &&
               ds_ids_.dim(1) == seq_len,
           "temp_ds_ids shape mismatch");
   return ds_ids_;
 }
 
-TensorView TensorFactory::temp_ds_targets(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ds_targets(int64_t rows) const {
   return prefix_storage(
       TensorView(ds_targets_.device(), ds_targets_.dtype(), ds_targets_.data(),
                  Shape{static_cast<int64_t>(ds_targets_.numel()), 1}),
       {rows, 1});
 }
 
-TensorView TensorFactory::temp_ds_targets() const { return ds_targets_; }
+TensorView TensorStore::TempTensorSubStore::temp_ds_targets() const { return ds_targets_; }
 
-TensorView TensorFactory::temp_ds_targets(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_ds_targets(int64_t batch_size,
                                           int64_t seq_len) const {
   require(ds_targets_.rank() == 2 && ds_targets_.dim(0) == batch_size &&
               ds_targets_.dim(1) == seq_len,
@@ -508,11 +782,11 @@ TensorView TensorFactory::temp_ds_targets(int64_t batch_size,
   return ds_targets_;
 }
 
-bool TensorFactory::has_inference_io_temps() const {
+bool TensorStore::TempTensorSubStore::has_inference_io_temps() const {
   return infer_ids_.data() != nullptr && infer_logits_.data() != nullptr;
 }
 
-TensorView TensorFactory::temp_infer_ids(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_infer_ids(int64_t rows) const {
   require(has_inference_io_temps(),
           "temp_infer_ids unavailable for this temp layout");
   require(infer_ids_.rank() == 2 && infer_ids_.dim(0) == 1 &&
@@ -521,7 +795,7 @@ TensorView TensorFactory::temp_infer_ids(int64_t rows) const {
   return infer_ids_.subcols(0, rows);
 }
 
-TensorView TensorFactory::temp_infer_logits(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_infer_logits(int64_t rows) const {
   require(has_inference_io_temps(),
           "temp_infer_logits unavailable for this temp layout");
   require(infer_logits_.rank() == 3 && infer_logits_.dim(0) == 1 &&
@@ -532,7 +806,7 @@ TensorView TensorFactory::temp_infer_logits(int64_t rows) const {
   return infer_logits_.slice(1, 0, rows);
 }
 
-TensorView TensorFactory::temp_tr_logits(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_tr_logits(int64_t rows) const {
   return prefix_storage(
                         TensorView(tr_logits_.device(), tr_logits_.dtype(),
                                    tr_logits_.data(),
@@ -545,16 +819,16 @@ TensorView TensorFactory::temp_tr_logits(int64_t rows) const {
                         {rows, static_cast<int64_t>(cfg_.model.target_vocab_size)});
 }
 
-TensorView TensorFactory::temp_tr_logits(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_tr_logits(int64_t batch_size,
                                          int64_t seq_len) const {
   return prefix_batch_seq(tr_logits_, batch_size, seq_len,
                           "temp_tr_logits",
                           static_cast<int64_t>(cfg_.model.target_vocab_size));
 }
 
-TensorView TensorFactory::temp_tr_loss() const { return tr_loss_; }
+TensorView TensorStore::TempTensorSubStore::temp_tr_loss() const { return tr_loss_; }
 
-TensorView TensorFactory::temp_tr_X(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_tr_X(int64_t rows) const {
   return prefix_storage(
                         TensorView(tr_X_.device(), tr_X_.dtype(), tr_X_.data(),
                                    Shape{static_cast<int64_t>(
@@ -565,13 +839,13 @@ TensorView TensorFactory::temp_tr_X(int64_t rows) const {
                         {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_tr_X(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_tr_X(int64_t batch_size,
                                     int64_t seq_len) const {
   return prefix_batch_seq(tr_X_, batch_size, seq_len, "temp_tr_X",
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_tr_Y(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_tr_Y(int64_t rows) const {
   return prefix_storage(
                         TensorView(tr_Y_.device(), tr_Y_.dtype(), tr_Y_.data(),
                                    Shape{static_cast<int64_t>(
@@ -582,13 +856,13 @@ TensorView TensorFactory::temp_tr_Y(int64_t rows) const {
                         {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_tr_Y(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_tr_Y(int64_t batch_size,
                                     int64_t seq_len) const {
   return prefix_batch_seq(tr_Y_, batch_size, seq_len, "temp_tr_Y",
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_tr_Xn(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_tr_Xn(int64_t rows) const {
   return prefix_storage(
                         TensorView(tr_Xn_.device(), tr_Xn_.dtype(), tr_Xn_.data(),
                                    Shape{static_cast<int64_t>(
@@ -599,19 +873,19 @@ TensorView TensorFactory::temp_tr_Xn(int64_t rows) const {
                         {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_tr_Xn(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_tr_Xn(int64_t batch_size,
                                      int64_t seq_len) const {
   return prefix_batch_seq(tr_Xn_, batch_size, seq_len, "temp_tr_Xn",
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_bw_XnT(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_bw_XnT(int64_t rows) const {
   return prefix_storage(bw_XnT_, {static_cast<int64_t>(cfg_.model.d_model), rows});
 }
 
-TensorView TensorFactory::temp_bw_lm_wT() const { return bw_lm_wT_; }
+TensorView TensorStore::TempTensorSubStore::temp_bw_lm_wT() const { return bw_lm_wT_; }
 
-TensorView TensorFactory::temp_bw_d_xn(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_bw_d_xn(int64_t rows) const {
   return prefix_storage(
       TensorView(
           bw_d_xn_.device(), bw_d_xn_.dtype(), bw_d_xn_.data(),
@@ -621,7 +895,7 @@ TensorView TensorFactory::temp_bw_d_xn(int64_t rows) const {
       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_bw_d_xn(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_bw_d_xn(int64_t batch_size,
                                        int64_t seq_len) const {
   require(bw_d_xn_.rank() == 3 && bw_d_xn_.dim(0) == batch_size &&
               bw_d_xn_.dim(1) == seq_len &&
@@ -630,7 +904,7 @@ TensorView TensorFactory::temp_bw_d_xn(int64_t batch_size,
   return bw_d_xn_;
 }
 
-TensorView TensorFactory::temp_bw_d_xlast(int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_bw_d_xlast(int64_t rows) const {
   return prefix_storage(
       TensorView(
           bw_d_xlast_.device(), bw_d_xlast_.dtype(), bw_d_xlast_.data(),
@@ -640,7 +914,7 @@ TensorView TensorFactory::temp_bw_d_xlast(int64_t rows) const {
       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_bw_d_xlast(int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_bw_d_xlast(int64_t batch_size,
                                           int64_t seq_len) const {
   require(bw_d_xlast_.rank() == 3 && bw_d_xlast_.dim(0) == batch_size &&
               bw_d_xlast_.dim(1) == seq_len &&
@@ -649,7 +923,7 @@ TensorView TensorFactory::temp_bw_d_xlast(int64_t batch_size,
   return bw_d_xlast_;
 }
 
-TensorView TensorFactory::temp_layer_ln1(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_ln1(int layer, int64_t batch_size,
                                          int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(
@@ -657,7 +931,7 @@ TensorView TensorFactory::temp_layer_ln1(int layer, int64_t batch_size,
       "temp_layer_ln1", static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_attn_out(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_attn_out(int layer, int64_t batch_size,
                                               int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].attn_out,
@@ -665,7 +939,7 @@ TensorView TensorFactory::temp_layer_attn_out(int layer, int64_t batch_size,
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_resid1(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_resid1(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].resid1,
@@ -673,7 +947,7 @@ TensorView TensorFactory::temp_layer_resid1(int layer, int64_t batch_size,
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_ln2(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_ln2(int layer, int64_t batch_size,
                                          int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(
@@ -681,7 +955,7 @@ TensorView TensorFactory::temp_layer_ln2(int layer, int64_t batch_size,
       "temp_layer_ln2", static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_ffn_out(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_ffn_out(int layer, int64_t batch_size,
                                              int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].ffn_out,
@@ -689,7 +963,7 @@ TensorView TensorFactory::temp_layer_ffn_out(int layer, int64_t batch_size,
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_hidden(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_hidden(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].hidden,
@@ -697,7 +971,7 @@ TensorView TensorFactory::temp_layer_hidden(int layer, int64_t batch_size,
                           static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_layer_bw_d_prev(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_bw_d_prev(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].bw_d_prev;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -709,7 +983,7 @@ TensorView TensorFactory::temp_layer_bw_d_prev(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_bw_d_prev(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_bw_d_prev(int layer, int64_t batch_size,
                                                int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].bw_d_prev;
@@ -718,7 +992,7 @@ TensorView TensorFactory::temp_layer_bw_d_prev(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_layer_dln2(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_dln2(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln2;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -730,7 +1004,7 @@ TensorView TensorFactory::temp_layer_dln2(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_dln2(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_dln2(int layer, int64_t batch_size,
                                           int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln2;
@@ -739,7 +1013,7 @@ TensorView TensorFactory::temp_layer_dln2(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_layer_dy_ln2(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_dy_ln2(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_ln2;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -751,7 +1025,7 @@ TensorView TensorFactory::temp_layer_dy_ln2(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_dy_ln2(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_dy_ln2(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_ln2;
@@ -760,7 +1034,7 @@ TensorView TensorFactory::temp_layer_dy_ln2(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_layer_dy_total(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_dy_total(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_total;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -772,7 +1046,7 @@ TensorView TensorFactory::temp_layer_dy_total(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_dy_total(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_dy_total(int layer, int64_t batch_size,
                                               int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_total;
@@ -781,7 +1055,7 @@ TensorView TensorFactory::temp_layer_dy_total(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_layer_dln1(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_dln1(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln1;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -793,7 +1067,7 @@ TensorView TensorFactory::temp_layer_dln1(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_dln1(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_dln1(int layer, int64_t batch_size,
                                           int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln1;
@@ -802,7 +1076,7 @@ TensorView TensorFactory::temp_layer_dln1(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_layer_dx_ln1(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_layer_dx_ln1(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dx_ln1;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -814,7 +1088,7 @@ TensorView TensorFactory::temp_layer_dx_ln1(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_layer_dx_ln1(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_layer_dx_ln1(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dx_ln1;
@@ -823,7 +1097,7 @@ TensorView TensorFactory::temp_layer_dx_ln1(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_attn_qkv(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_qkv(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_qkv;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -835,7 +1109,7 @@ TensorView TensorFactory::temp_attn_qkv(int layer, int64_t rows) const {
                       {rows, 3 * static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_attn_qkv(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_qkv(int layer, int64_t batch_size,
                                         int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(
@@ -844,7 +1118,7 @@ TensorView TensorFactory::temp_attn_qkv(int layer, int64_t batch_size,
       3 * static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_attn_context(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_context(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_context;
@@ -857,7 +1131,7 @@ TensorView TensorFactory::temp_attn_context(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_attn_context(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_context(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(
@@ -866,7 +1140,7 @@ TensorView TensorFactory::temp_attn_context(int layer, int64_t batch_size,
       static_cast<int64_t>(cfg_.model.d_model));
 }
 
-TensorView TensorFactory::temp_attn_scores(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_scores(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -879,7 +1153,7 @@ TensorView TensorFactory::temp_attn_scores(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_scores(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_scores(int layer, int64_t batch_size,
                                            int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq_square(
@@ -887,11 +1161,14 @@ TensorView TensorFactory::temp_attn_scores(int layer, int64_t batch_size,
       seq_len, "temp_attn_scores");
 }
 
-TensorView TensorFactory::temp_attn_weights(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_weights;
+  require(t.data() != nullptr,
+          "temp_attn_weights is not allocated for model_algo.attention=" +
+              cfg_.model_algo.attention);
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -900,15 +1177,19 @@ TensorView TensorFactory::temp_attn_weights(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_weights(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
+  require(layer_temp_views_[static_cast<size_t>(layer)]
+              .attn_weights.data() != nullptr,
+          "temp_attn_weights is not allocated for model_algo.attention=" +
+              cfg_.model_algo.attention);
   return prefix_batch_seq_square(
       layer_temp_views_[static_cast<size_t>(layer)].attn_weights, batch_size,
       seq_len, "temp_attn_weights");
 }
 
-TensorView TensorFactory::temp_attn_cached_weights(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_cached_weights(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -921,7 +1202,7 @@ TensorView TensorFactory::temp_attn_cached_weights(int layer, int64_t rows) cons
       {static_cast<int64_t>(cfg_.model.n_heads) * rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_cached_weights(
+TensorView TensorStore::TempTensorSubStore::temp_attn_cached_weights(
     int layer, int64_t batch_size, int64_t seq_len) const {
   check_layer(layer);
   return prefix_head_batch_seq_square(
@@ -929,7 +1210,7 @@ TensorView TensorFactory::temp_attn_cached_weights(
       batch_size, seq_len, "temp_attn_cached_weights");
 }
 
-TensorView TensorFactory::temp_attn_head(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_head(int layer, int64_t batch_size,
                                          int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(
@@ -938,18 +1219,18 @@ TensorView TensorFactory::temp_attn_head(int layer, int64_t batch_size,
       static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads));
 }
 
-TensorView TensorFactory::temp_attn_contextT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_contextT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].attn_contextT,
                       {static_cast<int64_t>(cfg_.model.d_model), rows});
 }
 
-TensorView TensorFactory::temp_attn_WoT(int layer) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_WoT(int layer) const {
   check_layer(layer);
   return layer_temp_views_[static_cast<size_t>(layer)].attn_WoT;
 }
 
-TensorView TensorFactory::temp_attn_dcontext(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_dcontext(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_dcontext;
@@ -962,7 +1243,7 @@ TensorView TensorFactory::temp_attn_dcontext(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_attn_dcontext(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_dcontext(int layer, int64_t batch_size,
                                              int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t =
@@ -973,7 +1254,7 @@ TensorView TensorFactory::temp_attn_dcontext(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_attn_dqkv(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_dqkv(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_dqkv;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -985,7 +1266,7 @@ TensorView TensorFactory::temp_attn_dqkv(int layer, int64_t rows) const {
                       {rows, 3 * static_cast<int64_t>(cfg_.model.d_model)});
 }
 
-TensorView TensorFactory::temp_attn_dqkv(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_dqkv(int layer, int64_t batch_size,
                                          int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_dqkv;
@@ -995,21 +1276,21 @@ TensorView TensorFactory::temp_attn_dqkv(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_attn_KhT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_KhT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(
       layer_temp_views_[static_cast<size_t>(layer)].attn_KhT,
       {static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads), rows});
 }
 
-TensorView TensorFactory::temp_attn_VhT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_VhT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(
       layer_temp_views_[static_cast<size_t>(layer)].attn_VhT,
       {static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads), rows});
 }
 
-TensorView TensorFactory::temp_attn_dweights(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_dweights(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -1022,7 +1303,7 @@ TensorView TensorFactory::temp_attn_dweights(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_dweights(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_dweights(int layer, int64_t batch_size,
                                              int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t =
@@ -1033,7 +1314,7 @@ TensorView TensorFactory::temp_attn_dweights(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_attn_weightsT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_weightsT(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -1046,7 +1327,7 @@ TensorView TensorFactory::temp_attn_weightsT(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_dscores(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_dscores(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -1059,7 +1340,7 @@ TensorView TensorFactory::temp_attn_dscores(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_dscores(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_attn_dscores(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t =
@@ -1070,7 +1351,7 @@ TensorView TensorFactory::temp_attn_dscores(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_attn_dscoresT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_dscoresT(int layer, int64_t rows) const {
   check_layer(layer);
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
@@ -1083,18 +1364,18 @@ TensorView TensorFactory::temp_attn_dscoresT(int layer, int64_t rows) const {
                       {rows, seq_len});
 }
 
-TensorView TensorFactory::temp_attn_WqkvT(int layer) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_WqkvT(int layer) const {
   check_layer(layer);
   return layer_temp_views_[static_cast<size_t>(layer)].attn_WqkvT;
 }
 
-TensorView TensorFactory::temp_attn_xT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_attn_xT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].attn_xT,
                       {static_cast<int64_t>(cfg_.model.d_model), rows});
 }
 
-TensorView TensorFactory::temp_ffn_h(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_h(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_h;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -1106,7 +1387,7 @@ TensorView TensorFactory::temp_ffn_h(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_ff)});
 }
 
-TensorView TensorFactory::temp_ffn_h(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_ffn_h(int layer, int64_t batch_size,
                                      int64_t seq_len) const {
   check_layer(layer);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].ffn_h,
@@ -1114,9 +1395,12 @@ TensorView TensorFactory::temp_ffn_h(int layer, int64_t batch_size,
                           static_cast<int64_t>(cfg_.model.d_ff));
 }
 
-TensorView TensorFactory::temp_ffn_a(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_a(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_a;
+  require(t.data() != nullptr,
+          "temp_ffn_a is not allocated for model_algo.ffn=" +
+              cfg_.model_algo.ffn);
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -1126,26 +1410,29 @@ TensorView TensorFactory::temp_ffn_a(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_ff)});
 }
 
-TensorView TensorFactory::temp_ffn_a(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_ffn_a(int layer, int64_t batch_size,
                                      int64_t seq_len) const {
   check_layer(layer);
+  require(layer_temp_views_[static_cast<size_t>(layer)].ffn_a.data() != nullptr,
+          "temp_ffn_a is not allocated for model_algo.ffn=" +
+              cfg_.model_algo.ffn);
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].ffn_a,
                           batch_size, seq_len, "temp_ffn_a",
                           static_cast<int64_t>(cfg_.model.d_ff));
 }
 
-TensorView TensorFactory::temp_ffn_aT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_aT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].ffn_aT,
                       {static_cast<int64_t>(cfg_.model.d_ff), rows});
 }
 
-TensorView TensorFactory::temp_ffn_W2T(int layer) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_W2T(int layer) const {
   check_layer(layer);
   return layer_temp_views_[static_cast<size_t>(layer)].ffn_W2T;
 }
 
-TensorView TensorFactory::temp_ffn_da(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_da(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_da;
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
@@ -1157,7 +1444,7 @@ TensorView TensorFactory::temp_ffn_da(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_ff)});
 }
 
-TensorView TensorFactory::temp_ffn_da(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_ffn_da(int layer, int64_t batch_size,
                                       int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_da;
@@ -1167,9 +1454,12 @@ TensorView TensorFactory::temp_ffn_da(int layer, int64_t batch_size,
   return t;
 }
 
-TensorView TensorFactory::temp_ffn_dh(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_dh(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_dh;
+  require(t.data() != nullptr,
+          "temp_ffn_dh is not allocated for model_algo.ffn=" +
+              cfg_.model_algo.ffn);
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -1179,190 +1469,468 @@ TensorView TensorFactory::temp_ffn_dh(int layer, int64_t rows) const {
                       {rows, static_cast<int64_t>(cfg_.model.d_ff)});
 }
 
-TensorView TensorFactory::temp_ffn_dh(int layer, int64_t batch_size,
+TensorView TensorStore::TempTensorSubStore::temp_ffn_dh(int layer, int64_t batch_size,
                                       int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_dh;
+  require(t.data() != nullptr,
+          "temp_ffn_dh is not allocated for model_algo.ffn=" +
+              cfg_.model_algo.ffn);
   require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
               t.dim(2) == static_cast<int64_t>(cfg_.model.d_ff),
           "temp_ffn_dh shape mismatch");
   return t;
 }
 
-TensorView TensorFactory::temp_ffn_xT(int layer, int64_t rows) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_xT(int layer, int64_t rows) const {
   check_layer(layer);
   return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].ffn_xT,
                       {static_cast<int64_t>(cfg_.model.d_model), rows});
 }
 
-TensorView TensorFactory::temp_ffn_W1T(int layer) const {
+TensorView TensorStore::TempTensorSubStore::temp_ffn_W1T(int layer) const {
   check_layer(layer);
   return layer_temp_views_[static_cast<size_t>(layer)].ffn_W1T;
 }
 
-TensorView TensorFactory::layer_ln1_gamma(int layer) const {
+TensorView TensorStore::temp_ds_ids() const { return temp_tensor_substore_->temp_ds_ids(); }
+TensorView TensorStore::temp_ds_ids(int64_t rows) const {
+  return temp_tensor_substore_->temp_ds_ids(rows);
+}
+TensorView TensorStore::temp_ds_ids(int64_t batch_size,
+                                      int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ds_ids(batch_size, seq_len);
+}
+TensorView TensorStore::temp_ds_targets() const {
+  return temp_tensor_substore_->temp_ds_targets();
+}
+TensorView TensorStore::temp_ds_targets(int64_t rows) const {
+  return temp_tensor_substore_->temp_ds_targets(rows);
+}
+TensorView TensorStore::temp_ds_targets(int64_t batch_size,
+                                          int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ds_targets(batch_size, seq_len);
+}
+bool TensorStore::has_inference_io_temps() const {
+  return temp_tensor_substore_->has_inference_io_temps();
+}
+TensorView TensorStore::temp_infer_ids(int64_t rows) const {
+  return temp_tensor_substore_->temp_infer_ids(rows);
+}
+TensorView TensorStore::temp_infer_logits(int64_t rows) const {
+  return temp_tensor_substore_->temp_infer_logits(rows);
+}
+TensorView TensorStore::temp_tr_logits(int64_t rows) const {
+  return temp_tensor_substore_->temp_tr_logits(rows);
+}
+TensorView TensorStore::temp_tr_logits(int64_t batch_size,
+                                         int64_t seq_len) const {
+  return temp_tensor_substore_->temp_tr_logits(batch_size, seq_len);
+}
+TensorView TensorStore::temp_tr_loss() const { return temp_tensor_substore_->temp_tr_loss(); }
+TensorView TensorStore::temp_tr_X(int64_t rows) const {
+  return temp_tensor_substore_->temp_tr_X(rows);
+}
+TensorView TensorStore::temp_tr_X(int64_t batch_size,
+                                    int64_t seq_len) const {
+  return temp_tensor_substore_->temp_tr_X(batch_size, seq_len);
+}
+TensorView TensorStore::temp_tr_Y(int64_t rows) const {
+  return temp_tensor_substore_->temp_tr_Y(rows);
+}
+TensorView TensorStore::temp_tr_Y(int64_t batch_size,
+                                    int64_t seq_len) const {
+  return temp_tensor_substore_->temp_tr_Y(batch_size, seq_len);
+}
+TensorView TensorStore::temp_tr_Xn(int64_t rows) const {
+  return temp_tensor_substore_->temp_tr_Xn(rows);
+}
+TensorView TensorStore::temp_tr_Xn(int64_t batch_size,
+                                     int64_t seq_len) const {
+  return temp_tensor_substore_->temp_tr_Xn(batch_size, seq_len);
+}
+TensorView TensorStore::temp_bw_XnT(int64_t rows) const {
+  return temp_tensor_substore_->temp_bw_XnT(rows);
+}
+TensorView TensorStore::temp_bw_lm_wT() const {
+  return temp_tensor_substore_->temp_bw_lm_wT();
+}
+TensorView TensorStore::temp_bw_d_xn(int64_t rows) const {
+  return temp_tensor_substore_->temp_bw_d_xn(rows);
+}
+TensorView TensorStore::temp_bw_d_xn(int64_t batch_size,
+                                       int64_t seq_len) const {
+  return temp_tensor_substore_->temp_bw_d_xn(batch_size, seq_len);
+}
+TensorView TensorStore::temp_bw_d_xlast(int64_t rows) const {
+  return temp_tensor_substore_->temp_bw_d_xlast(rows);
+}
+TensorView TensorStore::temp_bw_d_xlast(int64_t batch_size,
+                                          int64_t seq_len) const {
+  return temp_tensor_substore_->temp_bw_d_xlast(batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_ln1(int layer, int64_t batch_size,
+                                         int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_ln1(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_attn_out(int layer, int64_t batch_size,
+                                              int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_attn_out(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_resid1(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_resid1(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_ln2(int layer, int64_t batch_size,
+                                         int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_ln2(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_ffn_out(int layer, int64_t batch_size,
+                                             int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_ffn_out(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_hidden(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_hidden(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_bw_d_prev(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_bw_d_prev(layer, rows);
+}
+TensorView TensorStore::temp_layer_bw_d_prev(int layer, int64_t batch_size,
+                                               int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_bw_d_prev(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_dln2(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_dln2(layer, rows);
+}
+TensorView TensorStore::temp_layer_dln2(int layer, int64_t batch_size,
+                                          int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_dln2(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_dy_ln2(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_dy_ln2(layer, rows);
+}
+TensorView TensorStore::temp_layer_dy_ln2(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_dy_ln2(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_dy_total(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_dy_total(layer, rows);
+}
+TensorView TensorStore::temp_layer_dy_total(int layer, int64_t batch_size,
+                                              int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_dy_total(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_dln1(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_dln1(layer, rows);
+}
+TensorView TensorStore::temp_layer_dln1(int layer, int64_t batch_size,
+                                          int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_dln1(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_layer_dx_ln1(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_layer_dx_ln1(layer, rows);
+}
+TensorView TensorStore::temp_layer_dx_ln1(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_layer_dx_ln1(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_qkv(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_qkv(layer, rows);
+}
+TensorView TensorStore::temp_attn_qkv(int layer, int64_t batch_size,
+                                        int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_qkv(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_context(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_context(layer, rows);
+}
+TensorView TensorStore::temp_attn_context(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_context(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_scores(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_scores(layer, rows);
+}
+TensorView TensorStore::temp_attn_scores(int layer, int64_t batch_size,
+                                           int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_scores(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_weights(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_weights(layer, rows);
+}
+TensorView TensorStore::temp_attn_weights(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_weights(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_cached_weights(int layer,
+                                                   int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_cached_weights(layer, rows);
+}
+TensorView TensorStore::temp_attn_cached_weights(
+    int layer, int64_t batch_size, int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_cached_weights(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_head(int layer, int64_t batch_size,
+                                         int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_head(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_contextT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_contextT(layer, rows);
+}
+TensorView TensorStore::temp_attn_WoT(int layer) const {
+  return temp_tensor_substore_->temp_attn_WoT(layer);
+}
+TensorView TensorStore::temp_attn_dcontext(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_dcontext(layer, rows);
+}
+TensorView TensorStore::temp_attn_dcontext(int layer, int64_t batch_size,
+                                             int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_dcontext(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_dqkv(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_dqkv(layer, rows);
+}
+TensorView TensorStore::temp_attn_dqkv(int layer, int64_t batch_size,
+                                         int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_dqkv(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_KhT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_KhT(layer, rows);
+}
+TensorView TensorStore::temp_attn_VhT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_VhT(layer, rows);
+}
+TensorView TensorStore::temp_attn_dweights(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_dweights(layer, rows);
+}
+TensorView TensorStore::temp_attn_dweights(int layer, int64_t batch_size,
+                                             int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_dweights(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_weightsT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_weightsT(layer, rows);
+}
+TensorView TensorStore::temp_attn_dscores(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_dscores(layer, rows);
+}
+TensorView TensorStore::temp_attn_dscores(int layer, int64_t batch_size,
+                                            int64_t seq_len) const {
+  return temp_tensor_substore_->temp_attn_dscores(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_attn_dscoresT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_dscoresT(layer, rows);
+}
+TensorView TensorStore::temp_attn_WqkvT(int layer) const {
+  return temp_tensor_substore_->temp_attn_WqkvT(layer);
+}
+TensorView TensorStore::temp_attn_xT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_attn_xT(layer, rows);
+}
+TensorView TensorStore::temp_ffn_h(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_h(layer, rows);
+}
+TensorView TensorStore::temp_ffn_h(int layer, int64_t batch_size,
+                                     int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ffn_h(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_ffn_a(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_a(layer, rows);
+}
+TensorView TensorStore::temp_ffn_a(int layer, int64_t batch_size,
+                                     int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ffn_a(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_ffn_aT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_aT(layer, rows);
+}
+TensorView TensorStore::temp_ffn_W2T(int layer) const {
+  return temp_tensor_substore_->temp_ffn_W2T(layer);
+}
+TensorView TensorStore::temp_ffn_da(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_da(layer, rows);
+}
+TensorView TensorStore::temp_ffn_da(int layer, int64_t batch_size,
+                                      int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ffn_da(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_ffn_dh(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_dh(layer, rows);
+}
+TensorView TensorStore::temp_ffn_dh(int layer, int64_t batch_size,
+                                      int64_t seq_len) const {
+  return temp_tensor_substore_->temp_ffn_dh(layer, batch_size, seq_len);
+}
+TensorView TensorStore::temp_ffn_xT(int layer, int64_t rows) const {
+  return temp_tensor_substore_->temp_ffn_xT(layer, rows);
+}
+TensorView TensorStore::temp_ffn_W1T(int layer) const {
+  return temp_tensor_substore_->temp_ffn_W1T(layer);
+}
+
+TensorView TensorStore::layer_ln1_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_gamma;
 }
 
-TensorView TensorFactory::layer_ln1_beta(int layer) const {
+TensorView TensorStore::layer_ln1_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_beta;
 }
 
-TensorView TensorFactory::layer_ln2_gamma(int layer) const {
+TensorView TensorStore::layer_ln2_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_gamma;
 }
 
-TensorView TensorFactory::layer_ln2_beta(int layer) const {
+TensorView TensorStore::layer_ln2_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_beta;
 }
 
-TensorView TensorFactory::layer_attn_qkv_w(int layer) const {
+TensorView TensorStore::layer_attn_qkv_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w;
 }
 
-TensorView TensorFactory::layer_attn_qkv_b(int layer) const {
+TensorView TensorStore::layer_attn_qkv_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b;
 }
 
-TensorView TensorFactory::layer_attn_out_w(int layer) const {
+TensorView TensorStore::layer_attn_out_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_w;
 }
 
-TensorView TensorFactory::layer_attn_out_b(int layer) const {
+TensorView TensorStore::layer_attn_out_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_b;
 }
 
-TensorView TensorFactory::layer_attn_wq(int layer) const {
+TensorView TensorStore::layer_attn_wq(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           0, {D, D});
 }
 
-TensorView TensorFactory::layer_attn_wk(int layer) const {
+TensorView TensorStore::layer_attn_wk(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           D, {D, D});
 }
 
-TensorView TensorFactory::layer_attn_wv(int layer) const {
+TensorView TensorStore::layer_attn_wv(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           2 * D, {D, D});
 }
 
-TensorView TensorFactory::layer_attn_bq(int layer) const {
+TensorView TensorStore::layer_attn_bq(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           0, {1, D});
 }
 
-TensorView TensorFactory::layer_attn_bk(int layer) const {
+TensorView TensorStore::layer_attn_bk(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           D, {1, D});
 }
 
-TensorView TensorFactory::layer_attn_bv(int layer) const {
+TensorView TensorStore::layer_attn_bv(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
   return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           2 * D, {1, D});
 }
 
-TensorView TensorFactory::layer_ffn_w1(int layer) const {
+TensorView TensorStore::layer_ffn_w1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w1;
 }
 
-TensorView TensorFactory::layer_ffn_b1(int layer) const {
+TensorView TensorStore::layer_ffn_b1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b1;
 }
 
-TensorView TensorFactory::layer_ffn_w2(int layer) const {
+TensorView TensorStore::layer_ffn_w2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w2;
 }
 
-TensorView TensorFactory::layer_ffn_b2(int layer) const {
+TensorView TensorStore::layer_ffn_b2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b2;
 }
 
-const TensorView &TensorFactory::tok_embedding() const { return tok_embedding_; }
-const TensorView &TensorFactory::pos_embedding() const { return pos_embedding_; }
-const TensorView &TensorFactory::lnf_gamma() const { return lnf_gamma_; }
-const TensorView &TensorFactory::lnf_beta() const { return lnf_beta_; }
-const TensorView &TensorFactory::lm_head_w() const { return lm_head_w_; }
+const TensorView &TensorStore::tok_embedding() const { return tok_embedding_; }
+const TensorView &TensorStore::pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorStore::lnf_gamma() const { return lnf_gamma_; }
+const TensorView &TensorStore::lnf_beta() const { return lnf_beta_; }
+const TensorView &TensorStore::lm_head_w() const { return lm_head_w_; }
 
-const TensorView &TensorFactory::param_ffn_w1(int layer) const {
+const TensorView &TensorStore::param_ffn_w1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w1;
 }
-const TensorView &TensorFactory::param_ffn_b1(int layer) const {
+const TensorView &TensorStore::param_ffn_b1(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b1;
 }
-const TensorView &TensorFactory::param_ffn_w2(int layer) const {
+const TensorView &TensorStore::param_ffn_w2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_w2;
 }
-const TensorView &TensorFactory::param_ffn_b2(int layer) const {
+const TensorView &TensorStore::param_ffn_b2(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ffn_b2;
 }
-const TensorView &TensorFactory::param_attn_qkv_w(int layer) const {
+const TensorView &TensorStore::param_attn_qkv_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w;
 }
-const TensorView &TensorFactory::param_attn_qkv_b(int layer) const {
+const TensorView &TensorStore::param_attn_qkv_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b;
 }
-const TensorView &TensorFactory::param_attn_out_w(int layer) const {
+const TensorView &TensorStore::param_attn_out_w(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_w;
 }
-const TensorView &TensorFactory::param_attn_out_b(int layer) const {
+const TensorView &TensorStore::param_attn_out_b(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].attn_out_b;
 }
-const TensorView &TensorFactory::param_ln1_gamma(int layer) const {
+const TensorView &TensorStore::param_ln1_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_gamma;
 }
-const TensorView &TensorFactory::param_ln1_beta(int layer) const {
+const TensorView &TensorStore::param_ln1_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln1_beta;
 }
-const TensorView &TensorFactory::param_ln2_gamma(int layer) const {
+const TensorView &TensorStore::param_ln2_gamma(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_gamma;
 }
-const TensorView &TensorFactory::param_ln2_beta(int layer) const {
+const TensorView &TensorStore::param_ln2_beta(int layer) const {
   check_layer(layer);
   return layer_param_views_[static_cast<size_t>(layer)].ln2_beta;
 }
-const TensorView &TensorFactory::param_tok_embedding() const { return tok_embedding_; }
-const TensorView &TensorFactory::param_pos_embedding() const { return pos_embedding_; }
-const TensorView &TensorFactory::param_lnf_gamma() const { return lnf_gamma_; }
-const TensorView &TensorFactory::param_lnf_beta() const { return lnf_beta_; }
-const TensorView &TensorFactory::param_lm_head_w() const { return lm_head_w_; }
+const TensorView &TensorStore::param_tok_embedding() const { return tok_embedding_; }
+const TensorView &TensorStore::param_pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorStore::param_lnf_gamma() const { return lnf_gamma_; }
+const TensorView &TensorStore::param_lnf_beta() const { return lnf_beta_; }
+const TensorView &TensorStore::param_lm_head_w() const { return lm_head_w_; }
 
-void TensorFactory::initialize_parameters_deterministic(
+void TensorStore::initialize_parameters_deterministic(
     DeviceBackend &device_backend) const {
   const uint64_t n = bytes_ / sizeof(float);
   std::vector<float> staging(static_cast<size_t>(n), 0.0f);
@@ -1393,11 +1961,13 @@ void TensorFactory::initialize_parameters_deterministic(
     require(offset + count <= staging.size(),
             "parameter view exceeds staging buffer");
     for (uint64_t i = 0; i < count; ++i) {
+      const uint64_t bits = splitmix64(offset + i);
       const int64_t centered =
-          static_cast<int64_t>((i * 37ULL + 17ULL) % 1024ULL) -
-          static_cast<int64_t>(512);
+          static_cast<int64_t>(bits & 0xFFFFFULL) -
+          static_cast<int64_t>(0x80000ULL);
       staging[static_cast<size_t>(offset + i)] =
-          (static_cast<float>(centered) / 512.0f) * scale;
+          (static_cast<float>(centered) / static_cast<float>(0x80000ULL)) *
+          scale;
     }
   };
 

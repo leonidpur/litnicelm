@@ -121,14 +121,14 @@ JournalListener::JournalListener(
 }
 
 void JournalListener::on_training_start(TrainingState &state,
-                                        TensorFactory &tensor_factory,
+                                        TensorStore &tensor_store,
                                         uint64_t steps_per_epoch,
                                         DeviceBackend &device_backend,
                                         ReportSink *sink,
                                         const ArenaView &data_arena,
                                         const AdamStateView &adam_state) {
   (void)state;
-  (void)tensor_factory;
+  (void)tensor_store;
   (void)steps_per_epoch;
   (void)device_backend;
   (void)sink;

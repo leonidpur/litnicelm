@@ -12,9 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-class GradientFactory {
+class GradientStore {
 public:
-  GradientFactory(const Config &cfg, const NamedLayout &param_layout,
+  GradientStore(const Config &cfg, const NamedLayout &param_layout,
                   void *params_base, uint64_t params_bytes,
                   const ArenaView &grad_arena);
 

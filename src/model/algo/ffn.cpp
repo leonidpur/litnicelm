@@ -10,12 +10,12 @@
   REQUIRE_DEBUG((cond),                                                         \
                 [&]() { return std::string("FFN: ") + std::string(msg); })
 
-FFN::FFN(int layer_index, const Config &cfg, TensorFactory &tensor_factory,
-         GradientFactory *gradient_factory, Ops &ops)
+FFN::FFN(int layer_index, const Config &cfg, TensorStore &tensor_store,
+         GradientStore *gradient_store, Ops &ops)
     : idx_(layer_index),
       cfg_(cfg),
-      tensorFactory_(tensor_factory),
-      gradientFactory_(gradient_factory),
+      tensorStore_(tensor_store),
+      gradientStore_(gradient_store),
       ops_(ops) {
   validate_contract();
 }
@@ -33,10 +33,10 @@ void FFN::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
 
-  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
-  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
-  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
-  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
+  const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
 
   require(W1.dim(0) == model_dim && W1.dim(1) == ffn_dim,
           "W1 must be [D, F]");
@@ -72,17 +72,17 @@ void FFN::forward(const TensorView &x, TensorView &out) {
               x.dim(2) == model_dim && x.dim(0) * x.dim(1) == token_rows,
           "x must be semantic [B, S, D]");
 
-  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
-  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
-  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
-  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
+  const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
   require(W1.device() == x.device() && W2.device() == x.device(),
           "param device mismatch");
   require(W1.dtype() == x.dtype() && W2.dtype() == x.dtype(),
           "param dtype mismatch");
 
-  TensorView h = tensorFactory_.temp_ffn_h(idx_, batch_size, seq_len);
-  TensorView a = tensorFactory_.temp_ffn_a(idx_, batch_size, seq_len);
+  TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
+  TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
 
   ops_.matmul(x, W1, h);
   ops_.add_bias_rowwise(h, b1, h);
@@ -99,7 +99,7 @@ void FFN::forward(const TensorView &x, TensorView &out) {
 
 void FFN::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_ffn_start(idx_);
-  require(gradientFactory_ != nullptr, "backward requires gradient factory");
+  require(gradientStore_ != nullptr, "backward requires gradient store");
   require(diagnostics_ != nullptr, "backward requires diagnostics controller");
   require(has_cache_, "backward called before forward");
   require(dout.device() == cache_x_.device(), "dout device mismatch");
@@ -110,29 +110,29 @@ void FFN::backward(const TensorView &dout, TensorView &dx) {
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 
-  const TensorView &W1 = tensorFactory_.param_ffn_w1(idx_);
-  const TensorView &b1 = tensorFactory_.param_ffn_b1(idx_);
-  const TensorView &W2 = tensorFactory_.param_ffn_w2(idx_);
-  const TensorView &b2 = tensorFactory_.param_ffn_b2(idx_);
-  TensorView dW2 = gradientFactory_->grad_for_param(W2);
+  const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
+  const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
+  const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
+  const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
+  TensorView dW2 = gradientStore_->grad_for_param(W2);
   ops_.matmul_left_transposed(cache_a_, dout, dW2);
   diagnostics_->bk_ffn_dW2(idx_, dW2);
-  TensorView db2 = gradientFactory_->grad_for_param(b2);
+  TensorView db2 = gradientStore_->grad_for_param(b2);
   ops_.row_sum(dout, db2);
   diagnostics_->bk_ffn_db2(idx_, db2);
 
-  TensorView da = tensorFactory_.temp_ffn_da(idx_, batch_size, seq_len);
+  TensorView da = tensorStore_.temp_ffn_da(idx_, batch_size, seq_len);
   ops_.matmul_right_transposed(dout, W2, da);
   diagnostics_->bk_ffn_da(idx_, da);
 
-  TensorView dh = tensorFactory_.temp_ffn_dh(idx_, batch_size, seq_len);
+  TensorView dh = tensorStore_.temp_ffn_dh(idx_, batch_size, seq_len);
   ops_.relu_backward(cache_h_, da, dh);
   diagnostics_->bk_ffn_dh(idx_, dh);
 
-  TensorView dW1 = gradientFactory_->grad_for_param(W1);
+  TensorView dW1 = gradientStore_->grad_for_param(W1);
   ops_.matmul_left_transposed(cache_x_, dh, dW1);
   diagnostics_->bk_ffn_dW1(idx_, dW1);
-  TensorView db1 = gradientFactory_->grad_for_param(b1);
+  TensorView db1 = gradientStore_->grad_for_param(b1);
   ops_.row_sum(dh, db1);
   diagnostics_->bk_ffn_db1(idx_, db1);
 

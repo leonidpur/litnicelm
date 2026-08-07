@@ -26,11 +26,18 @@ public:
   virtual void add_inplace(TensorView &a, const TensorView &b) = 0;
   virtual void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                                 TensorView &out) = 0;
+  virtual void add_bias_relu_rowwise(const TensorView &x,
+                                     const TensorView &bias_1xC,
+                                     TensorView &out) = 0;
+  virtual void add_bias_relu_rowwise_inplace(TensorView &x,
+                                             const TensorView &bias_1xC) = 0;
   virtual void mul_scalar(const TensorView &x, float s, TensorView &out) = 0;
   virtual float sum_squares_f32(const TensorView &x) = 0;
   virtual void relu(const TensorView &x, TensorView &out) = 0;
   virtual void relu_backward(const TensorView &preact, const TensorView &dout,
                              TensorView &dx) = 0;
+  virtual void relu_backward_inplace(const TensorView &preact,
+                                     TensorView &dout_dx) = 0;
   virtual void row_sum(const TensorView &x, TensorView &out_1xC) = 0;
   virtual void matmul(const TensorView &a, const TensorView &b, TensorView &out) = 0;
   virtual void matmul_left_transposed(const TensorView &a, const TensorView &b,
@@ -66,6 +73,11 @@ public:
   virtual void softmax_backward_rows(const TensorView &softmax,
                                      const TensorView &dout,
                                      TensorView &dx) = 0;
+  virtual void scaled_causal_softmax_rows(const TensorView &scores,
+                                          float scale, TensorView &out) = 0;
+  virtual void softmax_backward_causal_rows(const TensorView &softmax,
+                                            const TensorView &dout,
+                                            TensorView &dx) = 0;
   virtual void apply_causal_mask_inplace(TensorView &scores,
                                          float neg_inf = -1e9f) = 0;
   virtual void adamw_step(TensorView &params, const TensorView &grads,
@@ -92,11 +104,18 @@ public:
   void add_inplace(TensorView &a, const TensorView &b) override;
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) override;
+  void add_bias_relu_rowwise(const TensorView &x,
+                             const TensorView &bias_1xC,
+                             TensorView &out) override;
+  void add_bias_relu_rowwise_inplace(TensorView &x,
+                                     const TensorView &bias_1xC) override;
   void mul_scalar(const TensorView &x, float s, TensorView &out) override;
   float sum_squares_f32(const TensorView &x) override;
   void relu(const TensorView &x, TensorView &out) override;
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) override;
+  void relu_backward_inplace(const TensorView &preact,
+                             TensorView &dout_dx) override;
   void row_sum(const TensorView &x, TensorView &out_1xC) override;
   void matmul(const TensorView &a, const TensorView &b, TensorView &out) override;
   void matmul_left_transposed(const TensorView &a, const TensorView &b,
@@ -126,6 +145,11 @@ public:
   void softmax_rows(const TensorView &x, TensorView &out) override;
   void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
                              TensorView &dx) override;
+  void scaled_causal_softmax_rows(const TensorView &scores, float scale,
+                                  TensorView &out) override;
+  void softmax_backward_causal_rows(const TensorView &softmax,
+                                    const TensorView &dout,
+                                    TensorView &dx) override;
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override;
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,

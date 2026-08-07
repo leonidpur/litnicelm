@@ -64,6 +64,8 @@ const char *stage_name(Stage stage) {
     return "self_attention";
   case Stage::FFN:
     return "ffn";
+  case Stage::OUTPUT_HEAD:
+    return "output_head";
   case Stage::LAYERNORM:
     return "layernorm";
   case Stage::MATMUL:

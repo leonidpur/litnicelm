@@ -16,7 +16,17 @@ endif()
 
 add_library(litnice_backend_cublas_plugin SHARED
     ../../model/backend/device_backend.cpp
-    cuda_cublas_plugin.cu
+    cuda_cublas_plugin.cpp
+    cuda_backend.cpp
+    cublas_gemm.cpp
+    cuda_tensor_view.cpp
+    cuda_elementwise_kernels.cu
+    cuda_reduction_kernels.cu
+    cuda_softmax_kernels.cu
+    cuda_loss_kernels.cu
+    cuda_layernorm_kernels.cu
+    cuda_embedding_kernels.cu
+    cuda_optimizer_kernels.cu
 )
 
 target_include_directories(litnice_backend_cublas_plugin PRIVATE

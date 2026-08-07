@@ -1,9 +1,9 @@
 #pragma once
 
-#include "adam_state_factory.hpp"
+#include "adam_state_store.hpp"
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
 #include <config.hpp>
 #include "dataset.hpp"
 #include "ops.hpp"
@@ -11,9 +11,9 @@
 #include "training_session_controller.hpp"
 #include "training_diagnostics_controller.hpp"
 #include <report_interface.hpp>
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include <types.hpp>
-#include "transformer.hpp"
+#include "algo/transformer.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -25,9 +25,9 @@ class Tokenizer;
 // optimizer step, save.
 class Trainer {
 public:
-  Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
+  Trainer(const Config &cfg, TensorStore &tensor_store, Ops &ops,
           OptimizerAdamW &opt, Transformer &transformer, const ArenaView &data_arena,
-          const ArenaView &grad_arena, GradientFactory &gradient_factory,
+          const ArenaView &grad_arena, GradientStore &gradient_store,
           uint64_t decay_bytes,
           const AdamStateView &adam_state, DeviceBackend &device_backend,
           TrainingSessionController &session_controller,
@@ -41,13 +41,13 @@ public:
 
 private:
   const Config &cfg_;
-  TensorFactory &tensorFactory_;
+  TensorStore &tensorStore_;
   Ops &ops_;
   OptimizerAdamW &opt_;
   Transformer &transformer_;
   ArenaView data_arena_;
   ArenaView grad_arena_;
-  GradientFactory &gradientFactory_;
+  GradientStore &gradientStore_;
   uint64_t decay_bytes_ = 0;
   AdamStateView adam_state_;
   RuntimeFlags runtime_flags_{};

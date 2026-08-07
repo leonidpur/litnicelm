@@ -70,10 +70,10 @@ void TrainingSessionController::memory_usage_ready(
   }
 }
 
-void TrainingSessionController::tensor_factory_topology_ready(
-    const Config &cfg, const TensorFactory &tensor_factory) {
+void TrainingSessionController::tensor_store_topology_ready(
+    const Config &cfg, const TensorStore &tensor_store) {
   for (const auto &observer : observers_) {
-    observer->tensor_factory_topology_ready(cfg, tensor_factory);
+    observer->tensor_store_topology_ready(cfg, tensor_store);
   }
 }
 
@@ -121,13 +121,13 @@ std::string TrainingSessionController::early_stop_message() const {
 }
 
 void TrainingSessionController::on_training_start(
-    TrainingState &state, TensorFactory &tensor_factory,
+    TrainingState &state, TensorStore &tensor_store,
     uint64_t steps_per_epoch, DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena,
     const AdamStateView &adam_state) {
   steps_per_epoch_ = steps_per_epoch;
   for (const auto &observer : observers_) {
-    observer->on_training_start(state, tensor_factory, steps_per_epoch_,
+    observer->on_training_start(state, tensor_store, steps_per_epoch_,
                                 device_backend, sink, data_arena, adam_state);
   }
   if (convergence_listener_->should_stop()) {
@@ -260,6 +260,18 @@ void TrainingSessionController::on_ffn_start(int layer_idx) {
 void TrainingSessionController::on_ffn_end(int layer_idx) {
   for (const auto &observer : observers_) {
     observer->on_ffn_end(layer_idx);
+  }
+}
+
+void TrainingSessionController::on_output_head_start() {
+  for (const auto &observer : observers_) {
+    observer->on_output_head_start();
+  }
+}
+
+void TrainingSessionController::on_output_head_end() {
+  for (const auto &observer : observers_) {
+    observer->on_output_head_end();
   }
 }
 

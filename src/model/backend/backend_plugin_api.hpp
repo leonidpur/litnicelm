@@ -44,6 +44,12 @@ struct BackendApiV1 {
   void (*add_bias_rowwise)(void *backend, const BackendTensorView *x,
                            const BackendTensorView *bias_1xC,
                            const BackendTensorView *out);
+  void (*add_bias_relu_rowwise)(void *backend, const BackendTensorView *x,
+                                const BackendTensorView *bias_1xC,
+                                const BackendTensorView *out);
+  void (*add_bias_relu_rowwise_inplace)(void *backend,
+                                        const BackendTensorView *x,
+                                        const BackendTensorView *bias_1xC);
   void (*mul_scalar)(void *backend, const BackendTensorView *x, float s,
                      const BackendTensorView *out);
   float (*sum_squares_f32)(void *backend, const BackendTensorView *x);
@@ -52,6 +58,8 @@ struct BackendApiV1 {
   void (*relu_backward)(void *backend, const BackendTensorView *preact,
                         const BackendTensorView *dout,
                         const BackendTensorView *dx);
+  void (*relu_backward_inplace)(void *backend, const BackendTensorView *preact,
+                                const BackendTensorView *dout_dx);
   void (*row_sum)(void *backend, const BackendTensorView *x,
                   const BackendTensorView *out_1xC);
   void (*matmul)(void *backend, const BackendTensorView *a,
@@ -98,6 +106,14 @@ struct BackendApiV1 {
                                 const BackendTensorView *softmax,
                                 const BackendTensorView *dout,
                                 const BackendTensorView *dx);
+  void (*scaled_causal_softmax_rows)(void *backend,
+                                     const BackendTensorView *scores,
+                                     float scale,
+                                     const BackendTensorView *out);
+  void (*softmax_backward_causal_rows)(void *backend,
+                                       const BackendTensorView *softmax,
+                                       const BackendTensorView *dout,
+                                       const BackendTensorView *dx);
   void (*apply_causal_mask_inplace)(void *backend,
                                     const BackendTensorView *scores,
                                     float neg_inf);
@@ -113,7 +129,7 @@ struct BackendApiV1 {
   BackendMemoryInfo (*memory_info)(void *backend);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 11;
+inline constexpr uint32_t kBackendApiVersion = 15;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

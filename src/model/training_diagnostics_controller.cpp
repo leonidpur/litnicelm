@@ -1,19 +1,19 @@
 #include "training_diagnostics_controller.hpp"
 
 #include "host_tensor_stage.hpp"
-#include "transformer.hpp"
+#include "algo/transformer.hpp"
 
 #include <cmath>
 #include <sstream>
 
 TrainingDiagnosticsController::TrainingDiagnosticsController(
-    TensorFactory &tensor_factory, Ops &ops, Transformer &model,
-    GradientFactory &gradient_factory, DeviceBackend &device_backend,
+    TensorStore &tensor_store, Ops &ops, Transformer &model,
+    GradientStore &gradient_store, DeviceBackend &device_backend,
     const RuntimeFlags &runtime_flags, const Config &cfg)
-    : tensorFactory_(tensor_factory),
+    : tensorStore_(tensor_store),
       ops_(ops),
       model_(model),
-      gradientFactory_(gradient_factory),
+      gradientStore_(gradient_store),
       deviceBackend_(device_backend),
       runtimeFlags_(runtime_flags),
       cfg_(cfg) {}
@@ -394,13 +394,13 @@ void TrainingDiagnosticsController::after_cross_entropy_backward(
 }
 
 double TrainingDiagnosticsController::compute_global_grad_norm() const {
-  const TensorView grad_view = gradientFactory_.full_gradient_view();
+  const TensorView grad_view = gradientStore_.full_gradient_view();
   const double sum_sq = static_cast<double>(ops_.sum_squares_f32(grad_view));
   const double norm = std::sqrt(sum_sq);
   if (!std::isfinite(norm)) {
     throw std::runtime_error(
         "Trainer::compute_global_grad_norm produced non-finite norm | " +
-        gradientFactory_.first_nonfinite_diagnostic(deviceBackend_));
+        gradientStore_.first_nonfinite_diagnostic(deviceBackend_));
   }
   return norm;
 }
@@ -409,8 +409,8 @@ void TrainingDiagnosticsController::replay_forward_loss_backward(
     const TrainBatch &batch) const {
   const int64_t batch_size = batch.batch_size();
   const int64_t seq_len = batch.seq_len();
-  TensorView replay_logits = tensorFactory_.temp_tr_logits(batch_size, seq_len);
-  TensorView replay_loss_scalar = tensorFactory_.temp_tr_loss();
+  TensorView replay_logits = tensorStore_.temp_tr_logits(batch_size, seq_len);
+  TensorView replay_loss_scalar = tensorStore_.temp_tr_loss();
 
   model_.forward(batch.ids, replay_logits);
   after_forward(replay_logits);

@@ -10,7 +10,7 @@ public:
   ProfilingObserver() = default;
 
   void on_training_start(TrainingState &state,
-                         TensorFactory &tensor_factory,
+                         TensorStore &tensor_store,
                          uint64_t steps_per_epoch,
                          DeviceBackend &device_backend,
                          ReportSink *sink,
@@ -33,6 +33,8 @@ public:
   void on_attention_end(int layer_idx) override;
   void on_ffn_start(int layer_idx) override;
   void on_ffn_end(int layer_idx) override;
+  void on_output_head_start() override;
+  void on_output_head_end() override;
   void on_checkpoint_load_start() override;
   void on_checkpoint_load_end(bool ok) override;
   void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) override;

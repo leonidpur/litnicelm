@@ -14,6 +14,7 @@ tokenizer:
   type: "character"
   target_vocab_size: 256
   training_corpus: "data/synthetic_50_lines.txt"
+  inter_file_boundary: "\n<|book_boundary|>\n"
   artifacts_dir: "data/char_synthetic_50_artifacts"
   bpe_vocab_file: ""
   bpe_merges_file: ""

@@ -1,11 +1,14 @@
 #pragma once
 
 #include <config.hpp>
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
+#include "model_algo_config.hpp"
+#include "model_algo_factory.hpp"
+#include "output_head.hpp"
 #include "training_observer.hpp"
 #include <report_interface.hpp>
 #include "ops.hpp"
-#include "tensor_factory.hpp"
+#include "tensor_store.hpp"
 #include "transformer_layer.hpp"
 
 #include <cstdint>
@@ -24,7 +27,7 @@ class TrainingDiagnosticsController;
 //
 // Notes:
 // - This is "pure math": no CPU/GPU branching here.
-// - Device-specific checks belong inside Ops / TensorFactory.
+// - Device-specific checks belong inside Ops / TensorStore.
 // - Parameter names assumed from the named parameter layout:
 //     tok_embedding  [V, D]
 //     pos_embedding  [S, D]
@@ -33,8 +36,8 @@ class TrainingDiagnosticsController;
 //     lm_head_w      [D, V]
 class Transformer {
 public:
-  Transformer(const Config &cfg, TensorFactory &tensor_factory,
-              GradientFactory *gradient_factory, Ops &ops,
+  Transformer(const Config &cfg, TensorStore &tensor_store,
+              GradientStore *gradient_store, Ops &ops,
               ReportSink *sink = nullptr);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
@@ -51,15 +54,16 @@ private:
   void validate_contract() const;
 
   const Config &cfg_;
-  TensorFactory &tensorFactory_;
-  GradientFactory *gradientFactory_ = nullptr;
+  TensorStore &tensorStore_;
+  GradientStore *gradientStore_ = nullptr;
   Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
+  ModelAlgoConfig algoConfig_;
+  ModelAlgoFactory algoFactory_;
+  OutputHead outputHead_;
 
   std::vector<TransformerLayer> layers_;
   TensorView cache_x0_;
-  TensorView cache_x_last_;
-  TensorView cache_xn_;
   bool has_cache_ = false;
   ReportSink *sink_ = nullptr;
   ITrainingObserver *observer_ = &default_training_observer();

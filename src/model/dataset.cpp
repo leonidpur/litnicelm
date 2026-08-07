@@ -23,13 +23,13 @@ void DatasetCPU::fill_batch(const int32_t *tokens,
                             const std::vector<uint64_t> &window_starts,
                             uint64_t first_window_index, uint32_t batch_size,
                             uint32_t seq_len,
-                            TensorFactory &tensor_factory,
+                            TensorStore &tensor_store,
                             DeviceBackend &device_backend, Device device,
                             TrainBatch &out) const {
   (void)device_backend;
   (void)device;
-  TensorView ids_t = tensor_factory.temp_ds_ids();
-  TensorView tgt_t = tensor_factory.temp_ds_targets();
+  TensorView ids_t = tensor_store.temp_ds_ids();
+  TensorView tgt_t = tensor_store.temp_ds_targets();
 
   for (uint32_t b = 0; b < batch_size; ++b) {
     const uint64_t start = window_starts.at(first_window_index + b);
@@ -51,7 +51,7 @@ void DatasetGPU::fill_batch(const int32_t *tokens,
                             const std::vector<uint64_t> &window_starts,
                             uint64_t first_window_index, uint32_t batch_size,
                             uint32_t seq_len,
-                            TensorFactory &tensor_factory,
+                            TensorStore &tensor_store,
                             DeviceBackend &device_backend, Device device,
                             TrainBatch &out) const {
   if (device != Device::GPU) {
@@ -59,8 +59,8 @@ void DatasetGPU::fill_batch(const int32_t *tokens,
         "DatasetGPU::fill_batch requires GPU device tensors");
   }
 
-  TensorView ids_t = tensor_factory.temp_ds_ids();
-  TensorView tgt_t = tensor_factory.temp_ds_targets();
+  TensorView ids_t = tensor_store.temp_ds_ids();
+  TensorView tgt_t = tensor_store.temp_ds_targets();
   const uint64_t row_bytes = static_cast<uint64_t>(seq_len) * sizeof(int32_t);
 
   for (uint32_t b = 0; b < batch_size; ++b) {
@@ -177,13 +177,13 @@ std::string TextDataset::early_evaluate_input(const Config &cfg, bool report) {
   return selected_input_path;
 }
 
-TextDataset::TextDataset(TensorFactory &tensor_factory,
+TextDataset::TextDataset(TensorStore &tensor_store,
                          DeviceBackend &device_backend,
                          const Config &cfg,
                          bool shuffle_blocks, TrainingReportSink *report_sink,
                          ITrainingObserver *load_observer)
     : IDataLoader(load_observer),
-      tensorFactory_(tensor_factory),
+      tensorStore_(tensor_store),
       device_backend_(&device_backend),
       device_(device_backend.device()),
       seq_len_(cfg.training.train_seq_len),
@@ -353,6 +353,6 @@ bool TextDataset::next_impl(TrainBatch &out) {
   }
 
   backend_->fill_batch(tokens_, block_starts_, first_window_index, batch_size_,
-                       seq_len_, tensorFactory_, *device_backend_, device_, out);
+                       seq_len_, tensorStore_, *device_backend_, device_, out);
   return true;
 }

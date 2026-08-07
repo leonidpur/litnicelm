@@ -1,4 +1,4 @@
-#include "gradient_factory.hpp"
+#include "gradient_store.hpp"
 
 #include <utils/assert.hpp>
 
@@ -9,7 +9,7 @@
 
 #define require(cond, msg)                                                      \
   REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("GradientFactory: ") + std::string(msg);                 \
+    return std::string("GradientStore: ") + std::string(msg);                 \
   })
 
 namespace {
@@ -40,7 +40,7 @@ private:
 };
 } // namespace
 
-GradientFactory::GradientFactory(const Config &cfg,
+GradientStore::GradientStore(const Config &cfg,
                                  const NamedLayout &param_layout,
                                  void *params_base, uint64_t params_bytes,
                                  const ArenaView &grad_arena)
@@ -64,18 +64,18 @@ GradientFactory::GradientFactory(const Config &cfg,
   build_gradient_views(param_layout);
 }
 
-TensorView GradientFactory::grad_for_param(const TensorView &param) const {
+TensorView GradientStore::grad_for_param(const TensorView &param) const {
   const auto it = grad_by_param_data_.find(param.data());
   require(it != grad_by_param_data_.end(),
           "missing gradient slot for parameter");
   return it->second;
 }
 
-TensorView GradientFactory::full_gradient_view() const {
+TensorView GradientStore::full_gradient_view() const {
   return full_gradient_view_;
 }
 
-void GradientFactory::build_gradient_views(const NamedLayout &param_layout) {
+void GradientStore::build_gradient_views(const NamedLayout &param_layout) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -187,19 +187,19 @@ void GradientFactory::build_gradient_views(const NamedLayout &param_layout) {
   cursor.finish();
 }
 
-void GradientFactory::register_gradient_slot(const std::string &name,
+void GradientStore::register_gradient_slot(const std::string &name,
                                              const TensorView &param,
                                              const TensorView &grad) {
   grad_by_param_data_.emplace(param.data(), grad);
   named_gradient_slots_.push_back(NamedGradientSlot{name, grad});
 }
 
-std::string GradientFactory::first_nonfinite_diagnostic(
+std::string GradientStore::first_nonfinite_diagnostic(
     DeviceBackend &backend) const {
   for (const auto &slot : named_gradient_slots_) {
     Tensor staged =
         host_tensor_stage::stage_to_cpu(backend, slot.grad,
-                                        "GradientFactory::first_nonfinite_diagnostic");
+                                        "GradientStore::first_nonfinite_diagnostic");
     const TensorView view = staged.view();
     for (int64_t r = 0; r < view.shape().dim(0); ++r) {
       for (int64_t c = 0; c < view.shape().dim(1); ++c) {
@@ -216,7 +216,7 @@ std::string GradientFactory::first_nonfinite_diagnostic(
   return "no named gradient slot with non-finite values was found";
 }
 
-TensorView GradientFactory::make_param_view_f32(const LayoutSlice &s,
+TensorView GradientStore::make_param_view_f32(const LayoutSlice &s,
                                                 Shape shape) const {
   const uint64_t expected = nbytes(shape, DType::F32);
   require(expected == s.bytes,
@@ -227,7 +227,7 @@ TensorView GradientFactory::make_param_view_f32(const LayoutSlice &s,
   return TensorView(device_, DType::F32, ptr, shape);
 }
 
-TensorView GradientFactory::make_grad_view_f32(const LayoutSlice &s,
+TensorView GradientStore::make_grad_view_f32(const LayoutSlice &s,
                                                Shape shape) const {
   const uint64_t expected = nbytes(shape, DType::F32);
   require(expected == s.bytes,
@@ -239,13 +239,13 @@ TensorView GradientFactory::make_grad_view_f32(const LayoutSlice &s,
   return TensorView(device_, DType::F32, ptr, shape);
 }
 
-void GradientFactory::check_layer(int layer) const {
+void GradientStore::check_layer(int layer) const {
   require(layer >= 0, "layer < 0");
   require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
           "layer out of range");
 }
 
-std::string GradientFactory::lname(int layer, const char *suffix) const {
+std::string GradientStore::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
 }
 

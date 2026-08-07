@@ -32,29 +32,29 @@ TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
 }
 } // namespace
 
-Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
+Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, Ops &ops,
                  OptimizerAdamW &opt, Transformer &transformer,
                  const ArenaView &data_arena, const ArenaView &grad_arena,
-                 GradientFactory &gradient_factory, uint64_t decay_bytes,
+                 GradientStore &gradient_store, uint64_t decay_bytes,
                  const AdamStateView &adam_state,
                  DeviceBackend &device_backend,
                  TrainingSessionController &session_controller,
                  const RuntimeFlags &runtime_flags, TrainingReportSink *sink)
     : cfg_(cfg),
-      tensorFactory_(tensor_factory),
+      tensorStore_(tensor_store),
       ops_(ops),
       opt_(opt),
       transformer_(transformer),
       data_arena_(data_arena),
       grad_arena_(grad_arena),
-      gradientFactory_(gradient_factory),
+      gradientStore_(gradient_store),
       decay_bytes_(decay_bytes),
       adam_state_(adam_state),
       runtime_flags_(runtime_flags),
       sink_(sink),
       device_backend_(device_backend),
       session_controller_(session_controller),
-      diagnostics_(tensor_factory, ops, transformer_, gradient_factory,
+      diagnostics_(tensor_store, ops, transformer_, gradient_store,
                    device_backend, runtime_flags_, cfg) {
   if (decay_bytes_ > data_arena_.bytes || decay_bytes_ > grad_arena_.bytes ||
       decay_bytes_ > (adam_state_.bytes / 2)) {
@@ -71,7 +71,7 @@ Trainer::Trainer(const Config &cfg, TensorFactory &tensor_factory, Ops &ops,
 }
 
 void Trainer::zero_gradients() {
-  TensorView grad_view = gradientFactory_.full_gradient_view();
+  TensorView grad_view = gradientStore_.full_gradient_view();
   ops_.fill(grad_view, 0.0f);
 }
 
@@ -92,7 +92,7 @@ void Trainer::clip_gradients() {
   }
   const float scale = static_cast<float>(
       static_cast<double>(cfg_.training.grad_clip) / (grad_norm + 1e-12));
-  TensorView grad_view = gradientFactory_.full_gradient_view();
+  TensorView grad_view = gradientStore_.full_gradient_view();
   ops_.mul_scalar(grad_view, scale, grad_view);
 }
 
@@ -135,7 +135,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
   const int64_t batch_size = batch.batch_size();
   const int64_t seq_len = batch.seq_len();
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
-  TensorView logits = tensorFactory_.temp_tr_logits(batch_size, seq_len);
+  TensorView logits = tensorStore_.temp_tr_logits(batch_size, seq_len);
   session_controller_.batch_step_ready(
       static_cast<uint32_t>(batch_size),
       static_cast<uint32_t>(seq_len),
@@ -143,7 +143,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
       static_cast<uint32_t>(vocab_size));
   transformer_.forward(batch.ids, logits);
   diagnostics_.after_forward(logits);
-  TensorView loss_scalar = tensorFactory_.temp_tr_loss();
+  TensorView loss_scalar = tensorStore_.temp_tr_loss();
   double loss = 0.0;
   if (runtime_flags_.probe.loss) {
     ops_.cross_entropy_mean(logits, batch.targets, loss_scalar);
@@ -181,7 +181,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
 
 void Trainer::train(IDataLoader &loader) {
   TrainingState state{};
-  session_controller_.on_training_start(state, tensorFactory_,
+  session_controller_.on_training_start(state, tensorStore_,
                                         loader.steps_per_epoch(),
                                         device_backend_, sink_,
                                         data_arena_, adam_state_);
@@ -255,19 +255,19 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   TrainingMemoryManager memory_manager(runtime_cfg, *backend, session_controller);
   Ops ops(*backend);
   OptimizerAdamW opt(*backend);
-  Transformer transformer(runtime_cfg, memory_manager.tensor_factory(),
-                    &memory_manager.gradient_factory(), ops, &training_sink);
+  Transformer transformer(runtime_cfg, memory_manager.tensor_store(),
+                    &memory_manager.gradient_store(), ops, &training_sink);
 
-  TextDataset loader(memory_manager.tensor_factory(), *backend, runtime_cfg,
+  TextDataset loader(memory_manager.tensor_store(), *backend, runtime_cfg,
                      /*shuffle_blocks=*/true, &training_sink, &session_controller);
   TrainerValidationUtils::print_dataset_stats(runtime_cfg, loader);
   
-  std::cout << "\n[Trainer] Engine, memory arenas, tensor factory, model, optimizer, and dataset are initialized.\n\n";
+  std::cout << "\n[Trainer] Engine, memory arenas, tensor store, model, optimizer, and dataset are initialized.\n\n";
 
-  Trainer trainer(runtime_cfg, memory_manager.tensor_factory(), ops, opt, transformer,
+  Trainer trainer(runtime_cfg, memory_manager.tensor_store(), ops, opt, transformer,
                   memory_manager.data_arena(),
                   memory_manager.grad_arena(),
-                  memory_manager.gradient_factory(),
+                  memory_manager.gradient_store(),
                   memory_manager.param_layout().decay_bytes(),
                   memory_manager.adam_state(), *backend, session_controller,
                   cmd.runtime_flags, &training_sink);

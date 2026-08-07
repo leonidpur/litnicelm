@@ -49,14 +49,14 @@ TrainingMemoryManager::TrainingMemoryManager(const Config &cfg,
                                          temp_arena_->size_bytes());
   session_controller.memory_usage_ready(memory_usage_);
 
-  tensor_factory_ = std::make_unique<TensorFactory>(
+  tensor_store_ = std::make_unique<TensorStore>(
       cfg_, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
       temp_layout_, temp_arena_->ptr(), temp_arena_->size_bytes(),
-      TensorFactory::TempLayoutKind::Training);
-  session_controller.tensor_factory_topology_ready(cfg_, *tensor_factory_);
-  gradient_factory_ = std::make_unique<GradientFactory>(
+      TensorStore::TempLayoutKind::Training);
+  session_controller.tensor_store_topology_ready(cfg_, *tensor_store_);
+  gradient_store_ = std::make_unique<GradientStore>(
       cfg_, param_layout_, data_view_.base, data_view_.bytes, grad_view_);
-  adam_state_factory_ = std::make_unique<AdamStateFactory>(
+  adam_state_store_ = std::make_unique<AdamStateStore>(
       cfg_, param_layout_, data_view_.base, data_view_.bytes, adam_view_);
 }
 
@@ -86,24 +86,24 @@ uint64_t TrainingMemoryManager::temp_bytes() const {
   return temp_arena_->size_bytes();
 }
 
-TensorFactory &TrainingMemoryManager::tensor_factory() const {
-  if (tensor_factory_ == nullptr) {
-    throw std::runtime_error("TrainingMemoryManager: tensor_factory is null");
+TensorStore &TrainingMemoryManager::tensor_store() const {
+  if (tensor_store_ == nullptr) {
+    throw std::runtime_error("TrainingMemoryManager: tensor_store is null");
   }
-  return *tensor_factory_;
+  return *tensor_store_;
 }
 
-GradientFactory &TrainingMemoryManager::gradient_factory() const {
-  if (gradient_factory_ == nullptr) {
-    throw std::runtime_error("TrainingMemoryManager: gradient_factory is null");
+GradientStore &TrainingMemoryManager::gradient_store() const {
+  if (gradient_store_ == nullptr) {
+    throw std::runtime_error("TrainingMemoryManager: gradient_store is null");
   }
-  return *gradient_factory_;
+  return *gradient_store_;
 }
 
-AdamStateFactory &TrainingMemoryManager::adam_state_factory() const {
-  if (adam_state_factory_ == nullptr) {
+AdamStateStore &TrainingMemoryManager::adam_state_store() const {
+  if (adam_state_store_ == nullptr) {
     throw std::runtime_error(
-        "TrainingMemoryManager: adam_state_factory is null");
+        "TrainingMemoryManager: adam_state_store is null");
   }
-  return *adam_state_factory_;
+  return *adam_state_store_;
 }
