@@ -15,10 +15,21 @@ public:
   EtaObserver(const Config &cfg, const Command &cmd, ReportSink *sink,
               uint32_t epoch_report_every);
 
-  void on_training_start() override;
-  void on_epoch_end(uint32_t epoch, float mean_loss,
-                    uint64_t global_step) override;
-  void finalize(uint64_t global_step, uint32_t epoch) override;
+  void on_training_start(TrainingState &state,
+                         TensorFactory &tensor_factory,
+                         uint64_t steps_per_epoch,
+                         DeviceBackend &device_backend,
+                         ReportSink *sink,
+                         const ArenaView &data_arena,
+                         const AdamStateView &adam_state) override;
+  void on_epoch_start(uint32_t epoch) override;
+  bool on_epoch_end(uint32_t epoch, float mean_loss,
+                    TrainingState &state,
+                    DeviceBackend &device_backend,
+                    ReportSink *sink,
+                    const ArenaView &data_arena,
+                    const AdamStateView &adam_state) override;
+  void on_training_end(const TrainingState &state, ReportSink *sink) override;
 
 private:
   bool is_estimation_mode() const;
@@ -31,5 +42,6 @@ private:
   ReportSink *sink_ = nullptr;
   uint32_t epoch_report_every_ = 1;
   std::chrono::steady_clock::time_point start_time_{};
+  std::chrono::steady_clock::time_point epoch_start_time_{};
   int64_t ms_per_epoch_avg_ = 0;
 };

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <report_interface.hpp>
+#include "memory/memory_resource_info.hpp"
 #include "report_sink.hpp"
 
 #include <cstdint>
@@ -28,7 +29,7 @@ public:
   void report_training_end(uint32_t global_step);
   void report_error(const std::string &message);
   void report_fetch(const TrainingFetchReportData &data);
-  void report_batch_step(uint32_t batch_cfg, uint32_t window_cfg,
+  void report_batch_step(uint32_t batch_cfg, uint32_t seq_len,
                          uint32_t batch_flat_t, uint32_t logit_dim_v);
   void report_optimizer_state(int phase, const std::string &name,
                               const TensorView &param, const TensorView &grad,
@@ -37,9 +38,11 @@ public:
   void report_init_config(const Config &cfg, const NamedLayout &param_layout,
                           const NamedLayout &temp_layout);
   void report_init_topology(const NamedLayout &param_layout, void *param_base,
-                            uint64_t param_size, void *adam_base,
+                            uint64_t param_size, void *grad_base,
+                            uint64_t grad_size, void *adam_base,
                             uint64_t adam_size, void *temp_base,
                             uint64_t temp_size);
+  void report_memory_usage(const TrainingMemoryUsage &usage);
   void report_tensor_factory_topology(const Config &cfg,
                                       const TensorFactory &tensor_factory);
 

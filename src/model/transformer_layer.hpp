@@ -2,6 +2,7 @@
 
 #include <config.hpp>
 #include "ffn.hpp"
+#include "gradient_factory.hpp"
 #include "ops.hpp"
 #include "training_observer.hpp"
 #include "self_attention.hpp"
@@ -9,6 +10,8 @@
 
 #include <functional>
 #include <string>
+
+class TrainingDiagnosticsController;
 
 // One GPT-style (decoder) transformer block:
 //
@@ -33,18 +36,16 @@
 // Backend/device checks belong in Ops / TensorFactory implementations.
 class TransformerLayer {
 public:
-  using ParamUpdater =
-      std::function<void(const std::string &, TensorView &, const TensorView &, bool)>;
-
-  TransformerLayer(int layer_index, const Config &cfg, TensorFactory &tensor_factory,
-                   Ops &ops);
+  TransformerLayer(int layer_index, const Config &cfg,
+                   TensorFactory &tensor_factory,
+                   GradientFactory *gradient_factory, Ops &ops);
   void set_observer(ITrainingObserver *observer);
+  void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
-  // x:   [T, D]
-  // out: [T, D]
+  // x:   [B, S, D]
+  // out: [B, S, D]
   void forward(const TensorView &x, TensorView &out);
-  void backward(const TensorView &dout, TensorView &dx,
-                const ParamUpdater &update_param);
+  void backward(const TensorView &dout, TensorView &dx);
 
 private:
   void validate_contract() const;
@@ -52,7 +53,9 @@ private:
   int idx_;
   const Config &cfg_;
   TensorFactory &tensorFactory_;
+  GradientFactory *gradientFactory_ = nullptr;
   Ops &ops_;
+  TrainingDiagnosticsController *diagnostics_ = nullptr;
 
   SelfAttention attn_;
   FFN ffn_;

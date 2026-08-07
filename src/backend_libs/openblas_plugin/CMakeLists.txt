@@ -14,6 +14,7 @@ add_library(litnice_backend_openblas_plugin SHARED
 target_include_directories(litnice_backend_openblas_plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src/model
+    ${CMAKE_SOURCE_DIR}/src/model/memory
     ${CMAKE_SOURCE_DIR}/src/config
     ${CMAKE_SOURCE_DIR}/src/utils
     ${OPENBLAS_INCLUDE_DIR}

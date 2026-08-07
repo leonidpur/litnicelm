@@ -21,9 +21,10 @@ void validate_training_context(const Config &cfg) {
   };
 
   require_ctx(cfg.training.batch_size > 0, "batch_size must be positive");
-  require_ctx(cfg.training.window_training > 0, "window_training must be positive");
-  require_ctx(cfg.training.window_training <= cfg.model.window_capacity,
-              "window exceeds capacity");
+  require_ctx(cfg.training.train_seq_len > 0, "train_seq_len must be positive");
+  require_ctx(cfg.training.window_stride > 0, "window_stride must be positive");
+  require_ctx(cfg.training.train_seq_len <= cfg.model.max_seq_len,
+              "train_seq_len exceeds max_seq_len");
 }
 
 void validate_vocab_contract_or_throw(const Config &cfg) {
@@ -52,12 +53,12 @@ void validate_vocab_contract_or_throw(const Config &cfg) {
 void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
   const uint64_t total_tokens = loader.num_tokens();
   const uint32_t tokens_per_step =
-      cfg.training.batch_size * cfg.training.window_training;
+      cfg.training.batch_size * cfg.training.train_seq_len;
 
   if (tokens_per_step == 0) {
     return;
   }
-  const uint64_t total_steps = total_tokens / tokens_per_step;
+  const uint64_t total_steps = loader.steps_per_epoch();
   const double data_mb =
       (total_tokens * sizeof(uint32_t)) / (1024.0 * 1024.0);
 
@@ -67,7 +68,8 @@ void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
             << "  -> Total Tokens:     " << total_tokens << " (" << std::fixed
             << std::setprecision(2) << data_mb << " MB)\n"
             << "  -> Step Geometry:    " << cfg.training.batch_size
-            << " (batch) x " << cfg.training.window_training << " (window)\n"
+            << " (batch) x " << cfg.training.train_seq_len << " (seq_len)"
+            << " stride=" << cfg.training.window_stride << "\n"
             << "  -> Steps per Epoch:  " << total_steps << "\n"
             << "  -> Total Iterations: "
             << (total_steps * cfg.training.num_epochs_train) << " (over "

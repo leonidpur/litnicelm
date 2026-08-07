@@ -13,16 +13,14 @@ int CommandExecutor::run(const Command &cmd, const Config &cfg) {
   case Command::Target::TOKENIZE:
     return run_tokenization_mode(cmd.config_path, &sink);
   case Command::Target::INFER:
-    return run_infer_mode(cmd.config_path, cmd.prompt, &sink);
+    return run_infer_mode(cfg, &sink);
   case Command::Target::INSPECT:
-    return run_inspect_mode(cmd.config_path, cmd.prompt, &sink);
+    return run_inspect_mode(cfg, &sink);
   case Command::Target::INFERLOOP:
-    return run_inferloop_mode(cmd.config_path, &sink);
-  case Command::Target::BACKUP:
-    return run_backup_mode(cmd.config_path, cmd.backup_input, cmd.backup_root);
+    return run_inferloop_mode(cfg, &sink);
   case Command::Target::DRY_RUN:
   case Command::Target::TRAIN:
-    return train_entry_point(cfg, cmd);
+    return Trainer::train_entry_point(cfg, cmd);
   }
 
   return 1;

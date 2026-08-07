@@ -1,10 +1,10 @@
 #pragma once
 
-#include "optimizer_adamw_cpu.hpp"
+#include "backend/device_backend.hpp"
 
 class OptimizerAdamW {
 public:
-  explicit OptimizerAdamW(Device device = Device::CPU);
+  explicit OptimizerAdamW(DeviceBackend &backend);
 
   void step(const TrainingConfig &tc, TensorView &params, const TensorView &grads,
             TensorView &m, TensorView &v, uint64_t step,
@@ -14,6 +14,5 @@ public:
   void zero_state() const;
 
 private:
-  Device device_ = Device::CPU;
-  OptimizerAdamWCPU cpu_;
+  DeviceBackend *backend_ = nullptr;
 };

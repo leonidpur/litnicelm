@@ -6,7 +6,16 @@
 namespace {
 void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
                const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TRAINING, event, step, value, message);
+  if (sink == nullptr) {
+    return;
+  }
+  const char *event_name =
+      event == ReportEvent::STEP_COMPLETE ? "epoch complete"
+                                          : report_utils::event_name(event);
+  sink->report(event, std::string("[EtaObserver][") +
+                          event_name + "] step=" +
+                          std::to_string(step) + " val=" +
+                          std::to_string(value) + " " + message);
 }
 } // namespace
 
@@ -17,32 +26,68 @@ EtaObserver::EtaObserver(const Config &cfg, const Command &cmd, ReportSink *sink
       sink_(sink),
       epoch_report_every_(std::max<uint32_t>(1, epoch_report_every)) {}
 
-void EtaObserver::on_training_start() {
+void EtaObserver::on_training_start(TrainingState &state,
+                                    TensorFactory &tensor_factory,
+                                    uint64_t steps_per_epoch,
+                                    DeviceBackend &device_backend,
+                                    ReportSink *sink,
+                                    const ArenaView &data_arena,
+                                    const AdamStateView &adam_state) {
+  (void)state;
+  (void)tensor_factory;
+  (void)steps_per_epoch;
+  (void)device_backend;
+  (void)sink;
+  (void)data_arena;
+  (void)adam_state;
   start_time_ = std::chrono::steady_clock::now();
+  epoch_start_time_ = start_time_;
   ms_per_epoch_avg_ = 0;
 }
 
-void EtaObserver::on_epoch_end(uint32_t epoch, float mean_loss,
-                               uint64_t global_step) {
-  (void)global_step;
+void EtaObserver::on_epoch_start(uint32_t epoch) {
+  (void)epoch;
+  epoch_start_time_ = std::chrono::steady_clock::now();
+}
+
+bool EtaObserver::on_epoch_end(uint32_t epoch, float mean_loss,
+                               TrainingState &state,
+                               DeviceBackend &device_backend,
+                               ReportSink *sink,
+                               const ArenaView &data_arena,
+                               const AdamStateView &adam_state) {
+  (void)device_backend;
+  (void)sink;
+  (void)data_arena;
+  (void)adam_state;
   const auto now = std::chrono::steady_clock::now();
   const auto elapsed =
       std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time_).count();
+  const auto epoch_elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          now - epoch_start_time_)
+          .count();
   ms_per_epoch_avg_ = (epoch > 0) ? (elapsed / epoch) : 0;
   if ((epoch % epoch_report_every_) == 0) {
     std::ostringstream oss;
     oss << "Epoch " << epoch << " mean_loss=" << mean_loss
+        << " | Epoch time: " << format_duration(epoch_elapsed)
+        << " | Total time: " << format_duration(elapsed)
         << " " << get_eta_report(epoch);
-    report_if(sink_, ReportEvent::STEP_COMPLETE, epoch, mean_loss, oss.str());
+    report_if(sink_, ReportEvent::STEP_COMPLETE,
+              static_cast<uint32_t>(state.global_step), mean_loss, oss.str());
   }
+  return true;
 }
 
-void EtaObserver::finalize(uint64_t global_step, uint32_t epoch) {
+void EtaObserver::on_training_end(const TrainingState &state, ReportSink *sink) {
+  (void)sink;
   if (!is_estimation_mode()) {
     return;
   }
-  report_if(sink_, ReportEvent::END, static_cast<uint32_t>(global_step), 0.0f,
-            get_eta_report(epoch));
+  report_if(sink_, ReportEvent::END,
+            static_cast<uint32_t>(state.global_step), 0.0f,
+            get_eta_report(state.epoch));
 }
 
 bool EtaObserver::is_estimation_mode() const {
@@ -102,6 +147,6 @@ std::string EtaObserver::get_eta_report(uint32_t current_epoch) const {
       std::max<int64_t>(0, static_cast<int64_t>(train_total) -
                                static_cast<int64_t>(current_epoch));
   const int64_t remaining = remaining_epochs * ms_per_epoch_avg_;
-  return "[TRAIN] Epoch " + std::to_string(current_epoch) + "/" +
+  return "Epoch " + std::to_string(current_epoch) + "/" +
          std::to_string(train_total) + " | Rem: " + format_duration(remaining);
 }

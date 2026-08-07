@@ -4,16 +4,59 @@
 #include <tokenizer_factory.hpp>
 
 #include <config.hpp>
-#include "operation_journal.hpp"
 
+#include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
 namespace fs = std::filesystem;
 
 namespace {
+std::string now_timestamp_local() {
+  const auto now = std::time(nullptr);
+  std::tm tmv{};
+#if defined(_WIN32)
+  localtime_s(&tmv, &now);
+#else
+  localtime_r(&now, &tmv);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&tmv, "%Y-%m-%d %H:%M:%S");
+  return oss.str();
+}
+
+void write_tokenizer_journal_entry(const std::string &journal_path,
+                                   const std::string &op_name,
+                                   const std::string &details) {
+  if (journal_path.empty()) {
+    return;
+  }
+
+  const fs::path path(journal_path);
+  if (!path.parent_path().empty()) {
+    fs::create_directories(path.parent_path());
+  }
+
+  std::ofstream journal(path, std::ios::app);
+  if (!journal) {
+    throw std::runtime_error(
+        "tokenizer journal: failed to open journal: " + path.string());
+  }
+
+  journal << "[" << now_timestamp_local() << "] OPERATION: " << op_name
+          << "\n\n";
+  journal << details << "\n\n";
+  if (!journal) {
+    throw std::runtime_error(
+        "tokenizer journal: failed to write journal: " + path.string());
+  }
+}
+
 std::string resolve_tokenizer_artifacts_dir(const Config &cfg) {
   if (!cfg.tokenizer.bpe_artifacts_dir.empty()) {
     return cfg.tokenizer.bpe_artifacts_dir;
@@ -62,7 +105,7 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
       ", artifacts_dir=" + artifacts_dir +
       ", target_vocab_size=" + std::to_string(cfg.tokenizer.target_vocab_size) +
       ", artifacts_dir_out=" + artifacts_dir;
-  std::cout << "[TOKENIZER_TRAINIG] " << create_message << "\n";
+  std::cout << "[TOKENIZER_TRAINING] " << create_message << "\n";
   report_if(sink, ReportEvent::START, 0, 0.0f, create_message);
   plugin->train(training_corpus, artifacts_dir, cfg.tokenizer.target_vocab_size,
                 sink);
@@ -73,7 +116,8 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
       "Artifacts Dir: " + artifacts_dir + "\n\n"
       "Tokenizer: " + plugin->name() + "\n\n"
       "Vocab Size: " + std::to_string(cfg.tokenizer.target_vocab_size);
-  log_operation(cfg.paths.journal_file, "BPE_TOKENIZER_GEN", details);
+  write_tokenizer_journal_entry(cfg.paths.journal_file, "TOKENIZER_GEN",
+                                details);
   return 0;
 }
 
@@ -111,6 +155,7 @@ int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
       "Output Dataset: " + cfg.tokenization.output_binary + "\n\n"
       "Artifacts Dir: " + artifacts_dir + "\n\n"
       "Tokenizer: " + plugin->name();
-  log_operation(cfg.paths.journal_file, "TOKENIZATION_RUN", details);
+  write_tokenizer_journal_entry(cfg.paths.journal_file, "TOKENIZATION_RUN",
+                                details);
   return 0;
 }

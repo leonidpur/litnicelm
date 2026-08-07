@@ -12,7 +12,11 @@ void ConsoleSink::report(ReportEvent event, const std::string &message) {
   if (is_bpe_line && !logging_.show_bpe) {
     return;
   }
-  const bool is_training_line = message.find("[TRAINING]") == 0;
+  const bool is_training_line =
+      message.find("[TRAINING]") == 0 ||
+      message.find("[TrainingReportSink]") == 0 ||
+      message.find("[EtaObserver]") == 0 ||
+      message.find("[MC&CListener]") == 0;
   if (is_training_line && !logging_.show_train) {
     return;
   }

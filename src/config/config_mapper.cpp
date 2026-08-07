@@ -80,10 +80,19 @@ std::pair<int32_t, int32_t> parse_i32_pair_or_throw(const std::string &v,
   return {parse_i32_or_throw(a, k), parse_i32_or_throw(b, k)};
 }
 
+std::string canonical_config_key(const std::string &key) {
+  if (key == "model.window_capacity") {
+    return "model.max_seq_len";
+  }
+  if (key == "training.window_training") {
+    return "training.train_seq_len";
+  }
+  return key;
+}
+
 const std::vector<std::string> &required_keys() {
   static const std::vector<std::string> keys = {
       "conf.version",
-      "device",
       "transformer_layers",
       "parameter_bytes",
       "optimizer_bytes",
@@ -94,9 +103,10 @@ const std::vector<std::string> &required_keys() {
       "model.n_heads",
       "model.d_model",
       "model.d_ff",
-      "model.window_capacity",
+      "model.max_seq_len",
       "memory.alignment_bytes",
-      "paths.model_file",
+      "paths.model_file_latest",
+      "paths.model_file_best",
       "paths.journal_file",
       "tokenizer.type",
       "tokenizer.target_vocab_size",
@@ -121,9 +131,20 @@ const std::vector<std::string> &required_keys() {
       "training.num_epochs_dry_run",
       "training.save_interval_epochs",
       "training.grad_clip",
-      "training.window_training",
+      "training.train_seq_len",
+      "training.window_stride",
       "training.batch_size",
-      "inference.window_inference",
+      "training.target_loss",
+      "training.min_delta",
+      "training.patience_epochs",
+      "training.min_epochs",
+      "training.stop_on_nonfinite_loss",
+      "inference.prompt",
+      "inference.max_new",
+      "inference.temp",
+      "inference.top_k",
+      "inference.top_p",
+      "inference.seed",
       "logging.show_bpe",
       "logging.show_train",
       "logging.show_inference",
@@ -139,17 +160,6 @@ bool map_root_fields(const std::string &key, const std::string &value, Config &c
   if (key == "conf.version") {
     cfg.conf_version = value;
     return true;
-  }
-  if (key == "device") {
-    if (value == "cpu" || value == "CPU") {
-      cfg.device = Device::CPU;
-      return true;
-    }
-    if (value == "gpu" || value == "GPU") {
-      cfg.device = Device::GPU;
-      return true;
-    }
-    throw std::runtime_error("Config::load_from_file: invalid device: " + value);
   }
   if (key == "transformer_layers") {
     cfg.transformer_layers = parse_u32_or_throw(value, key);
@@ -200,8 +210,8 @@ bool map_model_fields(const std::string &key, const std::string &value, Config &
     cfg.model.d_ff = parse_u32_or_throw(value, key);
     return true;
   }
-  if (key == "model.window_capacity") {
-    cfg.model.window_capacity = parse_u32_or_throw(value, key);
+  if (key == "model.max_seq_len" || key == "model.window_capacity") {
+    cfg.model.max_seq_len = parse_u32_or_throw(value, key);
     return true;
   }
   return false;
@@ -216,8 +226,12 @@ bool map_memory_fields(const std::string &key, const std::string &value, Config 
 }
 
 bool map_paths_fields(const std::string &key, const std::string &value, Config &cfg) {
-  if (key == "paths.model_file") {
-    cfg.paths.model_file = value;
+  if (key == "paths.model_file_latest") {
+    cfg.paths.model_file_latest = value;
+    return true;
+  }
+  if (key == "paths.model_file_best") {
+    cfg.paths.model_file_best = value;
     return true;
   }
   if (key == "paths.journal_file") {
@@ -336,20 +350,262 @@ bool map_training_fields(const std::string &key, const std::string &value, Confi
     cfg.training.grad_clip = parse_f32_or_throw(value, key);
     return true;
   }
-  if (key == "training.window_training") {
-    cfg.training.window_training = parse_u32_or_throw(value, key);
+  if (key == "training.train_seq_len" || key == "training.window_training") {
+    cfg.training.train_seq_len = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.window_stride") {
+    cfg.training.window_stride = parse_u32_or_throw(value, key);
     return true;
   }
   if (key == "training.batch_size") {
     cfg.training.batch_size = parse_u32_or_throw(value, key);
     return true;
   }
+  if (key == "training.target_loss") {
+    cfg.training.target_loss = parse_f32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.min_delta") {
+    cfg.training.min_delta = parse_f32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.patience_epochs") {
+    cfg.training.patience_epochs = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.min_epochs") {
+    cfg.training.min_epochs = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.stop_on_nonfinite_loss") {
+    cfg.training.stop_on_nonfinite_loss = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.fw_after_forward_logits") {
+    cfg.training.diagnostics.fw_after_forward_logits =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.fw_after_loss_scalar") {
+    cfg.training.diagnostics.fw_after_loss_scalar = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.fw_after_logits_targets_backward") {
+    cfg.training.diagnostics.fw_after_logits_targets_backward =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.fw_after_cross_entropy_backward") {
+    cfg.training.diagnostics.fw_after_cross_entropy_backward =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.on_nonfinite_grad_norm_original_dlogits") {
+    cfg.training.diagnostics.on_nonfinite_grad_norm_original_dlogits =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.on_nonfinite_grad_norm_replay") {
+    cfg.training.diagnostics.on_nonfinite_grad_norm_replay =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_dlogits") {
+    cfg.training.diagnostics.bk_transformer_dlogits =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_lm_w") {
+    cfg.training.diagnostics.bk_transformer_d_lm_w =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_xn") {
+    cfg.training.diagnostics.bk_transformer_d_xn = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_xlast") {
+    cfg.training.diagnostics.bk_transformer_d_xlast =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_lnf_g") {
+    cfg.training.diagnostics.bk_transformer_d_lnf_g =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_lnf_b") {
+    cfg.training.diagnostics.bk_transformer_d_lnf_b =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_layer_d_prev") {
+    cfg.training.diagnostics.bk_transformer_layer_d_prev =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_cur_before_embeddings") {
+    cfg.training.diagnostics.bk_transformer_d_cur_before_embeddings =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_tok") {
+    cfg.training.diagnostics.bk_transformer_d_tok = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_transformer_d_pos") {
+    cfg.training.diagnostics.bk_transformer_d_pos = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln2_after_ffn") {
+    cfg.training.diagnostics.bk_layer_dln2_after_ffn =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dy_ln2") {
+    cfg.training.diagnostics.bk_layer_dy_ln2 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln2_gamma") {
+    cfg.training.diagnostics.bk_layer_dln2_gamma =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln2_beta") {
+    cfg.training.diagnostics.bk_layer_dln2_beta = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dy_total") {
+    cfg.training.diagnostics.bk_layer_dy_total = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln1_after_attn") {
+    cfg.training.diagnostics.bk_layer_dln1_after_attn =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dx_ln1") {
+    cfg.training.diagnostics.bk_layer_dx_ln1 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln1_gamma") {
+    cfg.training.diagnostics.bk_layer_dln1_gamma =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dln1_beta") {
+    cfg.training.diagnostics.bk_layer_dln1_beta = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_layer_dx") {
+    cfg.training.diagnostics.bk_layer_dx = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_dW2") {
+    cfg.training.diagnostics.bk_ffn_dW2 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_db2") {
+    cfg.training.diagnostics.bk_ffn_db2 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_da") {
+    cfg.training.diagnostics.bk_ffn_da = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_dh") {
+    cfg.training.diagnostics.bk_ffn_dh = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_dW1") {
+    cfg.training.diagnostics.bk_ffn_dW1 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_db1") {
+    cfg.training.diagnostics.bk_ffn_db1 = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_ffn_dx") {
+    cfg.training.diagnostics.bk_ffn_dx = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dWo") {
+    cfg.training.diagnostics.bk_attn_dWo = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dbo") {
+    cfg.training.diagnostics.bk_attn_dbo = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dcontext") {
+    cfg.training.diagnostics.bk_attn_dcontext = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dweights") {
+    cfg.training.diagnostics.bk_attn_dweights = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dVh") {
+    cfg.training.diagnostics.bk_attn_dVh = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dscores_softmax_backward") {
+    cfg.training.diagnostics.bk_attn_dscores_softmax_backward =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dscores_masked") {
+    cfg.training.diagnostics.bk_attn_dscores_masked =
+        parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dQh") {
+    cfg.training.diagnostics.bk_attn_dQh = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dKh") {
+    cfg.training.diagnostics.bk_attn_dKh = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dx") {
+    cfg.training.diagnostics.bk_attn_dx = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dWqkv") {
+    cfg.training.diagnostics.bk_attn_dWqkv = parse_bool_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.diagnostics.bk_attn_dbqkv") {
+    cfg.training.diagnostics.bk_attn_dbqkv = parse_bool_or_throw(value, key);
+    return true;
+  }
   return false;
 }
 
 bool map_inference_fields(const std::string &key, const std::string &value, Config &cfg) {
-  if (key == "inference.window_inference") {
-    cfg.inference.window_inference = parse_u32_or_throw(value, key);
+  if (key == "inference.prompt") {
+    cfg.inference.prompt = value;
+    return true;
+  }
+  if (key == "inference.max_new") {
+    cfg.inference.max_new = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "inference.temp") {
+    cfg.inference.temp = parse_f32_or_throw(value, key);
+    return true;
+  }
+  if (key == "inference.top_k") {
+    cfg.inference.top_k = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "inference.top_p") {
+    cfg.inference.top_p = parse_f32_or_throw(value, key);
+    return true;
+  }
+  if (key == "inference.seed") {
+    cfg.inference.seed = parse_u32_or_throw(value, key);
     return true;
   }
   return false;
@@ -408,7 +664,7 @@ void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
       throw std::runtime_error("Config::load_from_file: unknown key at line " +
                                std::to_string(entry.lineno) + ": " + entry.key);
     }
-    seen.insert(entry.key);
+    seen.insert(canonical_config_key(entry.key));
   }
 
   for (const auto &key : required_keys()) {
@@ -446,10 +702,10 @@ void Config::apply_env_overrides(const std::string &prefix) {
 std::string Config::apply_command_overrides(const Command &cmd) {
   std::vector<std::string> replaced;
 
-  if (cmd.window_training_override > 0) {
-    this->training.window_training = cmd.window_training_override;
-    replaced.push_back("training.window_training=" +
-                       std::to_string(cmd.window_training_override));
+  if (cmd.train_seq_len_override > 0) {
+    this->training.train_seq_len = cmd.train_seq_len_override;
+    replaced.push_back("training.train_seq_len=" +
+                       std::to_string(cmd.train_seq_len_override));
   }
   if (cmd.batch_size_override > 0) {
     this->training.batch_size = cmd.batch_size_override;
@@ -476,6 +732,32 @@ std::string Config::apply_command_overrides(const Command &cmd) {
     this->logging.epoch_report_every = cmd.runtime_flags.epoch_report_every;
     replaced.push_back("logging.epoch_report_every=" +
                        std::to_string(cmd.runtime_flags.epoch_report_every));
+  }
+  if (cmd.has_prompt_override) {
+    this->inference.prompt = cmd.prompt;
+    replaced.push_back("inference.prompt=" + cmd.prompt);
+  }
+  if (cmd.has_max_new_override) {
+    this->inference.max_new = cmd.max_new_override;
+    replaced.push_back("inference.max_new=" +
+                       std::to_string(cmd.max_new_override));
+  }
+  if (cmd.has_temp_override) {
+    this->inference.temp = cmd.temp_override;
+    replaced.push_back("inference.temp=" + std::to_string(cmd.temp_override));
+  }
+  if (cmd.has_top_k_override) {
+    this->inference.top_k = cmd.top_k_override;
+    replaced.push_back("inference.top_k=" +
+                       std::to_string(cmd.top_k_override));
+  }
+  if (cmd.has_top_p_override) {
+    this->inference.top_p = cmd.top_p_override;
+    replaced.push_back("inference.top_p=" + std::to_string(cmd.top_p_override));
+  }
+  if (cmd.has_seed_override) {
+    this->inference.seed = cmd.seed_override;
+    replaced.push_back("inference.seed=" + std::to_string(cmd.seed_override));
   }
 
   std::ostringstream out;

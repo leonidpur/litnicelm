@@ -1,7 +1,6 @@
 conf:
   version: "1"
 
-device: cpu
 transformer_layers: 0
 parameter_bytes: 0
 optimizer_bytes: 0
@@ -10,7 +9,10 @@ max_steps: 1
 
 backend:
   #library: "./build/liblitnice_backend_cpu.so"
-  library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build/liblitnice_backend_openblas_plugin.so"
+  #library: "./build-debug/liblitnice_backend_cublas_plugin.so"
+  library: "./build/liblitnice_backend_cublas_plugin.so"
 
 tokenizer:
   # Factory-facing tokenizer implementation id.
@@ -39,7 +41,7 @@ tokenizer:
   #   sample_rate: 50
 
 tokenization:
-  input_corpus: "/mnt/ext_ssd/litnicegpt/data/.txt"
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig.txt"
   output_binary: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig_tokenized_dataset.bin"
   chunk_size_mb: 64
 
@@ -47,42 +49,53 @@ memory:
   alignment_bytes: 64
 
 model:
-  #window_capacity: 512
-  window_capacity: 240
+  max_seq_len: 4096
   #n_layers: 12
-  n_layers: 2
+  n_layers: 4
   n_heads: 8
-  #d_model: 512
-  d_model: 64
-  d_ff: 256
+  d_model: 512
+  #d_model: 128
+  d_ff: 2048
 
 training:
-  learning_rate: 0.001
+  learning_rate: 0.0003
   beta1: 0.9
-  beta2: 0.999
+  beta2: 0.95
   eps: 0.00000001
-  weight_decay: 0.01
+  weight_decay: 0.1
   incremental: false
   dry_run: false
-  num_epochs_train: 170 # Small models need many passes to memorize single-author style.
+  num_epochs_train: 273 # Small models need many passes to memorize single-author style.
   num_epochs_dry_run: 2
   save_interval_epochs: 5 # Enough save points without creating too many checkpoints.
-  grad_clip: 1.0
-  window_training: 15
+  grad_clip: 0.5
+  train_seq_len: 256
+  window_stride: 4096
   batch_size: 16 # 16-32: stable gradients without requiring massive RAM.
+  target_loss: 1.73
+  min_delta: 0.01
+  patience_epochs: 27
+  min_epochs: 0
+  stop_on_nonfinite_loss: true
 
 paths:
-  model_file: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig.ckpt"
+  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicegpt/data/A_Connecticut_Yankee_in_King_Arthurs_Court-orig_best.ckpt"
   journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
 
 inference:
-  window_inference: 64
+  prompt: ""
+  max_new: 64
+  temp: 1.0
+  top_k: 0
+  top_p: 1.0
+  seed: 12345
 
 logging:
   show_bpe: true
   show_train: true
   show_inference: true
-  report_every_n_steps: 1
+  report_every_n_steps: 3
   epoch_report_every: 100
 
 reporting:

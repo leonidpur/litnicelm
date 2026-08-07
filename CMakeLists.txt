@@ -17,6 +17,7 @@ set(MAIN_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 # Group your other sources
 file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/*.cpp
+    src/model/memory/*.cpp
     src/model/backend/*.cpp
     src/observers/*.cpp
     src/profiling/*.cpp
@@ -29,11 +30,6 @@ list(REMOVE_ITEM MODEL_SOURCES
 
 file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
     src/tokenizer/*.cpp
-    src/tokenizer/legacy/*.cpp
-)
-list(REMOVE_ITEM TOKENIZER_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/tokenizer/legacy/bpe_training_utility.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/tokenizer/legacy/tokenization_utility.cpp
 )
 
 # --- 3. Build Targets ---
@@ -47,12 +43,12 @@ add_library(litnice_core STATIC
 target_include_directories(litnice_core PRIVATE 
     include 
     src/model 
+    src/model/memory
     src/observers
     src/profiling
     src/config
     src/utils
     src/tokenizer
-    src/tokenizer/legacy
     ${SPM_INCLUDE_DIRS}
 )
 
@@ -68,6 +64,7 @@ add_library(litnice_backend_cpu SHARED
 target_include_directories(litnice_backend_cpu PRIVATE
     include
     src/model
+    src/model/memory
     src/config
     src/utils
 )
@@ -77,6 +74,7 @@ set_target_properties(litnice_backend_cpu PROPERTIES
 )
 
 add_subdirectory(src/backend_libs/openblas_plugin)
+add_subdirectory(src/backend_libs/cuda_cublas_plugin)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicegpt ${MAIN_SOURCE})
@@ -85,10 +83,10 @@ target_include_directories(litnicegpt PRIVATE
     src/config
     src/utils
     src/model
+    src/model/memory
     src/observers
     src/profiling
     src/tokenizer
-    src/tokenizer/legacy
     ${SPM_INCLUDE_DIRS}
 )
 target_link_libraries(litnicegpt PRIVATE litnice_core)

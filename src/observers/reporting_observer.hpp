@@ -15,12 +15,14 @@ public:
   void init_config_ready(const Config &cfg, const NamedLayout &param_layout,
                          const NamedLayout &temp_layout) override;
   void init_topology_ready(const NamedLayout &param_layout, void *param_base,
-                           uint64_t param_size, void *adam_base,
+                           uint64_t param_size, void *grad_base,
+                           uint64_t grad_size, void *adam_base,
                            uint64_t adam_size, void *temp_base,
                            uint64_t temp_size) override;
+  void memory_usage_ready(const TrainingMemoryUsage &usage) override;
   void tensor_factory_topology_ready(const Config &cfg,
                                      const TensorFactory &tensor_factory) override;
-  void batch_step_ready(uint32_t batch_size, uint32_t window_training,
+  void batch_step_ready(uint32_t batch_size, uint32_t seq_len,
                         uint32_t token_rows, uint32_t vocab_size) override;
   void probe_loss_ready(const TensorView &loss_scalar, const TensorView &logits,
                         const TensorView &targets) override;

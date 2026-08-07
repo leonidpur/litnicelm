@@ -1,0 +1,84 @@
+conf:
+  version: "1"
+
+transformer_layers: 0
+parameter_bytes: 0
+optimizer_bytes: 0
+arena_alignment: 64
+max_steps: 1
+
+backend:
+  library: "./build/liblitnice_backend_cublas_plugin.so"
+
+tokenizer:
+  type: "only_seen_chars"
+  target_vocab_size: 128
+  training_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short.txt"
+  artifacts_dir: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2"
+  bpe_vocab_file: ""
+  bpe_merges_file: ""
+  bpe_validation_num_threads: 1
+  bpe_validation_sample_rate: 50
+  run_validation: true
+
+tokenization:
+  input_corpus: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short.txt"
+  output_binary: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2_tokenized_dataset.bin"
+  chunk_size_mb: 64
+
+memory:
+  alignment_bytes: 64
+
+model:
+  # Shorter context gives many more distinct blocks per epoch with the current loader.
+  max_seq_len: 128
+  n_layers: 3
+  n_heads: 4
+  d_model: 128
+  d_ff: 512
+
+training:
+  learning_rate: 0.00005
+  beta1: 0.9
+  beta2: 0.95
+  eps: 0.00000001
+  weight_decay: 0.0
+  incremental: false
+  dry_run: false
+  # With stride=1, each epoch now sweeps almost every possible next-token context.
+  num_epochs_train: 150
+  num_epochs_dry_run: 2
+  save_interval_epochs: 2
+  grad_clip: 0.25
+  train_seq_len: 128
+  window_stride: 1
+  batch_size: 1
+  target_loss: 0.25
+  min_delta: 0.001
+  patience_epochs: 30
+  min_epochs: 8
+  stop_on_nonfinite_loss: true
+
+paths:
+  model_file_latest: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2_latest.ckpt"
+  model_file_best: "/mnt/ext_ssd/litnicegpt/data/tinyshakespeare-short-memorize-v2_best.ckpt"
+  journal_file: "/mnt/ext_ssd/litnicegpt/data/journal.txt"
+
+inference:
+  prompt: "First Citizen:\n"
+  max_new: 256
+  temp: 0.0
+  top_k: 1
+  top_p: 1.0
+  seed: 12345
+
+logging:
+  show_bpe: true
+  show_train: true
+  show_inference: true
+  report_every_n_steps: 1000
+  epoch_report_every: 1
+
+reporting:
+  verbose_epoch_index: [0, 3]
+  verbose_init: false
