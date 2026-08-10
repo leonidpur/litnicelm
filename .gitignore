@@ -9,6 +9,7 @@
 *.exe
 
 # CMake-generated files
+/build/
 out/
 /CMakeFiles/
 /CMakeCache.txt
@@ -17,6 +18,15 @@ out/
 /compile_commands.json
 
 # Editor/runtime noise
+.codex
 *.swp
 *.swo
+conf/local/
+
+# Local data and generated training outputs
+data/*
+!data/README.md
+!data/abcd.txt
+artifacts/
+checkpoints/
 journal/
