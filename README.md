@@ -69,15 +69,6 @@ CMake prints a status message when it skips one of them.
 
 ## Quickstart
 
-The repository contains configs, but it does not currently include the corpora
-referenced by those configs. For a tiny CPU smoke test, create the sample corpus
-used by `conf/char_abc.yaml`:
-
-```bash
-mkdir -p data checkpoints journal
-printf 'abcabcabcabcabcabcabcabc\n' > data/abc.txt
-```
-
 Build:
 
 ```bash
@@ -85,28 +76,37 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
-Train tokenizer artifacts:
+The checked-in configs are experiment configs and expect the datasets,
+tokenizer artifacts, and checkpoint directories named inside each YAML file.
+
+### CPU Smoke Test
+
+Use the CPU ABC experiment config:
 
 ```bash
-./build/litnicelm tokenizer_training --config conf/char_abc.yaml
+./build/litnicelm tokenizer_training --config conf/char_book_abcdef_cpu.yaml
+./build/litnicelm encode --config conf/char_book_abcdef_cpu.yaml
+./build/litnicelm train --config conf/char_book_abcdef_cpu.yaml --incremental=false
+./build/litnicelm infer --config conf/char_book_abcdef_cpu.yaml --prompt "a b c "
 ```
 
-Tokenize the corpus:
+The ABC corpus used by this config contains spaces between letters, so inference
+prompts should follow the same pattern, for example `"a b c "` rather than
+`"abc"`.
+
+### CUDA/cuBLAS Smoke Test
+
+For CUDA/cuBLAS, use the CUDA backend plugin and the ABC experiment config:
 
 ```bash
-./build/litnicelm encode --config conf/char_abc.yaml
+./build/litnicelm train --config conf/char_book_abcdef_cuda.yaml --incremental=false
+./build/litnicelm infer --config conf/char_book_abcdef_cuda.yaml --prompt "a b c "
 ```
 
-Run a short training pass:
+For the larger Doyle experiment:
 
 ```bash
-./build/litnicelm train --config conf/char_abc.yaml --epochs 1
-```
-
-Generate text:
-
-```bash
-./build/litnicelm infer --config conf/char_abc.yaml --prompt "ab" --max_new 32
+./build/litnicelm train --config conf/char_book_conan_doyle_sherlock_char1024_narrow_polish_multistream_inplace_fresh_gpu_no_checksum_overwrite.yaml
 ```
 
 ## CLI
@@ -200,6 +200,43 @@ Configs live under `conf/`. The main sections are:
 You can override selected config values from the CLI, and environment overrides
 are applied when `ENV_PREFIX` is set.
 
+## Corpora And Data Policy
+
+Small corpora that are safe to redistribute may be committed to the repository
+when they are useful for smoke tests or examples. Larger corpora, generated
+tokenizer artifacts, tokenized `.bin` datasets, checkpoints, and journals should
+stay outside git unless there is a deliberate reason to publish them.
+
+The checked-in configs currently reference local paths under
+`/mnt/ext_ssd/litnicelm/data`. That is a local storage choice: training data and
+generated files can be kept on disposable or external storage to avoid wearing
+or filling the primary disk. Other users can either edit the config paths or use
+symlinks from the repository root, for example:
+
+```bash
+ln -s /mnt/ext_ssd/litnicelm/data data
+ln -s /mnt/ext_ssd/litnicelm/checkpoints checkpoints
+ln -s /mnt/ext_ssd/litnicelm/journal journal
+```
+
+Machine-specific configs should live under `conf/local/` and remain untracked.
+Committed configs should either use relative paths or clearly document the
+external corpus they expect.
+
+### Conan Doyle Corpus
+
+The Doyle experiment config expects this local corpus:
+
+```text
+/mnt/ext_ssd/litnicelm/data/c.doyle
+```
+
+That corpus was assembled manually from three Conan Doyle/Sherlock Holmes books
+and lightly cleaned for training. The repository keeps the config, but does not
+currently include the corpus itself. Before redistributing `c.doyle`, record the
+exact source editions and cleanup steps, and verify that the text and the
+assembled compilation can be redistributed.
+
 ## Backends
 
 Most configs point at one of these libraries:
@@ -238,15 +275,15 @@ cmake --build build --target infer
 Override the workflow config at configure time:
 
 ```bash
-cmake -S . -B build -DWORKFLOW_CONFIG="$PWD/conf/char_abc.yaml"
+cmake -S . -B build -DWORKFLOW_CONFIG="$PWD/conf/char_book_abcdef_cuda.yaml"
 ```
 
 For inference, also set:
 
 ```bash
 cmake -S . -B build \
-  -DWORKFLOW_CONFIG="$PWD/conf/char_abc.yaml" \
-  -DWORKFLOW_INFER_PROMPT="ab"
+  -DWORKFLOW_CONFIG="$PWD/conf/char_book_abcdef_cuda.yaml" \
+  -DWORKFLOW_INFER_PROMPT="a b c "
 ```
 
 ## Repository Layout
@@ -261,7 +298,6 @@ src/model/                        Tensor, memory, model, trainer, inference
 src/observers/                    Training journals, checkpoints, reporting
 src/tokenizer/                    Tokenizer plugins and corpus tokenization
 src/utils/                        CLI parser and command executor
-tools/                            Helper scripts for staged experiments
 ```
 
 ## Notes
@@ -269,6 +305,6 @@ tools/                            Helper scripts for staged experiments
 - Paths inside configs are resolved relative to the current working directory.
   Run commands from the repository root unless you intentionally use absolute
   paths.
-- Many example configs reference local datasets under `/mnt/ext_ssd/litnicelm`.
+- The checked-in configs reference local datasets under `/mnt/ext_ssd/litnicelm`.
   Adjust those paths before running them on another machine.
 - Checkpoints and journals are created as configured under `paths`.

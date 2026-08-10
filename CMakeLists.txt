@@ -95,7 +95,7 @@ target_include_directories(litnicelm PRIVATE
 )
 target_link_libraries(litnicelm PRIVATE litnice_core)
 
-set(WORKFLOW_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book.yaml" CACHE FILEPATH
+set(WORKFLOW_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cuda.yaml" CACHE FILEPATH
     "YAML config used by workflow targets")
 set(WORKFLOW_INFER_PROMPT "" CACHE STRING
     "Prompt passed to the infer workflow target")
