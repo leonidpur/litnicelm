@@ -69,36 +69,51 @@ CMake prints a status message when it skips one of them.
 
 ## Quickstart
 
-Build:
+If you want an easy, lazy smoke test without learning the config format first,
+start here:
+
+- CPU/no GPU: [Fast Try: CPU](docs/TRY_CPU.md)
+- NVIDIA GPU/CUDA: [Fast Try: CUDA/cuBLAS](docs/TRY_CUDA.md)
+
+The one-command CPU path is:
 
 ```bash
-cmake -S . -B build
-cmake --build build -j
+./scripts/try_cpu.sh
 ```
+
+The one-command CUDA/cuBLAS path is:
+
+```bash
+./scripts/try_cuda.sh
+```
+
+The scripts create disposable local files under ignored directories such as
+`data/local/`, `conf/local/`, `artifacts/local/`, `checkpoints/local/`, and
+`journal/local/`.
 
 The checked-in configs are experiment configs and expect the datasets,
 tokenizer artifacts, and checkpoint directories named inside each YAML file.
 
-### CPU Smoke Test
+The ABC corpus used by this config contains spaces between letters, so inference
+prompts should follow the same pattern, for example `"a b c "` rather than
+`"abc"`.
 
-Use the CPU ABC experiment config:
+Manual CPU run using the public CPU config:
 
 ```bash
+cmake -S . -B build
+cmake --build build -j
 ./build/litnicelm tokenizer_training --config conf/char_book_abcdef_cpu.yaml
 ./build/litnicelm encode --config conf/char_book_abcdef_cpu.yaml
 ./build/litnicelm train --config conf/char_book_abcdef_cpu.yaml --incremental=false
 ./build/litnicelm infer --config conf/char_book_abcdef_cpu.yaml --prompt "a b c "
 ```
 
-The ABC corpus used by this config contains spaces between letters, so inference
-prompts should follow the same pattern, for example `"a b c "` rather than
-`"abc"`.
-
-### CUDA/cuBLAS Smoke Test
-
-For CUDA/cuBLAS, use the CUDA backend plugin and the ABC experiment config:
+Manual CUDA/cuBLAS run using the public CUDA config:
 
 ```bash
+cmake -S . -B build
+cmake --build build -j
 ./build/litnicelm train --config conf/char_book_abcdef_cuda.yaml --incremental=false
 ./build/litnicelm infer --config conf/char_book_abcdef_cuda.yaml --prompt "a b c "
 ```
