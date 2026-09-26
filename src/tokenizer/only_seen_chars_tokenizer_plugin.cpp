@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -164,6 +165,57 @@ void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
   report_utils::report_if(sink, ReportPhase::TOKENIZER, event, step, value,
                           message);
 }
+
+void warn_about_suspicious_byte_vocab(const std::vector<std::string> &vocab,
+                                      const std::string &context) {
+  size_t non_ascii = 0;
+  size_t c1_controls = 0;
+  bool has_cr = false;
+  std::vector<unsigned int> examples;
+  for (const std::string &token : vocab) {
+    if (token.size() != 1) {
+      continue;
+    }
+    const unsigned int byte =
+        static_cast<unsigned int>(static_cast<unsigned char>(token[0]));
+    const bool suspicious = byte >= 0x80 || byte == '\r';
+    if (byte >= 0x80) {
+      ++non_ascii;
+    }
+    if (byte >= 0x80 && byte <= 0x9f) {
+      ++c1_controls;
+    }
+    if (byte == '\r') {
+      has_cr = true;
+    }
+    if (suspicious && examples.size() < 8) {
+      examples.push_back(byte);
+    }
+  }
+
+  if (non_ascii == 0 && c1_controls == 0 && !has_cr) {
+    return;
+  }
+
+  std::ostringstream oss;
+  oss << "[OnlySeenCharsTokenizer][WARN] " << context
+      << " byte vocabulary contains non_ascii=" << non_ascii
+      << ", c1_controls=" << c1_controls
+      << ", carriage_return=" << (has_cr ? "yes" : "no")
+      << ". only_seen_chars is byte-level; UTF-8 smart quotes or mojibake can "
+         "be learned as separate bytes and later decode as replacement "
+         "characters. Prefer an ASCII-normalized corpus or a real Unicode/BPE "
+         "tokenizer for non-ASCII text. examples=";
+  for (size_t i = 0; i < examples.size(); ++i) {
+    if (i != 0) {
+      oss << ",";
+    }
+    oss << "0x" << std::hex << std::uppercase << std::setw(2)
+        << std::setfill('0') << examples[i] << std::dec
+        << std::nouppercase << std::setfill(' ');
+  }
+  std::cerr << oss.str() << "\n";
+}
 } // namespace
 
 OnlySeenCharsTokenizerPlugin::OnlySeenCharsTokenizerPlugin(
@@ -209,6 +261,7 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
 
   vocab_ = seen;
   rebuild_index_();
+  warn_about_suspicious_byte_vocab(vocab_, "trained");
 
   fs::create_directories(artifacts_dir);
   std::ofstream out(artifact_path(artifacts_dir), std::ios::binary | std::ios::trunc);
@@ -259,6 +312,7 @@ bool OnlySeenCharsTokenizerPlugin::load(const std::string &artifacts_dir) {
         "OnlySeenCharsTokenizer: artifact vocab exceeds model.target_vocab_size");
   }
   rebuild_index_();
+  warn_about_suspicious_byte_vocab(vocab_, "loaded artifact");
   return true;
 }
 
