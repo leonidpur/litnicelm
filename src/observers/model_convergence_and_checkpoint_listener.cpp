@@ -51,6 +51,7 @@ void ModelConvergenceAndCheckpointListener::on_training_start(
     uint64_t steps_per_epoch, DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena,
     const AdamStateView &adam_state) {
+  positionEncoding_ = &tensor_store.position_encoding();
   reset_convergence_state();
   const bool estimate = is_estimation_mode();
   std::ostringstream oss;
@@ -114,6 +115,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
     std::string error_detail;
     CheckpointConvergenceState restored_convergence_state;
     if (!load_checkpoint(cfg_.paths.model_file_latest, cfg_.model,
+                         *positionEncoding_,
                          cfg_.conf_version, cfg_.memory.alignment_bytes,
                          device_backend, data_arena, adam_state,
                          state.global_step, state.epoch,
@@ -392,7 +394,8 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
 
     const CheckpointConvergenceState convergence_state =
         checkpoint_convergence_state();
-    const bool ok = save_checkpoint(path, cfg_.model, cfg_.conf_version,
+    const bool ok = save_checkpoint(path, cfg_.model, *positionEncoding_,
+                                    cfg_.conf_version,
                                     cfg_.memory.alignment_bytes, device_backend,
                                     data_arena, adam_state, global_step, epoch,
                                     &convergence_state);

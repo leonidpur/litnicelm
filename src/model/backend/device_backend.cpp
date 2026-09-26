@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 bool is_power_of_two(uint32_t x) { return x != 0 && (x & (x - 1)) == 0; }
@@ -621,6 +622,13 @@ public:
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf) override {
     const BackendTensorView scores_view = to_backend_tensor_view(scores);
     api_->apply_causal_mask_inplace(instance_, &scores_view, neg_inf);
+  }
+
+  void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                bool inverse) override {
+    const BackendTensorView x_view = to_backend_tensor_view(x);
+    api_->rotary_embedding_inplace(instance_, &x_view, n_heads, base,
+                                   inverse ? 1u : 0u);
   }
 
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
@@ -1687,6 +1695,46 @@ void DefaultCpuBackend::apply_causal_mask_inplace(TensorView &scores, float neg_
   for (int64_t i = 0; i < token_rows; ++i) {
     for (int64_t j = i + 1; j < token_rows; ++j) {
       CpuMemOperations::store_f32(scores, i, j, neg_inf);
+    }
+  }
+}
+
+void DefaultCpuBackend::rotary_embedding_inplace(TensorView &x,
+                                                 int64_t n_heads, float base,
+                                                 bool inverse) {
+  require_backend(x.rank() >= 2,
+                  "DefaultCpuBackend::rotary_embedding_inplace: x must be [..., S, D]");
+  const int64_t seq_len = x.dim(x.rank() - 2);
+  const int64_t model_dim = x.dim(x.rank() - 1);
+  require_backend(n_heads > 0 && model_dim % n_heads == 0,
+                  "DefaultCpuBackend::rotary_embedding_inplace: D must divide by n_heads");
+  const int64_t head_dim = model_dim / n_heads;
+  require_backend(head_dim % 2 == 0,
+                  "DefaultCpuBackend::rotary_embedding_inplace: head_dim must be even");
+  const int64_t half = head_dim / 2;
+  std::vector<float> inv_freq(static_cast<size_t>(half));
+  for (int64_t i = 0; i < half; ++i) {
+    inv_freq[static_cast<size_t>(i)] =
+        std::pow(base, -2.0f * static_cast<float>(i) /
+                           static_cast<float>(head_dim));
+  }
+  const float sign = inverse ? -1.0f : 1.0f;
+  const uint64_t row_count = CpuMemOperations::logical_prefix_count(x, 1);
+  for (uint64_t row = 0; row < row_count; ++row) {
+    const float pos = static_cast<float>(
+        static_cast<int64_t>(row % static_cast<uint64_t>(seq_len)));
+    for (int64_t h = 0; h < n_heads; ++h) {
+      for (int64_t i = 0; i < half; ++i) {
+        const float angle = pos * inv_freq[static_cast<size_t>(i)];
+        const float c = std::cos(angle);
+        const float s = sign * std::sin(angle);
+        const int64_t c1 = h * head_dim + i;
+        const int64_t c2 = c1 + half;
+        const float x1 = CpuMemOperations::load_f32_prefix_last1(x, row, c1);
+        const float x2 = CpuMemOperations::load_f32_prefix_last1(x, row, c2);
+        CpuMemOperations::store_f32_prefix_last1(x, row, c1, x1 * c - x2 * s);
+        CpuMemOperations::store_f32_prefix_last1(x, row, c2, x1 * s + x2 * c);
+      }
     }
   }
 }

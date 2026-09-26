@@ -14,17 +14,21 @@ ModelAlgoFactory::ModelAlgoFactory(ModelAlgoConfig cfg) : cfg_(cfg) {}
 
 std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
-    GradientStore *gradient_store, Ops &ops) const {
+    GradientStore *gradient_store, Ops &ops,
+    IPositionEncoding &position_encoding) const {
   switch (cfg_.attention_impl) {
   case AttentionImplKind::Reference:
     return std::make_unique<SelfAttention>(layer_index, cfg, tensor_store,
-                                           gradient_store, ops);
+                                           gradient_store, ops,
+                                           position_encoding);
   case AttentionImplKind::FusedInplace:
     return std::make_unique<SelfAttentionFusedInplace>(
-        layer_index, cfg, tensor_store, gradient_store, ops);
+        layer_index, cfg, tensor_store, gradient_store, ops,
+        position_encoding);
   case AttentionImplKind::FusedInplaceMultistream:
     return std::make_unique<SelfAttentionFusedInplaceMultistream>(
-        layer_index, cfg, tensor_store, gradient_store, ops);
+        layer_index, cfg, tensor_store, gradient_store, ops,
+        position_encoding);
   }
   throw std::runtime_error("ModelAlgoFactory: unknown attention implementation");
 }
@@ -53,6 +57,8 @@ ModelAlgoFactory::create_position_encoding(const Config &cfg) const {
     return std::make_unique<LearnedPositionEncoding>(cfg);
   case PositionEncodingKind::None:
     return std::make_unique<NoPositionEncoding>();
+  case PositionEncodingKind::Rope:
+    return std::make_unique<RopePositionEncoding>(cfg);
   }
   throw std::runtime_error(
       "ModelAlgoFactory: unknown position encoding implementation");

@@ -24,6 +24,8 @@ void launch_relu_backward(const TensorView &preact, const TensorView &dout,
 void launch_relu_backward_inplace(const TensorView &preact, TensorView &dout_dx);
 void launch_transpose(const TensorView &x, TensorView &out);
 void launch_apply_causal_mask_inplace(TensorView &scores, float neg_inf);
+void launch_rotary_embedding_inplace(TensorView &x, int64_t n_heads,
+                                     float base, bool inverse);
 
 void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq);
 void launch_row_sum(const TensorView &x, TensorView &out_1xC);

@@ -95,6 +95,25 @@ target_include_directories(litnicelm PRIVATE
 )
 target_link_libraries(litnicelm PRIVATE litnice_core)
 
+# Op-level tests, run once per available backend plugin: ctest --test-dir build
+enable_testing()
+add_executable(litnice_rope_test tests/rope_ops_test.cpp)
+target_include_directories(litnice_rope_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+)
+target_link_libraries(litnice_rope_test PRIVATE litnice_core)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    add_test(NAME rope_ops_${plugin}
+             COMMAND litnice_rope_test $<TARGET_FILE:${plugin}>)
+  endif()
+endforeach()
+
 set(WORKFLOW_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cuda.yaml" CACHE FILEPATH
     "YAML config used by workflow targets")
 set(WORKFLOW_INFER_PROMPT "" CACHE STRING

@@ -18,7 +18,8 @@ public:
 
   std::unique_ptr<ISelfAttention>
   create_attention(int layer_index, const Config &cfg, TensorStore &tensor_store,
-                   GradientStore *gradient_store, Ops &ops) const;
+                   GradientStore *gradient_store, Ops &ops,
+                   IPositionEncoding &position_encoding) const;
 
   std::unique_ptr<IFFN>
   create_ffn(int layer_index, const Config &cfg, TensorStore &tensor_store,

@@ -1,4 +1,5 @@
 #include "checkpoint.hpp"
+#include "i_position_encoding.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -13,9 +14,12 @@
 
 namespace {
 constexpr uint32_t kCheckpointMagic = 0x4C474354; // "LGCT" (4 bytes)
-constexpr uint32_t kCurrentFormatVersion = 6;
+constexpr uint32_t kCurrentFormatVersion = 7;
 constexpr uint32_t kCurrentAlgoVersion = 1;
 constexpr size_t kConfVersionMax = 32;
+constexpr size_t kPositionEncodingMax = 16;
+// Checkpoints before v7 always used a learned position embedding.
+constexpr const char *kPreV7PositionEncoding = "learned";
 
 struct CkptHeaderV1 {
   uint32_t magic = kCheckpointMagic;
@@ -101,7 +105,7 @@ struct CkptHeaderV5 {
 
 struct CkptHeaderV6 {
   uint32_t magic = kCheckpointMagic;
-  uint32_t version = kCurrentFormatVersion;
+  uint32_t version = 6;
   uint32_t algo_version = kCurrentAlgoVersion;
   char conf_version[kConfVersionMax] = {};
   uint32_t n_layers = 0;
@@ -117,6 +121,12 @@ struct CkptHeaderV6 {
   uint64_t data_bytes = 0;
   uint64_t adam_bytes = 0;
   CheckpointConvergenceState convergence{};
+};
+
+// v7 = v6 + the position encoding the parameters were trained with.
+struct CkptHeaderV7 {
+  CkptHeaderV6 base{};
+  char position_encoding[kPositionEncodingMax] = {};
 };
 
 struct CkptPrefix {
@@ -152,6 +162,22 @@ bool check_eq_u32(const char *name, T got, T expected, std::string *detail) {
     }
     *detail += std::string(name) + " file=" + std::to_string(got) +
                " config=" + std::to_string(expected);
+  }
+  return false;
+}
+
+bool check_eq_str(const char *name, const std::string &got,
+                  const std::string &expected, std::string *detail) {
+  if (got == expected) {
+    return true;
+  }
+  std::cerr << "Checkpoint mismatch: " << name << " file=" << got
+            << " config=" << expected << "\n";
+  if (detail != nullptr) {
+    if (!detail->empty()) {
+      *detail += "; ";
+    }
+    *detail += std::string(name) + " file=" + got + " config=" + expected;
   }
   return false;
 }
@@ -367,6 +393,7 @@ bool verify_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
 }
 
 bool save_checkpoint(const std::string &path, const ModelConfig &model,
+                     const IPositionEncoding &position_encoding,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,
@@ -378,7 +405,11 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
     return false;
   }
 
-  CkptHeaderV6 h;
+  CkptHeaderV7 h7;
+  h7.base.version = kCurrentFormatVersion;
+  std::snprintf(h7.position_encoding, sizeof(h7.position_encoding), "%s",
+                position_encoding.name());
+  CkptHeaderV6 &h = h7.base;
   h.algo_version = kCurrentAlgoVersion;
   if (conf_version.size() >= kConfVersionMax) {
     std::cerr << "Checkpoint warning: conf.version is too long, truncating to "
@@ -406,7 +437,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
     return false;
   }
   StagingMemory staging_memory;
-  out.write(reinterpret_cast<const char *>(&h), sizeof(h));
+  out.write(reinterpret_cast<const char *>(&h7), sizeof(h7));
   if (!out) {
     return false;
   }
@@ -423,6 +454,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
 }
 
 bool load_checkpoint(const std::string &path, const ModelConfig &model,
+                     const IPositionEncoding &position_encoding,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,
@@ -710,17 +742,26 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     return true;
   }
 
-  if (pfx.version == 6) {
-    CkptHeaderV6 h{};
-    in.read(reinterpret_cast<char *>(&h), sizeof(h));
+  if (pfx.version == 6 || pfx.version == 7) {
+    CkptHeaderV7 h7{};
+    if (pfx.version == 7) {
+      in.read(reinterpret_cast<char *>(&h7), sizeof(h7));
+    } else {
+      in.read(reinterpret_cast<char *>(&h7.base), sizeof(h7.base));
+      std::snprintf(h7.position_encoding, sizeof(h7.position_encoding), "%s",
+                    kPreV7PositionEncoding);
+    }
+    const std::string version_label = "v" + std::to_string(pfx.version);
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v6 header in " << path
-                << "\n";
+      std::cerr << "Checkpoint load failed: truncated " << version_label
+                << " header in " << path << "\n";
       if (error_detail != nullptr) {
-        *error_detail = "truncated v6 header";
+        *error_detail = "truncated " + version_label + " header";
       }
       return false;
     }
+    h7.position_encoding[kPositionEncodingMax - 1] = '\0';
+    const CkptHeaderV6 &h = h7.base;
     if (h.algo_version != kCurrentAlgoVersion) {
       std::cerr << "Checkpoint warning: algo_version mismatch file="
                 << h.algo_version << " runtime=" << kCurrentAlgoVersion << "\n";
@@ -743,6 +784,8 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
                       &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
+    ok = check_eq_str("model_algo.position_encoding", h7.position_encoding,
+                      position_encoding.name(), &mismatch_detail) && ok;
     if (!ok) {
       std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
                 << "\n";

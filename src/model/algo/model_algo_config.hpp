@@ -17,6 +17,7 @@ enum class FFNImplKind {
 enum class PositionEncodingKind {
   Learned,
   None,
+  Rope,
 };
 
 struct ModelAlgoConfig {

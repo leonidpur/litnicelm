@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <string>
 
+class IPositionEncoding;
+
 class ReportSink;
 class TensorStore;
 struct TrainingState;
@@ -76,6 +78,8 @@ private:
 
   const Config &cfg_;
   const Command &cmd_;
+  // Set in on_training_start; checkpoints record and verify it.
+  const IPositionEncoding *positionEncoding_ = nullptr;
   ITrainingObserver *observer_relay_ = &default_training_observer();
   float best_loss_ = 0.0f;
   float last_epoch_loss_ = -1.0f;

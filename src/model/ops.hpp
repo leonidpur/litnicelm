@@ -92,6 +92,11 @@ public:
                                     const TensorView &dout,
                                     TensorView &dx) const;
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf = -1e9f) const;
+  // x: [B, S, D] (columns may be strided, e.g. the Q or K slice of qkv).
+  // Rotates channel pairs (i, i + head_dim/2) of each head by
+  // pos * base^(-2i/head_dim); inverse applies the transpose rotation.
+  void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                bool inverse) const;
   DeviceBackend &backend() const { return device_backend_; }
 
 private:

@@ -81,7 +81,7 @@ void load_weights_or_throw(InferRuntime &rt) {
   std::string ckpt_error;
   const std::string &checkpoint_path = rt.cfg.paths.model_file_best;
   const bool ok =
-      load_checkpoint(checkpoint_path, rt.cfg.model,
+      load_checkpoint(checkpoint_path, rt.cfg.model, *rt.position_encoding,
                       rt.cfg.conf_version, rt.cfg.memory.alignment_bytes,
                       *rt.backend, rt.memory_manager->data_arena(),
                       rt.memory_manager->adam_state(), restored_step,

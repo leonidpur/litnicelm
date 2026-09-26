@@ -41,7 +41,8 @@ public:
   TransformerLayer(int layer_index, const Config &cfg,
                    TensorStore &tensor_store,
                    GradientStore *gradient_store, Ops &ops,
-                   const ModelAlgoFactory &algo_factory);
+                   const ModelAlgoFactory &algo_factory,
+                   IPositionEncoding &position_encoding);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 

@@ -547,6 +547,15 @@ public:
     launch_apply_causal_mask_inplace(scores, neg_inf);
   }
 
+  void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                bool inverse) override {
+    require_cuda_f32_row_major(x, "rotary_embedding_inplace");
+    if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
+      return;
+    }
+    launch_rotary_embedding_inplace(x, n_heads, base, inverse);
+  }
+
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,

@@ -7,6 +7,9 @@
 #include "training_diagnostics_controller.hpp"
 #include <report_interface.hpp>
 
+#include <stdexcept>
+#include <string>
+
 LearnedPositionEncoding::LearnedPositionEncoding(const Config &cfg)
     : cfg_(cfg) {}
 
@@ -58,4 +61,39 @@ void LearnedPositionEncoding::report_probes(ReportSink &sink) const {
   if (d_pos_.data() != nullptr) {
     sink.report_probe_tensor("embeddings", "pos_embedding.grad", d_pos_);
   }
+}
+
+RopePositionEncoding::RopePositionEncoding(const Config &cfg) : cfg_(cfg) {
+  const uint32_t n_heads = cfg_.model.n_heads;
+  if (n_heads == 0 || cfg_.model.d_model % n_heads != 0 ||
+      (cfg_.model.d_model / n_heads) % 2 != 0) {
+    throw std::runtime_error(
+        "RopePositionEncoding: head_dim = d_model / n_heads must be even, got "
+        "d_model=" + std::to_string(cfg_.model.d_model) +
+        " n_heads=" + std::to_string(n_heads));
+  }
+}
+
+void RopePositionEncoding::bind(TensorStore &, GradientStore *, Ops &ops) {
+  ops_ = &ops;
+}
+
+void RopePositionEncoding::apply_to_qk(TensorView &qkv) {
+  rotate_qk(qkv, /*inverse=*/false);
+}
+
+// The rotation is orthogonal, so its gradient is the inverse rotation.
+void RopePositionEncoding::backward_qk(TensorView &dqkv) {
+  rotate_qk(dqkv, /*inverse=*/true);
+}
+
+void RopePositionEncoding::rotate_qk(TensorView &qkv, bool inverse) {
+  const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
+  const int64_t n_heads = static_cast<int64_t>(cfg_.model.n_heads);
+  TensorContracts::require(qkv.rank() == 3 && qkv.dim(2) == 3 * model_dim,
+                           "RopePositionEncoding", "qkv must be [B, S, 3D]");
+  TensorView q = qkv.subcols(0, model_dim);
+  TensorView k = qkv.subcols(model_dim, model_dim);
+  ops_->rotary_embedding_inplace(q, n_heads, kBase, inverse);
+  ops_->rotary_embedding_inplace(k, n_heads, kBase, inverse);
 }

@@ -8,12 +8,14 @@
 
 SelfAttentionFusedInplaceMultistream::SelfAttentionFusedInplaceMultistream(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
-    GradientStore *gradient_store, Ops &ops)
+    GradientStore *gradient_store, Ops &ops,
+    IPositionEncoding &position_encoding)
     : idx_(layer_index),
       cfg_(cfg),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
-      ops_(ops) {}
+      ops_(ops),
+      positionEncoding_(position_encoding) {}
 
 void SelfAttentionFusedInplaceMultistream::set_observer(
     ITrainingObserver *observer) {
@@ -58,6 +60,7 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
+  positionEncoding_.apply_to_qk(qkv);
 
   TensorView Q = qkv.subcols(0, model_dim);
   TensorView K = qkv.subcols(model_dim, model_dim);
@@ -204,6 +207,7 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
     }
   }
 
+  positionEncoding_.backward_qk(dqkv);
   ops_.gemm_ranked_matrix_rhs_t(dqkv, Wqkv, dx);
   diagnostics_->bk_attn_dx(idx_, dx);
 

@@ -105,6 +105,8 @@ public:
                                             TensorView &dx) = 0;
   virtual void apply_causal_mask_inplace(TensorView &scores,
                                          float neg_inf = -1e9f) = 0;
+  virtual void rotary_embedding_inplace(TensorView &x, int64_t n_heads,
+                                        float base, bool inverse) = 0;
   virtual void adamw_step(TensorView &params, const TensorView &grads,
                           TensorView &m, TensorView &v, uint64_t step,
                           float learning_rate, float beta1, float beta2,
@@ -202,6 +204,8 @@ public:
                                     TensorView &dx) override;
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override;
+  void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                bool inverse) override;
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,

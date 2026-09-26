@@ -471,5 +471,15 @@ void Ops::apply_causal_mask_inplace(TensorView &scores, float neg_inf) const {
   }
   device_backend_.apply_causal_mask_inplace(scores, neg_inf);
 }
+void Ops::rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                   bool inverse) const {
+  require_ops(x.rank() == 3, "rotary_embedding_inplace x must be [B,S,D]");
+  require_ops(n_heads > 0 && x.dim(2) % n_heads == 0,
+              "rotary_embedding_inplace D must be divisible by n_heads");
+  require_ops((x.dim(2) / n_heads) % 2 == 0,
+              "rotary_embedding_inplace head_dim must be even");
+  require_ops(base > 1.0f, "rotary_embedding_inplace base must be > 1");
+  device_backend_.rotary_embedding_inplace(x, n_heads, base, inverse);
+}
 
 #undef require_ops

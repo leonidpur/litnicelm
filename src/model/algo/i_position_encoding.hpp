@@ -33,5 +33,11 @@ public:
   // dx: [B, S, D] gradient reaching the input embeddings.
   virtual void backward_input(const TensorView &dx) = 0;
 
+  // qkv: [B, S, 3D] attention projections after bias; Q and K updated in place.
+  virtual void apply_to_qk(TensorView &qkv) = 0;
+  // dqkv: [B, S, 3D]; turns dQ/dK w.r.t. the encoded Q/K into gradients
+  // w.r.t. the projections, in place.
+  virtual void backward_qk(TensorView &dqkv) = 0;
+
   virtual void report_probes(ReportSink &sink) const = 0;
 };

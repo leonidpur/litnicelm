@@ -20,6 +20,9 @@ public:
   void apply_to_input(TensorView &x) override;
   void backward_input(const TensorView &dx) override;
 
+  void apply_to_qk(TensorView &) override {}
+  void backward_qk(TensorView &) override {}
+
   void report_probes(ReportSink &sink) const override;
 
 private:
@@ -42,5 +45,40 @@ public:
   void apply_to_input(TensorView &) override {}
   void backward_input(const TensorView &) override {}
 
+  void apply_to_qk(TensorView &) override {}
+  void backward_qk(TensorView &) override {}
+
   void report_probes(ReportSink &) const override {}
+};
+
+// Rotary position embedding (RoPE): rotates each head's Q and K channel pairs
+// (i, i + head_dim/2) by pos * base^(-2i/head_dim), so attention scores
+// depend on relative position. No parameters; angles are computed in the
+// kernel, so nothing is allocated.
+class RopePositionEncoding : public IPositionEncoding {
+public:
+  static constexpr float kBase = 10000.0f;
+
+  explicit RopePositionEncoding(const Config &cfg);
+
+  const char *name() const override { return "rope"; }
+  bool needs_position_table() const override { return false; }
+
+  void bind(TensorStore &tensor_store, GradientStore *gradient_store,
+            Ops &ops) override;
+  void set_diagnostics(TrainingDiagnosticsController *) override {}
+
+  void apply_to_input(TensorView &) override {}
+  void backward_input(const TensorView &) override {}
+
+  void apply_to_qk(TensorView &qkv) override;
+  void backward_qk(TensorView &dqkv) override;
+
+  void report_probes(ReportSink &) const override {}
+
+private:
+  void rotate_qk(TensorView &qkv, bool inverse);
+
+  const Config &cfg_;
+  Ops *ops_ = nullptr;
 };

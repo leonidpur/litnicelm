@@ -39,6 +39,9 @@ PositionEncodingKind parse_position_encoding(const std::string &value) {
   if (value == "none") {
     return PositionEncodingKind::None;
   }
+  if (value == "rope") {
+    return PositionEncodingKind::Rope;
+  }
   throw std::runtime_error(
       "ModelAlgoConfig: unsupported model_algo.position_encoding: " + value);
 }

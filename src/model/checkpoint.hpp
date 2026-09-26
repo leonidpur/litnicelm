@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <string>
 
+class IPositionEncoding;
+
 struct ArenaView {
   void *base = nullptr;
   uint64_t bytes = 0;
@@ -32,6 +34,7 @@ struct CheckpointConvergenceState {
 };
 
 bool save_checkpoint(const std::string &path, const ModelConfig &model,
+                     const IPositionEncoding &position_encoding,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,
@@ -40,6 +43,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
                      const CheckpointConvergenceState *convergence_state = nullptr);
 
 bool load_checkpoint(const std::string &path, const ModelConfig &model,
+                     const IPositionEncoding &position_encoding,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,

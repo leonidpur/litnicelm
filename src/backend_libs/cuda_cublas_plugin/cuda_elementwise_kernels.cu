@@ -178,6 +178,36 @@ __global__ void apply_causal_mask_inplace_kernel(KernelTensorView scores,
   }
 }
 
+// One thread per (row, head, pair index i < head_dim/2).
+__global__ void rotary_embedding_inplace_kernel(KernelTensorView x,
+                                                int64_t seq_len,
+                                                int64_t n_heads,
+                                                int64_t head_dim, float base,
+                                                float sign) {
+  const int64_t half = head_dim / 2;
+  const int64_t idx =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= x.rows * n_heads * half) {
+    return;
+  }
+  const int64_t i = idx % half;
+  const int64_t h = (idx / half) % n_heads;
+  const int64_t row = idx / (half * n_heads);
+  const float pos = static_cast<float>(row % seq_len);
+  const float inv_freq = powf(base, -2.0f * static_cast<float>(i) /
+                                        static_cast<float>(head_dim));
+  float s = 0.0f;
+  float c = 0.0f;
+  sincosf(pos * inv_freq, &s, &c);
+  s *= sign;
+  const int64_t c1 = h * head_dim + i;
+  const int64_t c2 = c1 + half;
+  const float x1 = load_f32(x, row, c1);
+  const float x2 = load_f32(x, row, c2);
+  store_f32(x, row, c1, x1 * c - x2 * s);
+  store_f32(x, row, c2, x1 * s + x2 * c);
+}
+
 } // namespace
 
 void launch_fill(TensorView &t, float value) {
@@ -309,6 +339,22 @@ void launch_apply_causal_mask_inplace(TensorView &scores, float neg_inf) {
   apply_causal_mask_inplace_kernel<<<grid, block>>>(
       to_kernel_tensor_view(scores), neg_inf);
   check_kernel_launch("apply_causal_mask_inplace_kernel");
+}
+
+void launch_rotary_embedding_inplace(TensorView &x, int64_t n_heads,
+                                     float base, bool inverse) {
+  const int64_t seq_len = x.dim(x.rank() - 2);
+  const int64_t head_dim = tensor_cols(x) / n_heads;
+  const int64_t total = tensor_rows(x) * n_heads * (head_dim / 2);
+  if (total == 0) {
+    return;
+  }
+  rotary_embedding_inplace_kernel<<<
+      static_cast<unsigned int>((total + kThreadsPerBlock - 1) /
+                                kThreadsPerBlock),
+      kThreadsPerBlock>>>(to_kernel_tensor_view(x), seq_len, n_heads, head_dim,
+                          base, inverse ? -1.0f : 1.0f);
+  check_kernel_launch("rotary_embedding_inplace_kernel");
 }
 
 } // namespace cuda_cublas_plugin

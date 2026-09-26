@@ -355,6 +355,13 @@ void plugin_apply_causal_mask_inplace(void *backend,
   backend_from_opaque(backend).apply_causal_mask_inplace(scores_view, neg_inf);
 }
 
+void plugin_rotary_embedding_inplace(void *backend, const BackendTensorView *x,
+                                     int64_t n_heads, float base,
+                                     uint32_t inverse) {
+  TensorView x_view = to_tensor_view(*x);
+  backend_from_opaque(backend).rotary_embedding_inplace(x_view, n_heads, base, inverse != 0);
+}
+
 void plugin_adamw_step(void *backend, const BackendTensorView *params,
                        const BackendTensorView *grads,
                        const BackendTensorView *m,
@@ -438,6 +445,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_softmax_backward_causal_rows_exec_context,
     &plugin_softmax_backward_causal_rows,
     &plugin_apply_causal_mask_inplace,
+    &plugin_rotary_embedding_inplace,
     &plugin_adamw_step,
     &plugin_is_file2device_read_supported,
     &plugin_read_file2device,

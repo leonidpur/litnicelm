@@ -35,7 +35,8 @@ Transformer::Transformer(const Config &cfg,
   layers_.reserve(cfg_.model.n_layers);
   for (uint32_t i = 0; i < cfg_.model.n_layers; ++i) {
     layers_.emplace_back(static_cast<int>(i), cfg_, tensorStore_,
-                         gradientStore_, ops_, algoFactory_);
+                         gradientStore_, ops_, algoFactory_,
+                         positionEncoding_);
   }
   positionEncoding_.bind(tensorStore_, gradientStore_, ops_);
   validate_contract();

@@ -7,14 +7,16 @@
 TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
                                    TensorStore &tensor_store,
                                    GradientStore *gradient_store, Ops &ops,
-                                   const ModelAlgoFactory &algo_factory)
+                                   const ModelAlgoFactory &algo_factory,
+                                   IPositionEncoding &position_encoding)
     : idx_(layer_index),
       cfg_(cfg),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops) {
   attn_ =
-      algo_factory.create_attention(layer_index, cfg, tensor_store, gradient_store, ops);
+      algo_factory.create_attention(layer_index, cfg, tensor_store,
+                                    gradient_store, ops, position_encoding);
   ffn_ = algo_factory.create_ffn(layer_index, cfg, tensor_store, gradient_store, ops);
   validate_contract();
 }

@@ -2,6 +2,7 @@
 
 #include <config.hpp>
 #include "gradient_store.hpp"
+#include "i_position_encoding.hpp"
 #include "i_self_attention.hpp"
 #include "ops.hpp"
 #include "tensor_store.hpp"
@@ -14,7 +15,8 @@ public:
   SelfAttentionFusedInplaceMultistream(int layer_index, const Config &cfg,
                                        TensorStore &tensor_store,
                                        GradientStore *gradient_store,
-                                       Ops &ops);
+                                       Ops &ops,
+                                       IPositionEncoding &position_encoding);
 
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
@@ -28,6 +30,7 @@ private:
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
   Ops &ops_;
+  IPositionEncoding &positionEncoding_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;
   TensorView cache_qkv_;
