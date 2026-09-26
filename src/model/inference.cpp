@@ -138,6 +138,21 @@ std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
   return ids;
 }
 
+uint32_t trained_context(const InferRuntime &rt) {
+  return std::min(rt.cfg.model.max_seq_len, rt.cfg.training.train_seq_len);
+}
+
+// The model only sees the last `context` tokens: generation slides this
+// window forward instead of stopping once the text reaches the context size.
+std::vector<int32_t> context_window(const std::vector<int32_t> &ids,
+                                    uint32_t context) {
+  if (ids.size() <= static_cast<size_t>(context)) {
+    return ids;
+  }
+  return std::vector<int32_t>(ids.end() - static_cast<std::ptrdiff_t>(context),
+                              ids.end());
+}
+
 TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
   const int64_t prompt_token_rows = static_cast<int64_t>(ids.size());
   TensorView ids_t =
@@ -280,15 +295,7 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
   std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
   std::mt19937 rng(rt.cfg.inference.seed);
 
-  const uint32_t max_seq =
-      std::min(rt.cfg.model.max_seq_len, rt.cfg.training.train_seq_len);
-  if (ids.size() >= static_cast<size_t>(max_seq)) {
-    throw std::runtime_error(
-        "Inference prompt is too long for the trained context: prompt_tokens=" +
-        std::to_string(ids.size()) +
-        ", trained_context=" + std::to_string(max_seq) +
-        ". Use a shorter prompt or train with a larger training.train_seq_len.");
-  }
+  const uint32_t max_seq = trained_context(rt);
   const uint32_t max_new = rt.cfg.inference.max_new;
   std::ostringstream start;
   start << R"(Inference started: prompt=")" << escape_token_for_log(prompt)
@@ -297,9 +304,13 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
         << " top_p=" << rt.cfg.inference.top_p
         << " seed=" << rt.cfg.inference.seed
         << " trained_context=" << max_seq;
+  if (ids.size() > static_cast<size_t>(max_seq)) {
+    start << " (prompt_tokens=" << ids.size() << ", model sees the last "
+          << max_seq << ")";
+  }
   report_if(rt.sink, ReportEvent::START, 0, 0.0f, start.str());
-  for (uint32_t step = 0; step < max_new && ids.size() < max_seq; ++step) {
-    TensorView logits = forward_prompt(rt, ids);
+  for (uint32_t step = 0; step < max_new; ++step) {
+    TensorView logits = forward_prompt(rt, context_window(ids, max_seq));
     const std::vector<float> row_logits =
         read_last_row_logits(*rt.backend, logits);
     const int32_t next =
@@ -321,16 +332,8 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
 std::string inspect_distribution(InferRuntime &rt, const std::string &prompt) {
   constexpr size_t kTopK = 5;
 
-  const std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
-  const uint32_t max_seq =
-      std::min(rt.cfg.model.max_seq_len, rt.cfg.training.train_seq_len);
-  if (ids.size() > static_cast<size_t>(max_seq)) {
-    throw std::runtime_error(
-        "Inspect prompt is too long for the trained context: prompt_tokens=" +
-        std::to_string(ids.size()) +
-        ", trained_context=" + std::to_string(max_seq) +
-        ". Use a shorter prompt or train with a larger training.train_seq_len.");
-  }
+  const std::vector<int32_t> ids = context_window(
+      prompt_ids(*rt.tokenizer, prompt), trained_context(rt));
   const TensorView logits = forward_prompt(rt, ids);
   const std::vector<float> row_logits = read_last_row_logits(*rt.backend, logits);
   const int64_t cols = static_cast<int64_t>(row_logits.size());
