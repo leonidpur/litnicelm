@@ -105,10 +105,9 @@ void TrainingSessionController::init_tensors_xy_ready(int64_t x_rows,
                                                       int64_t x_cols,
                                                       int64_t y_rows,
                                                       int64_t y_cols,
-                                                      const TensorView &tok_emb,
-                                                      const TensorView &pos_emb) {
+                                                      const TensorView &tok_emb) {
   for (const auto &observer : observers_) {
-    observer->init_tensors_xy_ready(x_rows, x_cols, y_rows, y_cols, tok_emb, pos_emb);
+    observer->init_tensors_xy_ready(x_rows, x_cols, y_rows, y_cols, tok_emb);
   }
 }
 

@@ -52,8 +52,8 @@ public:
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) const;
   void accumulate_embedding_grads(const TensorView &ids,
-                                  const TensorView &d_cur, TensorView &d_tok,
-                                  TensorView &d_pos) const;
+                                  const TensorView &d_cur,
+                                  TensorView &d_tok) const;
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                           TensorView &out_loss) const;
   void cross_entropy_mean_backward_inplace(TensorView &logits,

@@ -100,8 +100,7 @@ struct BackendApiV1 {
   void (*accumulate_embedding_grads)(void *backend,
                                      const BackendTensorView *ids,
                                      const BackendTensorView *d_cur,
-                                     const BackendTensorView *d_tok,
-                                     const BackendTensorView *d_pos);
+                                     const BackendTensorView *d_tok);
   void (*cross_entropy_mean)(void *backend, const BackendTensorView *logits,
                              const BackendTensorView *targets,
                              const BackendTensorView *out_loss);
@@ -161,7 +160,7 @@ struct BackendApiV1 {
   BackendMemoryInfo (*memory_info)(void *backend);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 16;
+inline constexpr uint32_t kBackendApiVersion = 17;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

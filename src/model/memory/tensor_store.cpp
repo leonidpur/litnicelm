@@ -251,12 +251,15 @@ private:
 
 TensorStore::~TensorStore() = default;
 
-TensorStore::TensorStore(const Config &cfg, const NamedLayout &param_layout,
+TensorStore::TensorStore(const Config &cfg,
+                         const IPositionEncoding &position_encoding,
+                         const NamedLayout &param_layout,
                              void *params_base, uint64_t params_bytes,
                              Device device, const NamedLayout &temp_layout,
                              void *temp_base, uint64_t temp_bytes,
                              TempLayoutKind temp_kind)
-    : cfg_(cfg), base_(reinterpret_cast<uint8_t *>(params_base)),
+    : cfg_(cfg), positionEncoding_(position_encoding),
+      base_(reinterpret_cast<uint8_t *>(params_base)),
       bytes_(params_bytes), device_(device) {
   require(base_ != nullptr, "params_base is null");
   require(bytes_ > 0, "params_bytes must be > 0");
@@ -313,9 +316,11 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
   LayoutCursor cursor(param_layout.slices(), "parameter");
   tok_embedding_ = make_view_f32(cursor.next("tok_embedding"),
                                  {vocab_size, model_dim});
-  pos_embedding_ = make_view_f32(
-      cursor.next("pos_embedding"),
-      {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim});
+  if (positionEncoding_.needs_position_table()) {
+    pos_embedding_ = make_view_f32(
+        cursor.next("pos_embedding"),
+        {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim});
+  }
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
     LayerParamViews views;
     views.ln1_gamma =
@@ -1872,7 +1877,9 @@ TensorView TensorStore::layer_ffn_b2(int layer) const {
 }
 
 const TensorView &TensorStore::tok_embedding() const { return tok_embedding_; }
-const TensorView &TensorStore::pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorStore::pos_embedding() const {
+  return param_pos_embedding();
+}
 const TensorView &TensorStore::lnf_gamma() const { return lnf_gamma_; }
 const TensorView &TensorStore::lnf_beta() const { return lnf_beta_; }
 const TensorView &TensorStore::lm_head_w() const { return lm_head_w_; }
@@ -1926,7 +1933,15 @@ const TensorView &TensorStore::param_ln2_beta(int layer) const {
   return layer_param_views_[static_cast<size_t>(layer)].ln2_beta;
 }
 const TensorView &TensorStore::param_tok_embedding() const { return tok_embedding_; }
-const TensorView &TensorStore::param_pos_embedding() const { return pos_embedding_; }
+const TensorView &TensorStore::param_pos_embedding() const {
+  require(positionEncoding_.needs_position_table(),
+          std::string("pos_embedding is not allocated for position encoding ") +
+              positionEncoding_.name());
+  return pos_embedding_;
+}
+const IPositionEncoding &TensorStore::position_encoding() const {
+  return positionEncoding_;
+}
 const TensorView &TensorStore::param_lnf_gamma() const { return lnf_gamma_; }
 const TensorView &TensorStore::param_lnf_beta() const { return lnf_beta_; }
 const TensorView &TensorStore::param_lm_head_w() const { return lm_head_w_; }
@@ -1973,7 +1988,9 @@ void TensorStore::initialize_parameters_deterministic(
   };
 
   init_weight(tok_embedding_, 0.02f);
-  init_weight(pos_embedding_, 0.02f);
+  if (positionEncoding_.needs_position_table()) {
+    init_weight(pos_embedding_, 0.02f);
+  }
   for (const LayerParamViews &layer : layer_param_views_) {
     fill_view(layer.ln1_gamma, 1.0f);
     fill_view(layer.ln1_beta, 0.0f);

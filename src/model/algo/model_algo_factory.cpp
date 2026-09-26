@@ -3,6 +3,7 @@
 #include "ffn.hpp"
 #include "fused_bias_relu_ffn.hpp"
 #include "inplace_fused_bias_relu_ffn.hpp"
+#include "position_encoding.hpp"
 #include "self_attention.hpp"
 #include "self_attention_fused_inplace.hpp"
 #include "self_attention_fused_inplace_multistream.hpp"
@@ -43,4 +44,16 @@ std::unique_ptr<IFFN> ModelAlgoFactory::create_ffn(
         layer_index, cfg, tensor_store, gradient_store, ops);
   }
   throw std::runtime_error("ModelAlgoFactory: unknown FFN implementation");
+}
+
+std::unique_ptr<IPositionEncoding>
+ModelAlgoFactory::create_position_encoding(const Config &cfg) const {
+  switch (cfg_.position_encoding) {
+  case PositionEncodingKind::Learned:
+    return std::make_unique<LearnedPositionEncoding>(cfg);
+  case PositionEncodingKind::None:
+    return std::make_unique<NoPositionEncoding>();
+  }
+  throw std::runtime_error(
+      "ModelAlgoFactory: unknown position encoding implementation");
 }

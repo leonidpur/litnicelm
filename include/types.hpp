@@ -147,6 +147,7 @@ struct MemoryConfig {
 struct ModelAlgoRuntimeConfig {
   std::string attention = "reference";
   std::string ffn = "reference";
+  std::string position_encoding = "learned";
 };
 
 struct Command;

@@ -14,9 +14,15 @@ enum class FFNImplKind {
   InplaceFusedBiasRelu,
 };
 
+enum class PositionEncodingKind {
+  Learned,
+  None,
+};
+
 struct ModelAlgoConfig {
   AttentionImplKind attention_impl = AttentionImplKind::Reference;
   FFNImplKind ffn_impl = FFNImplKind::Reference;
+  PositionEncodingKind position_encoding = PositionEncodingKind::Learned;
 
   static ModelAlgoConfig from_config(const Config &cfg);
 };

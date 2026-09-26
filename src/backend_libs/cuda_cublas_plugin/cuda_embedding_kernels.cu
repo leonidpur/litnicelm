@@ -26,9 +26,7 @@ __global__ void embedding_lookup_kernel(KernelTensorView table,
 
 __global__ void accumulate_embedding_grads_kernel(KernelTensorView ids,
                                                   KernelTensorView d_cur,
-                                                  KernelTensorView d_tok,
-                                                  KernelTensorView d_pos,
-                                                  int64_t seq_len) {
+                                                  KernelTensorView d_tok) {
   const int64_t idx =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int64_t total = d_cur.rows * d_cur.cols;
@@ -44,9 +42,7 @@ __global__ void accumulate_embedding_grads_kernel(KernelTensorView ids,
   }
 
   const float g = load_f32(d_cur, t, d);
-  const int64_t seq_pos = seq_len > 0 ? t % seq_len : t;
   atomicAdd(reinterpret_cast<float *>(tensor_ptr_mut(d_tok, token, d)), g);
-  atomicAdd(reinterpret_cast<float *>(tensor_ptr_mut(d_pos, seq_pos, d)), g);
 }
 
 } // namespace
@@ -65,16 +61,14 @@ void launch_embedding_lookup(const TensorView &table, const TensorView &ids,
 
 void launch_accumulate_embedding_grads(const TensorView &ids,
                                        const TensorView &d_cur,
-                                       TensorView &d_tok, TensorView &d_pos,
-                                       int64_t seq_len) {
+                                       TensorView &d_tok) {
   const int64_t total = tensor_rows(d_cur) * tensor_cols(d_cur);
   accumulate_embedding_grads_kernel<<<
       static_cast<unsigned int>((total + kThreadsPerBlock - 1) /
                                 kThreadsPerBlock),
       kThreadsPerBlock>>>(to_kernel_index_vector_view(ids),
                           to_kernel_tensor_view(d_cur),
-                          to_kernel_tensor_view(d_tok),
-                          to_kernel_tensor_view(d_pos), seq_len);
+                          to_kernel_tensor_view(d_tok));
   check_kernel_launch("accumulate_embedding_grads_kernel");
 }
 

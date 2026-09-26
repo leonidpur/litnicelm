@@ -14,7 +14,8 @@
 
 class GradientStore {
 public:
-  GradientStore(const Config &cfg, const NamedLayout &param_layout,
+  GradientStore(const Config &cfg, const IPositionEncoding &position_encoding,
+                const NamedLayout &param_layout,
                   void *params_base, uint64_t params_bytes,
                   const ArenaView &grad_arena);
 
@@ -38,7 +39,8 @@ private:
   std::unordered_map<const void *, TensorView> grad_by_param_data_;
   std::vector<NamedGradientSlot> named_gradient_slots_;
 
-  void build_gradient_views(const NamedLayout &param_layout);
+  void build_gradient_views(const NamedLayout &param_layout,
+                            const IPositionEncoding &position_encoding);
   void register_gradient_slot(const std::string &name, const TensorView &param,
                               const TensorView &grad);
   TensorView make_param_view_f32(const LayoutSlice &s, Shape shape) const;

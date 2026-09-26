@@ -9,6 +9,7 @@
 #include <vector>
 
 struct Config;
+class IPositionEncoding;
 
 struct LayoutSlice {
   std::string name;
@@ -19,7 +20,8 @@ struct LayoutSlice {
 
 class NamedLayout {
 public:
-  static NamedLayout build_param_layout(const Config &cfg);
+  static NamedLayout build_param_layout(const Config &cfg,
+                                        const IPositionEncoding &position_encoding);
   static NamedLayout build_training_temp_layout(const Config &cfg);
   static NamedLayout build_inference_temp_layout(const Config &cfg);
   static NamedLayout build_temp_layout(const Config &cfg);

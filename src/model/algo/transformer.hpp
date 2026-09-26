@@ -2,6 +2,7 @@
 
 #include <config.hpp>
 #include "gradient_store.hpp"
+#include "i_position_encoding.hpp"
 #include "model_algo_config.hpp"
 #include "model_algo_factory.hpp"
 #include "output_head.hpp"
@@ -20,7 +21,7 @@ class TrainingDiagnosticsController;
 
 // Decoder-only GPT-style transformer:
 //
-//  X = tok_embed(ids[B,S]) + pos_embed(0..S-1), broadcast over batch
+//  X = tok_embed(ids[B,S]); position_encoding.apply_to_input(X)
 //  for l in layers: X = layer_l(X)
 //  X = LN_f(X)
 //  logits = X * lm_head_w            // [B, S, V]
@@ -30,15 +31,15 @@ class TrainingDiagnosticsController;
 // - Device-specific checks belong inside Ops / TensorStore.
 // - Parameter names assumed from the named parameter layout:
 //     tok_embedding  [V, D]
-//     pos_embedding  [S, D]
 //     lnf_gamma      [1, D]
 //     lnf_beta       [1, D]
 //     lm_head_w      [D, V]
 class Transformer {
 public:
-  Transformer(const Config &cfg, TensorStore &tensor_store,
-              GradientStore *gradient_store, Ops &ops,
-              ReportSink *sink = nullptr);
+  // position_encoding must outlive the Transformer; it is bound here.
+  Transformer(const Config &cfg, IPositionEncoding &position_encoding,
+              TensorStore &tensor_store, GradientStore *gradient_store,
+              Ops &ops, ReportSink *sink = nullptr);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
@@ -54,6 +55,7 @@ private:
   void validate_contract() const;
 
   const Config &cfg_;
+  IPositionEncoding &positionEncoding_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
   Ops &ops_;

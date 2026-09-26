@@ -442,14 +442,13 @@ public:
   }
 
   void accumulate_embedding_grads(const TensorView &ids,
-                                  const TensorView &d_cur, TensorView &d_tok,
-                                  TensorView &d_pos) override {
+                                  const TensorView &d_cur,
+                                  TensorView &d_tok) override {
     const BackendTensorView ids_view = to_backend_tensor_view(ids);
     const BackendTensorView d_cur_view = to_backend_tensor_view(d_cur);
     const BackendTensorView d_tok_view = to_backend_tensor_view(d_tok);
-    const BackendTensorView d_pos_view = to_backend_tensor_view(d_pos);
     api_->accumulate_embedding_grads(instance_, &ids_view, &d_cur_view,
-                                     &d_tok_view, &d_pos_view);
+                                     &d_tok_view);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
@@ -1367,23 +1366,19 @@ void DefaultCpuBackend::embedding_lookup(const TensorView &table, const TensorVi
 
 void DefaultCpuBackend::accumulate_embedding_grads(const TensorView &ids,
                                             const TensorView &d_cur,
-                                            TensorView &d_tok,
-                                            TensorView &d_pos) {
+                                            TensorView &d_tok) {
   const uint64_t token_count = ids.numel();
   const int64_t model_dim = d_cur.dim(d_cur.rank() - 1);
   const int64_t vocab_size = d_tok.dim(0);
-  const int64_t seq_len = ids.dim(ids.rank() - 1);
   for (uint64_t t = 0; t < token_count; ++t) {
     const int64_t idx = CpuMemOperations::load_index_linear(ids, t);
     if (idx < 0 || idx >= vocab_size) {
       throw std::runtime_error(
           "DefaultCpuBackend::accumulate_embedding_grads: token id out of range");
     }
-    const int64_t seq_pos = static_cast<int64_t>(t % static_cast<uint64_t>(seq_len));
     for (int64_t d = 0; d < model_dim; ++d) {
       const float g = CpuMemOperations::load_f32_prefix_last1(d_cur, t, d);
       CpuMemOperations::store_f32(d_tok, idx, d, CpuMemOperations::load_f32(d_tok, idx, d) + g);
-      CpuMemOperations::store_f32(d_pos, seq_pos, d, CpuMemOperations::load_f32(d_pos, seq_pos, d) + g);
     }
   }
 }

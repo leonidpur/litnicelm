@@ -31,11 +31,24 @@ FFNImplKind parse_ffn_impl(const std::string &value) {
   throw std::runtime_error("ModelAlgoConfig: unsupported model_algo.ffn: " +
                            value);
 }
+
+PositionEncodingKind parse_position_encoding(const std::string &value) {
+  if (value == "learned") {
+    return PositionEncodingKind::Learned;
+  }
+  if (value == "none") {
+    return PositionEncodingKind::None;
+  }
+  throw std::runtime_error(
+      "ModelAlgoConfig: unsupported model_algo.position_encoding: " + value);
+}
 } // namespace
 
 ModelAlgoConfig ModelAlgoConfig::from_config(const Config &cfg) {
   ModelAlgoConfig out;
   out.attention_impl = parse_attention_impl(cfg.model_algo.attention);
   out.ffn_impl = parse_ffn_impl(cfg.model_algo.ffn);
+  out.position_encoding =
+      parse_position_encoding(cfg.model_algo.position_encoding);
   return out;
 }

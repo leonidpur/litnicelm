@@ -2,6 +2,7 @@
 
 #include "dataset.hpp"
 #include "memory/training_memory_manager.hpp"
+#include "model_algo_factory.hpp"
 #include "training_report_sink.hpp"
 #include "training_session_controller.hpp"
 #include "trainer_validation_utils.hpp"
@@ -252,11 +253,16 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   // Asset construction
   //////////////////////////
   std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(runtime_cfg);
-  TrainingMemoryManager memory_manager(runtime_cfg, *backend, session_controller);
+  std::unique_ptr<IPositionEncoding> position_encoding =
+      ModelAlgoFactory(ModelAlgoConfig::from_config(runtime_cfg))
+          .create_position_encoding(runtime_cfg);
+  TrainingMemoryManager memory_manager(runtime_cfg, *position_encoding,
+                                       *backend, session_controller);
   Ops ops(*backend);
   OptimizerAdamW opt(*backend);
-  Transformer transformer(runtime_cfg, memory_manager.tensor_store(),
-                    &memory_manager.gradient_store(), ops, &training_sink);
+  Transformer transformer(runtime_cfg, *position_encoding,
+                          memory_manager.tensor_store(),
+                          &memory_manager.gradient_store(), ops, &training_sink);
 
   TextDataset loader(memory_manager.tensor_store(), *backend, runtime_cfg,
                      /*shuffle_blocks=*/true, &training_sink, &session_controller);

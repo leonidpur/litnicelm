@@ -18,7 +18,10 @@ class TrainingSessionController;
 
 class TrainingMemoryManager {
 public:
-  TrainingMemoryManager(const Config &cfg, DeviceBackend &backend,
+  // position_encoding must outlive the manager.
+  TrainingMemoryManager(const Config &cfg,
+                        const IPositionEncoding &position_encoding,
+                        DeviceBackend &backend,
                         TrainingSessionController &session_controller);
 
   const NamedLayout &param_layout() const;

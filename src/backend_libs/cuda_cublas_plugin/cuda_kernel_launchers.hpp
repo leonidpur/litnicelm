@@ -58,8 +58,7 @@ void launch_embedding_lookup(const TensorView &table, const TensorView &ids,
                              TensorView &out);
 void launch_accumulate_embedding_grads(const TensorView &ids,
                                        const TensorView &d_cur,
-                                       TensorView &d_tok, TensorView &d_pos,
-                                       int64_t seq_len);
+                                       TensorView &d_tok);
 
 void launch_adamw_step(TensorView &params, const TensorView &grads,
                        TensorView &m, TensorView &v, float learning_rate,

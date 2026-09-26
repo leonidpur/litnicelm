@@ -153,17 +153,20 @@ inline void validate_output_head_params(const TensorView &lnf_gamma,
 }
 
 inline void validate_transformer_embedding_params(const TensorView &tok_emb,
-                                                  const TensorView &pos_emb,
                                                   int64_t model_dim,
                                                   int64_t vocab_size,
-                                                  int64_t max_seq_len,
                                                   const char *who) {
   require(tok_emb.dim(0) == vocab_size && tok_emb.dim(1) == model_dim, who,
           "tok_embedding must be [V, D]");
-  require(pos_emb.dim(0) == max_seq_len && pos_emb.dim(1) == model_dim, who,
-          "pos_embedding must be [S, D]");
-  validate_same_device_dtype(tok_emb, pos_emb, who,
-                             "transformer parameters");
+}
+
+inline void validate_position_embedding_param(const TensorView &pos_emb,
+                                              int64_t max_seq_len,
+                                              int64_t model_dim,
+                                              const char *who) {
+  require(pos_emb.rank() == 2 && pos_emb.dim(0) == max_seq_len &&
+              pos_emb.dim(1) == model_dim,
+          who, "pos_embedding must be [S, D]");
 }
 
 } // namespace TensorContracts

@@ -33,7 +33,8 @@ public:
     StatePair ffn_b2;
   };
 
-  AdamStateStore(const Config &cfg, const NamedLayout &param_layout,
+  AdamStateStore(const Config &cfg, const IPositionEncoding &position_encoding,
+                 const NamedLayout &param_layout,
                    void *params_base, uint64_t params_bytes,
                    const AdamStateView &adam_state);
 
@@ -76,7 +77,8 @@ private:
   std::unordered_map<const void *, StatePair> state_by_param_data_;
 
   void check_layer(int layer) const;
-  void build_state_views(const NamedLayout &param_layout);
+  void build_state_views(const NamedLayout &param_layout,
+                         const IPositionEncoding &position_encoding);
   void register_state(const TensorView &param, const StatePair &state);
   TensorView make_param_view_f32(const LayoutSlice &s, Shape shape) const;
   TensorView make_state_view_f32(const LayoutSlice &s, Shape shape,

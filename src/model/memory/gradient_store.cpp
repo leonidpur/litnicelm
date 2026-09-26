@@ -1,4 +1,5 @@
 #include "gradient_store.hpp"
+#include "i_position_encoding.hpp"
 
 #include <utils/assert.hpp>
 
@@ -41,6 +42,7 @@ private:
 } // namespace
 
 GradientStore::GradientStore(const Config &cfg,
+                                 const IPositionEncoding &position_encoding,
                                  const NamedLayout &param_layout,
                                  void *params_base, uint64_t params_bytes,
                                  const ArenaView &grad_arena)
@@ -61,7 +63,7 @@ GradientStore::GradientStore(const Config &cfg,
           "grad arena must cover parameter layout bytes");
   require((param_layout.total_bytes() % sizeof(float)) == 0,
           "param layout bytes must be a multiple of sizeof(float)");
-  build_gradient_views(param_layout);
+  build_gradient_views(param_layout, position_encoding);
 }
 
 TensorView GradientStore::grad_for_param(const TensorView &param) const {
@@ -75,7 +77,9 @@ TensorView GradientStore::full_gradient_view() const {
   return full_gradient_view_;
 }
 
-void GradientStore::build_gradient_views(const NamedLayout &param_layout) {
+void GradientStore::build_gradient_views(
+    const NamedLayout &param_layout,
+    const IPositionEncoding &position_encoding) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -90,15 +94,17 @@ void GradientStore::build_gradient_views(const NamedLayout &param_layout) {
       make_param_view_f32(tok_embedding_slice, {vocab_size, model_dim}),
       make_grad_view_f32(tok_embedding_slice, {vocab_size, model_dim}));
 
-  const LayoutSlice &pos_embedding_slice = cursor.next("pos_embedding");
-  register_gradient_slot(
-      "pos_embedding",
-      make_param_view_f32(
-          pos_embedding_slice,
-          {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}),
-      make_grad_view_f32(
-          pos_embedding_slice,
-          {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}));
+  if (position_encoding.needs_position_table()) {
+    const LayoutSlice &pos_embedding_slice = cursor.next("pos_embedding");
+    register_gradient_slot(
+        "pos_embedding",
+        make_param_view_f32(
+            pos_embedding_slice,
+            {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}),
+        make_grad_view_f32(
+            pos_embedding_slice,
+            {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}));
+  }
 
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
     const int l = static_cast<int>(layer);

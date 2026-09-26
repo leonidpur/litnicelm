@@ -62,7 +62,6 @@ void ReportingObserver::probe_output_head_ready(const TensorView &lm_head_w,
 
 void ReportingObserver::init_tensors_xy_ready(int64_t x_rows, int64_t x_cols,
                                               int64_t y_rows, int64_t y_cols,
-                                              const TensorView &tok_emb,
-                                              const TensorView &pos_emb) {
-  sink_.init_tensors_X_Y(x_rows, x_cols, y_rows, y_cols, tok_emb, pos_emb);
+                                              const TensorView &tok_emb) {
+  sink_.init_tensors_X_Y(x_rows, x_cols, y_rows, y_cols, tok_emb);
 }

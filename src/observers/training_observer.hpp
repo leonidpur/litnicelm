@@ -73,14 +73,12 @@ public:
   }
   virtual void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols,
                                      int64_t y_rows, int64_t y_cols,
-                                     const TensorView &tok_emb,
-                                     const TensorView &pos_emb) {
+                                     const TensorView &tok_emb) {
     (void)x_rows;
     (void)x_cols;
     (void)y_rows;
     (void)y_cols;
     (void)tok_emb;
-    (void)pos_emb;
   }
 
   virtual void on_training_start(TrainingState &state,

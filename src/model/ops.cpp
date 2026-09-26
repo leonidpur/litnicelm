@@ -271,8 +271,8 @@ void Ops::embedding_lookup(const TensorView &table, const TensorView &ids,
   device_backend_.embedding_lookup(table, ids, out);
 }
 void Ops::accumulate_embedding_grads(const TensorView &ids,
-                                     const TensorView &d_cur, TensorView &d_tok,
-                                     TensorView &d_pos) const {
+                                     const TensorView &d_cur,
+                                     TensorView &d_tok) const {
   require_ops(ids.dtype() == DType::I32 || ids.dtype() == DType::F32,
               "accumulate_embedding_grads(ids) requires I32 or F32");
   require_ops(ids.numel() * static_cast<uint64_t>(d_cur.dim(d_cur.rank() - 1)) ==
@@ -280,11 +280,7 @@ void Ops::accumulate_embedding_grads(const TensorView &ids,
               "accumulate_embedding_grads ids/d_cur numel mismatch");
   require_ops(d_tok.dim(1) == d_cur.dim(d_cur.rank() - 1),
               "accumulate_embedding_grads d_tok cols mismatch");
-  require_ops(d_pos.dim(1) == d_cur.dim(d_cur.rank() - 1),
-              "accumulate_embedding_grads d_pos cols mismatch");
-  require_ops(ids.rank() >= 1 && d_pos.dim(0) >= ids.dim(ids.rank() - 1),
-              "accumulate_embedding_grads d_pos rows too small");
-  device_backend_.accumulate_embedding_grads(ids, d_cur, d_tok, d_pos);
+  device_backend_.accumulate_embedding_grads(ids, d_cur, d_tok);
 }
 void Ops::cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                              TensorView &out_loss) const {

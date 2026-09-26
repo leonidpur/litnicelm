@@ -29,8 +29,7 @@ public:
   void probe_output_head_ready(const TensorView &lm_head_w,
                                const TensorView &d_lm_w) override;
   void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols, int64_t y_rows,
-                             int64_t y_cols, const TensorView &tok_emb,
-                             const TensorView &pos_emb) override;
+                             int64_t y_cols, const TensorView &tok_emb) override;
 
 private:
   TrainingReportSink &sink_;

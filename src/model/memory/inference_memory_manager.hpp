@@ -14,7 +14,10 @@ class DeviceBackend;
 
 class InferenceMemoryManager {
 public:
-  InferenceMemoryManager(const Config &cfg, DeviceBackend &backend);
+  // position_encoding must outlive the manager.
+  InferenceMemoryManager(const Config &cfg,
+                         const IPositionEncoding &position_encoding,
+                         DeviceBackend &backend);
 
   const NamedLayout &param_layout() const;
   const NamedLayout &temp_layout() const;

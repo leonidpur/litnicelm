@@ -415,9 +415,9 @@ public:
   }
 
   void accumulate_embedding_grads(const TensorView &ids,
-                                  const TensorView &d_cur, TensorView &d_tok,
-                                  TensorView &d_pos) override {
-    cpu_backend_.accumulate_embedding_grads(ids, d_cur, d_tok, d_pos);
+                                  const TensorView &d_cur,
+                                  TensorView &d_tok) override {
+    cpu_backend_.accumulate_embedding_grads(ids, d_cur, d_tok);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
@@ -761,12 +761,10 @@ void plugin_embedding_lookup(void *backend, const BackendTensorView *table,
 void plugin_accumulate_embedding_grads(void *backend,
                                        const BackendTensorView *ids,
                                        const BackendTensorView *d_cur,
-                                       const BackendTensorView *d_tok,
-                                       const BackendTensorView *d_pos) {
+                                       const BackendTensorView *d_tok) {
   TensorView d_tok_view = to_tensor_view(*d_tok);
-  TensorView d_pos_view = to_tensor_view(*d_pos);
   to_openblas_backend(backend).accumulate_embedding_grads(
-      to_tensor_view(*ids), to_tensor_view(*d_cur), d_tok_view, d_pos_view);
+      to_tensor_view(*ids), to_tensor_view(*d_cur), d_tok_view);
 }
 
 void plugin_cross_entropy_mean(void *backend, const BackendTensorView *logits,

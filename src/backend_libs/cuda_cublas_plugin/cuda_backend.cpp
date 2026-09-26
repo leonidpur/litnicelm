@@ -343,17 +343,15 @@ public:
   }
 
   void accumulate_embedding_grads(const TensorView &ids,
-                                  const TensorView &d_cur, TensorView &d_tok,
-                                  TensorView &d_pos) override {
+                                  const TensorView &d_cur,
+                                  TensorView &d_tok) override {
     require_cuda_row_major(ids, "accumulate_embedding_grads(ids)");
     require_cuda_f32_row_major(d_cur, "accumulate_embedding_grads(d_cur)");
     require_cuda_f32_row_major(d_tok, "accumulate_embedding_grads(d_tok)");
-    require_cuda_f32_row_major(d_pos, "accumulate_embedding_grads(d_pos)");
     if (tensor_rows(d_cur) == 0 || tensor_cols(d_cur) == 0) {
       return;
     }
-    launch_accumulate_embedding_grads(ids, d_cur, d_tok, d_pos,
-                                      ids.dim(ids.rank() - 1));
+    launch_accumulate_embedding_grads(ids, d_cur, d_tok);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,

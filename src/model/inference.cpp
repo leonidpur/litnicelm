@@ -50,6 +50,7 @@ struct InferRuntime {
   Config cfg;
   std::unique_ptr<DeviceBackend> backend;
   std::unique_ptr<Tokenizer> tokenizer;
+  std::unique_ptr<IPositionEncoding> position_encoding;
   std::unique_ptr<InferenceMemoryManager> memory_manager;
   Ops ops;
   std::unique_ptr<Transformer> model;
@@ -64,9 +65,13 @@ struct InferRuntime {
     cfg.model.target_vocab_size =
         static_cast<uint32_t>(tokenizer->vocab_size());
     validate_vocab_contract_or_throw(cfg, *tokenizer);
-    memory_manager = std::make_unique<InferenceMemoryManager>(cfg, *backend);
-    model = std::make_unique<Transformer>(
-        cfg, memory_manager->tensor_store(), nullptr, ops, sink_in);
+    position_encoding = ModelAlgoFactory(ModelAlgoConfig::from_config(cfg))
+                            .create_position_encoding(cfg);
+    memory_manager = std::make_unique<InferenceMemoryManager>(
+        cfg, *position_encoding, *backend);
+    model = std::make_unique<Transformer>(cfg, *position_encoding,
+                                          memory_manager->tensor_store(),
+                                          nullptr, ops, sink_in);
   }
 };
 

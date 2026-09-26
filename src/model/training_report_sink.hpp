@@ -52,8 +52,7 @@ public:
   void report_probe_loss(const TensorView &loss_scalar, const TensorView &logits,
                          const TensorView &targets) override;
   void init_tensors_X_Y(int64_t x_rows, int64_t x_cols, int64_t y_rows,
-                        int64_t y_cols, const TensorView &tok_emb,
-                        const TensorView &pos_emb) override;
+                        int64_t y_cols, const TensorView &tok_emb) override;
 
 private:
   ConsoleSink console_;

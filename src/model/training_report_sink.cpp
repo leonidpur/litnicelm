@@ -262,8 +262,7 @@ void TrainingReportSink::report_probe_loss(const TensorView &loss_scalar,
 
 void TrainingReportSink::init_tensors_X_Y(int64_t x_rows, int64_t x_cols,
                                           int64_t y_rows, int64_t y_cols,
-                                          const TensorView &tok_emb,
-                                          const TensorView &pos_emb) {
+                                          const TensorView &tok_emb) {
   if (init_tensors_report_count_ >= init_tensors_report_limit_) {
     return;
   }
@@ -274,10 +273,9 @@ void TrainingReportSink::init_tensors_X_Y(int64_t x_rows, int64_t x_cols,
       << "], Y=[" << y_rows << "x" << y_cols << "]";
   report(ReportEvent::START, oss.str());
 
-  if (tok_emb.device() != Device::CPU || pos_emb.device() != Device::CPU ||
-      tok_emb.dtype() != DType::F32 || pos_emb.dtype() != DType::F32) {
+  if (tok_emb.device() != Device::CPU || tok_emb.dtype() != DType::F32) {
     report(ReportEvent::PROGRESS,
-           "[TrainingReportSink][PROGRESS] init_tensors_X_Y: tok_emb/pos_emb preview "
+           "[TrainingReportSink][PROGRESS] init_tensors_X_Y: tok_emb preview "
            "requires CPU F32.");
     return;
   }
@@ -297,27 +295,6 @@ void TrainingReportSink::init_tensors_X_Y(int64_t x_rows, int64_t x_cols,
       row << tok_emb.at_f32(i, j);
     }
     if (tok_emb.shape().c > take) {
-      row << ", ...";
-    }
-    row << "]";
-    report(ReportEvent::PROGRESS, row.str());
-  }
-
-  const int64_t pos_limit = std::min<int64_t>(50, pos_emb.shape().r);
-  report(ReportEvent::PROGRESS,
-         "[TrainingReportSink][PROGRESS] pos_emb first " + std::to_string(pos_limit) +
-             " positions (v[0..3]):");
-  for (int64_t i = 0; i < pos_limit; ++i) {
-    std::ostringstream row;
-    row << "  pos_emb[" << i << "] = [";
-    const int64_t take = std::min<int64_t>(4, pos_emb.shape().c);
-    for (int64_t j = 0; j < take; ++j) {
-      if (j != 0) {
-        row << ", ";
-      }
-      row << pos_emb.at_f32(i, j);
-    }
-    if (pos_emb.shape().c > take) {
       row << ", ...";
     }
     row << "]";
@@ -615,8 +592,10 @@ void TrainingReportSink::report_tensor_store_topology(
   std::vector<std::string> no_decay_rows;
   append_param_row(decay_rows, no_decay_rows, "tok_embedding",
                    tensor_store.param_tok_embedding());
-  append_param_row(decay_rows, no_decay_rows, "pos_embedding",
-                   tensor_store.param_pos_embedding());
+  if (tensor_store.position_encoding().needs_position_table()) {
+    append_param_row(decay_rows, no_decay_rows, "pos_embedding",
+                     tensor_store.param_pos_embedding());
+  }
   for (uint32_t l = 0; l < cfg.model.n_layers; ++l) {
     const int li = static_cast<int>(l);
     const std::string p = "layer" + std::to_string(l) + ".";

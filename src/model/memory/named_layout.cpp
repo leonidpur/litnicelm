@@ -1,6 +1,7 @@
 #include "named_layout.hpp"
 
 #include <config.hpp>
+#include "i_position_encoding.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -37,7 +38,8 @@ void append_param_spec(std::vector<ParamSliceSpec> &out, const std::string &name
 }
 }
 
-NamedLayout NamedLayout::build_param_layout(const Config &cfg) {
+NamedLayout NamedLayout::build_param_layout(
+    const Config &cfg, const IPositionEncoding &position_encoding) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -55,11 +57,13 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg) {
                                               cfg.model.d_model, DType::F32,
                                               "tok_embedding"),
                     true);
-  append_param_spec(specs, "pos_embedding",
-                    NamedLayout::tensor_bytes(cfg.model.max_seq_len,
-                                              cfg.model.d_model, DType::F32,
-                                              "pos_embedding"),
-                    true);
+  if (position_encoding.needs_position_table()) {
+    append_param_spec(specs, "pos_embedding",
+                      NamedLayout::tensor_bytes(cfg.model.max_seq_len,
+                                                cfg.model.d_model, DType::F32,
+                                                "pos_embedding"),
+                      true);
+  }
 
   for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "layer" + std::to_string(l) + ".";

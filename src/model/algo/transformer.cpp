@@ -18,10 +18,13 @@ static void report_if(ReportSink *sink, ReportEvent event, uint32_t step,
                           message);
 }
 
-Transformer::Transformer(const Config &cfg, TensorStore &tensor_store,
+Transformer::Transformer(const Config &cfg,
+                         IPositionEncoding &position_encoding,
+                         TensorStore &tensor_store,
                          GradientStore *gradient_store, Ops &ops,
                          ReportSink *sink)
     : cfg_(cfg),
+      positionEncoding_(position_encoding),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops),
@@ -34,6 +37,7 @@ Transformer::Transformer(const Config &cfg, TensorStore &tensor_store,
     layers_.emplace_back(static_cast<int>(i), cfg_, tensorStore_,
                          gradientStore_, ops_, algoFactory_);
   }
+  positionEncoding_.bind(tensorStore_, gradientStore_, ops_);
   validate_contract();
 }
 
@@ -51,20 +55,18 @@ void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
     layer.set_diagnostics(diagnostics);
   }
   outputHead_.set_diagnostics(diagnostics);
+  positionEncoding_.set_diagnostics(diagnostics);
 }
 
 void Transformer::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.target_vocab_size);
-  const int64_t max_seq_len =
-      static_cast<int64_t>(cfg_.model.max_seq_len);
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
-  const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
   TensorContracts::validate_transformer_embedding_params(
-      tok_emb, pos_emb, model_dim, vocab_size, max_seq_len, "Transformer");
+      tok_emb, model_dim, vocab_size, "Transformer");
 }
 
 void Transformer::forward(const TensorView &ids, TensorView &logits,
@@ -80,25 +82,21 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
                                        vocab_size, "Transformer", "logits");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
-  const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
   TensorContracts::validate_same_device_dtype(tok_emb, logits, "Transformer",
                                               "params/logits");
-  require(pos_emb.device() == logits.device(), "pos_emb/logits device mismatch");
 
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
   ops_.embedding_lookup(tok_emb, ids, X);
-
-  TensorView pos_slice = pos_emb.subrows(0, seq_len);
-  ops_.add(X, pos_slice, X);
+  positionEncoding_.apply_to_input(X);
   cache_x0_ = X;
 
   TensorView report_Y = tensorStore_.temp_tr_Y(batch_size, seq_len);
   observer_->init_tensors_xy_ready(X.dim(0), X.dim(1) * X.dim(2),
                                    report_Y.dim(0),
                                    report_Y.dim(1) * report_Y.dim(2),
-                                   tok_emb, pos_emb);
+                                   tok_emb);
 
   for (size_t l = 0; l < layers_.size(); ++l) {
     TensorView Y = tensorStore_.temp_layer_hidden(static_cast<int>(l),
@@ -133,7 +131,6 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
           "backward ids/dlogits token-row mismatch");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
-  const TensorView &pos_emb = tensorStore_.param_pos_embedding();
 
   TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
                                        vocab_size, "Transformer", "dlogits");
@@ -154,17 +151,15 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   }
 
   TensorView d_tok = gradientStore_->grad_for_param(tok_emb);
-  TensorView d_pos = gradientStore_->grad_for_param(pos_emb);
   diagnostics_->bk_transformer_d_cur_before_embeddings(d_cur);
-  ops_.accumulate_embedding_grads(ids, d_cur, d_tok, d_pos);
+  ops_.accumulate_embedding_grads(ids, d_cur, d_tok);
   diagnostics_->bk_transformer_d_tok(d_tok);
-  diagnostics_->bk_transformer_d_pos(d_pos);
+  positionEncoding_.backward_input(d_cur);
 
   if (probe.embeddings && sink_ != nullptr) {
     sink_->report_probe_tensor("embeddings", "tok_embedding", tok_emb);
     sink_->report_probe_tensor("embeddings", "tok_embedding.grad", d_tok);
-    sink_->report_probe_tensor("embeddings", "pos_embedding", pos_emb);
-    sink_->report_probe_tensor("embeddings", "pos_embedding.grad", d_pos);
+    positionEncoding_.report_probes(*sink_);
   }
   observer_->on_backward_end();
 }

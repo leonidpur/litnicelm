@@ -259,6 +259,10 @@ bool map_model_algo_fields(const std::string &key, const std::string &value,
     cfg.model_algo.ffn = value;
     return true;
   }
+  if (key == "model_algo.position_encoding") {
+    cfg.model_algo.position_encoding = value;
+    return true;
+  }
   return false;
 }
 
