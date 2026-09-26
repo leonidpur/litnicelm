@@ -3,8 +3,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 namespace {
@@ -239,7 +243,128 @@ bool read_arena_payload(std::ifstream &in, DeviceBackend &backend,
   backend.copy_host2device(dst, staging_memory.data(), bytes);
   return true;
 }
+
+uint64_t fnv1a_update(uint64_t hash, const void *data, size_t len) {
+  const auto *bytes = reinterpret_cast<const uint8_t *>(data);
+  for (size_t i = 0; i < len; ++i) {
+    hash ^= static_cast<uint64_t>(bytes[i]);
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+void hash_string(uint64_t &hash, const std::string &value) {
+  hash = fnv1a_update(hash, value.data(), value.size());
+  const char sep = '\0';
+  hash = fnv1a_update(hash, &sep, 1);
+}
+
+void hash_file(uint64_t &hash, const std::filesystem::path &path) {
+  hash_string(hash, path.filename().string());
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    throw std::runtime_error("failed to open tokenizer artifact: " +
+                             path.string());
+  }
+  std::vector<char> buffer(64u * 1024u);
+  while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) ||
+         in.gcount() > 0) {
+    hash = fnv1a_update(hash, buffer.data(), static_cast<size_t>(in.gcount()));
+  }
+}
+
+std::string fingerprint_sidecar_path(const std::string &checkpoint_path) {
+  return checkpoint_path + ".tokfp";
+}
 } // namespace
+
+std::string checkpoint_tokenizer_fingerprint(const Config &cfg) {
+  namespace fs = std::filesystem;
+  uint64_t hash = 1469598103934665603ull;
+  hash_string(hash, "litnicelm-tokenizer-fingerprint-v1");
+  hash_string(hash, cfg.tokenizer.type);
+  hash_string(hash, std::to_string(cfg.tokenizer.target_vocab_size));
+  hash_string(hash, cfg.tokenizer.inter_file_boundary);
+
+  std::vector<fs::path> files;
+  if (!cfg.tokenizer.bpe_artifacts_dir.empty() &&
+      fs::is_directory(cfg.tokenizer.bpe_artifacts_dir)) {
+    for (const auto &entry : fs::directory_iterator(cfg.tokenizer.bpe_artifacts_dir)) {
+      if (entry.is_regular_file()) {
+        files.push_back(entry.path());
+      }
+    }
+  } else {
+    if (!cfg.tokenizer.bpe_vocab_file.empty()) {
+      files.push_back(cfg.tokenizer.bpe_vocab_file);
+    }
+    if (!cfg.tokenizer.bpe_merges_file.empty()) {
+      files.push_back(cfg.tokenizer.bpe_merges_file);
+    }
+  }
+  // Tokenizers without artifacts (e.g. "character") are identified by the
+  // config fields above alone.
+  std::sort(files.begin(), files.end());
+  for (const auto &file : files) {
+    hash_file(hash, file);
+  }
+
+  std::ostringstream oss;
+  oss << std::hex << std::setw(16) << std::setfill('0') << hash;
+  return oss.str();
+}
+
+bool write_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
+                                            const std::string &fingerprint,
+                                            std::string *error_detail) {
+  try {
+    const std::string sidecar = fingerprint_sidecar_path(checkpoint_path);
+    std::filesystem::path path(sidecar);
+    if (path.has_parent_path()) {
+      std::filesystem::create_directories(path.parent_path());
+    }
+    std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
+    if (!out) {
+      throw std::runtime_error("failed to open tokenizer fingerprint sidecar");
+    }
+    out << fingerprint << "\n";
+    return static_cast<bool>(out);
+  } catch (const std::exception &e) {
+    if (error_detail != nullptr) {
+      *error_detail = e.what();
+    }
+    return false;
+  }
+}
+
+bool verify_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
+                                             const std::string &fingerprint,
+                                             std::string *error_detail) {
+  try {
+    const std::string sidecar = fingerprint_sidecar_path(checkpoint_path);
+    std::ifstream in(sidecar, std::ios::binary);
+    if (!in) {
+      std::cerr << "Checkpoint warning: tokenizer fingerprint sidecar missing: "
+                << sidecar << "\n";
+      return true;
+    }
+    std::string stored;
+    std::getline(in, stored);
+    if (stored == fingerprint) {
+      return true;
+    }
+    if (error_detail != nullptr) {
+      *error_detail = "tokenizer fingerprint mismatch file=" + stored +
+                      " runtime=" + fingerprint;
+    }
+    return false;
+  } catch (const std::exception &e) {
+    if (error_detail != nullptr) {
+      *error_detail = e.what();
+    }
+    return false;
+  }
+}
 
 bool save_checkpoint(const std::string &path, const ModelConfig &model,
                      const std::string &conf_version,

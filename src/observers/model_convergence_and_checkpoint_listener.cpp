@@ -122,6 +122,13 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
                                cfg_.paths.model_file_latest + " | " +
                                error_detail);
     }
+    const std::string tokfp = checkpoint_tokenizer_fingerprint(cfg_);
+    if (!verify_checkpoint_tokenizer_fingerprint(cfg_.paths.model_file_latest,
+                                                 tokfp, &error_detail)) {
+      throw std::runtime_error("Failed to load checkpoint: " +
+                               cfg_.paths.model_file_latest + " | " +
+                               error_detail);
+    }
     restore_convergence_state(restored_convergence_state);
     observer_relay.on_checkpoint_load_end(true);
     const uint64_t total_steps =
@@ -392,6 +399,13 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     if (!ok) {
       throw std::runtime_error("save_checkpoint failed");
     }
+    std::string fingerprint_error;
+    const std::string tokfp = checkpoint_tokenizer_fingerprint(cfg_);
+    if (!write_checkpoint_tokenizer_fingerprint(path, tokfp,
+                                                &fingerprint_error)) {
+      throw std::runtime_error("write tokenizer fingerprint failed: " +
+                               fingerprint_error);
+    }
     if (notify_observers) {
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(4) << last_epoch_loss_;
@@ -427,6 +441,12 @@ bool ModelConvergenceAndCheckpointListener::copy_latest_checkpoint_to_best(
     }
     std::filesystem::copy_file(latest_path, best_path,
                                std::filesystem::copy_options::overwrite_existing);
+    const std::string latest_fp = latest_path + ".tokfp";
+    const std::string best_fp = best_path + ".tokfp";
+    if (std::filesystem::exists(latest_fp)) {
+      std::filesystem::copy_file(latest_fp, best_fp,
+                                 std::filesystem::copy_options::overwrite_existing);
+    }
     std::cout << "[MC&CListener] best to " << best_path << ", loss=" << oss.str()
               << "\n";
     return true;

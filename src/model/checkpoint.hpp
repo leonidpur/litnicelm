@@ -47,3 +47,11 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
                      uint64_t &restored_step, uint32_t &restored_epoch,
                      CheckpointConvergenceState *restored_convergence_state = nullptr,
                      std::string *error_detail = nullptr);
+
+std::string checkpoint_tokenizer_fingerprint(const Config &cfg);
+bool write_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
+                                            const std::string &fingerprint,
+                                            std::string *error_detail = nullptr);
+bool verify_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
+                                             const std::string &fingerprint,
+                                             std::string *error_detail = nullptr);
