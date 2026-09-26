@@ -149,7 +149,11 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
   TensorView dscores =
       tensorStore_.temp_attn_dscores(idx_, batch_size, seq_len);
 
-  constexpr int64_t kScratchLanes = 2;
+  // Keep the backward pass non-aliasing: softmax probabilities, dweights, and
+  // dscores must remain distinct while gradients are computed. The forward path
+  // still uses multiple streams; backward prioritizes correctness over scratch
+  // reuse because overwriting cached attention weights can silently corrupt dQ/dK.
+  constexpr int64_t kScratchLanes = 1;
   for (int64_t h0 = 0; h0 < H; h0 += kScratchLanes) {
     const int64_t lane_count = std::min<int64_t>(kScratchLanes, H - h0);
 
@@ -171,9 +175,9 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
       ops_.gemm_batched_rhs_t_exec_context(dhead, Vh, dweights_lane);
       ops_.gemm_batched_lhs_t_exec_context(weights_h, dhead, dVh);
       ops_.softmax_backward_causal_rows_exec_context(weights_h, dweights_lane,
-                                                     weights_h);
-      ops_.gemm_batched_exec_context(weights_h, Kh, dQh);
-      ops_.gemm_batched_lhs_t_exec_context(weights_h, Qh, dKh);
+                                                     dscores);
+      ops_.gemm_batched_exec_context(dscores, Kh, dQh);
+      ops_.gemm_batched_lhs_t_exec_context(dscores, Qh, dKh);
       ops_.finish_exec_context_group();
     }
     ops_.finish_exec_context_iteration();
@@ -189,8 +193,8 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
 
       diagnostics_->bk_attn_dweights(idx_, h, dweights_lane);
       diagnostics_->bk_attn_dVh(idx_, h, dVh);
-      diagnostics_->bk_attn_dscores_softmax_backward(idx_, h, weights_h);
-      diagnostics_->bk_attn_dscores_masked(idx_, h, weights_h);
+      diagnostics_->bk_attn_dscores_softmax_backward(idx_, h, dscores);
+      diagnostics_->bk_attn_dscores_masked(idx_, h, dscores);
 
       ops_.mul_scalar(dQh, scale, dQh);
       diagnostics_->bk_attn_dQh(idx_, h, dQh);
