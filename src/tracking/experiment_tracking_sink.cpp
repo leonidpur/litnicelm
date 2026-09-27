@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -17,8 +18,11 @@ std::string make_run_id(const std::string &run_name) {
   const auto now = std::time(nullptr);
   std::tm tmv{};
   localtime_r(&now, &tmv);
+  // A random suffix keeps runs started within the same second apart.
+  std::random_device rd;
   std::ostringstream oss;
-  oss << std::put_time(&tmv, "%Y%m%d-%H%M%S");
+  oss << std::put_time(&tmv, "%Y%m%d-%H%M%S") << "-" << std::hex
+      << std::setw(4) << std::setfill('0') << (rd() & 0xffffu) << std::dec;
   if (!run_name.empty()) {
     oss << "_" << run_name;
   }

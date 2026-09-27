@@ -695,6 +695,10 @@ bool map_tracking_fields(const std::string &key, const std::string &value,
     cfg.tracking.sinks = parse_string_list_or_throw(value, key);
     return true;
   }
+  if (key == "tracking.metrics_every_n_steps") {
+    cfg.tracking.metrics_every_n_steps = parse_u32_or_throw(value, key);
+    return true;
+  }
   // Sink-specific options are validated by the sink itself.
   const std::string option = key.substr(prefix.size());
   if (option.find('.') == std::string::npos) {

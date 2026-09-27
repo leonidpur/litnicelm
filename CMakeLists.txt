@@ -56,6 +56,16 @@ target_include_directories(litnice_core PRIVATE
     ${SPM_INCLUDE_DIRS}
 )
 
+# Git commit and dirty flag of this build, recorded by experiment tracking.
+add_custom_target(litnice_build_info
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR}
+            -DOUT=${CMAKE_BINARY_DIR}/generated/build_info.hpp
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/build_info.cmake
+    BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/build_info.hpp
+)
+add_dependencies(litnice_core litnice_build_info)
+target_include_directories(litnice_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
 # Link SentencePiece to the core library
 target_link_libraries(litnice_core PRIVATE ${SPM_LIBRARIES})
 target_link_libraries(litnice_core PRIVATE dl)
@@ -81,6 +91,7 @@ set_target_properties(litnice_backend_cpu PROPERTIES
 add_subdirectory(src/backend_libs/openblas_plugin)
 add_subdirectory(src/backend_libs/cuda_cublas_plugin)
 add_subdirectory(src/tracking_libs/journal)
+add_subdirectory(src/tracking_libs/runs)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicelm ${MAIN_SOURCE})
@@ -120,6 +131,20 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
              COMMAND litnice_rope_test $<TARGET_FILE:${plugin}>)
   endif()
 endforeach()
+
+# Resolved-config YAML dump must load back to the same config.
+add_executable(litnice_config_yaml_test tests/config_yaml_roundtrip_test.cpp)
+target_include_directories(litnice_config_yaml_test PRIVATE
+    include
+    src/config
+    src/utils
+)
+target_link_libraries(litnice_config_yaml_test PRIVATE litnice_core)
+file(GLOB CHECKED_IN_CONFIGS ${CMAKE_CURRENT_SOURCE_DIR}/conf/*.yaml)
+add_test(NAME config_yaml_roundtrip
+         COMMAND litnice_config_yaml_test
+                 ${CMAKE_CURRENT_BINARY_DIR}/config_yaml_test_tmp
+                 ${CHECKED_IN_CONFIGS})
 
 # Experiment-tracking plugin loading, against fake tracking plugins.
 foreach(variant fake fake2 fake_bad_abi)

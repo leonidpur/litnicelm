@@ -155,6 +155,8 @@ struct ModelAlgoRuntimeConfig {
 // with paths.journal_file (the pre-plugin behavior).
 struct TrackingConfig {
   std::vector<std::string> sinks;
+  // Also emit train_loss every N optimizer steps (0: per epoch only).
+  uint32_t metrics_every_n_steps = 0;
   // tracking.<sink>.<option> keys, stored as {"<sink>.<option>", value}.
   std::vector<std::pair<std::string, std::string>> options;
 };

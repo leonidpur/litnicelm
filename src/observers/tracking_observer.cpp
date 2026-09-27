@@ -2,9 +2,17 @@
 
 #include "model_convergence_and_checkpoint_listener.hpp"
 
+#include "build_info.hpp"
+#include "config_yaml.hpp"
+
 #include <filesystem>
+#include <fstream>
 
 namespace {
+std::string run_sidecar_path(const std::string &checkpoint_path) {
+  return checkpoint_path + ".run";
+}
+
 int64_t elapsed_ms(std::chrono::steady_clock::time_point start,
                    std::chrono::steady_clock::time_point end) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(end - start)
@@ -49,7 +57,7 @@ void add_training_config(TrackingEventBuilder &ev,
 TrackingObserver::TrackingObserver(
     const Config &cfg, const Command &cmd,
     const ModelConvergenceAndCheckpointListener &convergence)
-    : cfg_(cfg), convergence_(convergence),
+    : cfg_(cfg), configPath_(cmd.config_path), convergence_(convergence),
       tracking_(std::make_unique<ExperimentTrackingSink>(
           cfg, std::filesystem::path(cmd.config_path).stem().string())) {}
 
@@ -63,7 +71,6 @@ void TrackingObserver::on_training_start(TrainingState &state,
   (void)tensor_store;
   (void)device_backend;
   (void)sink;
-  (void)data_arena;
   (void)adam_state;
   training_started_at_ = Clock::now();
   total_epoch_ms_ = 0;
@@ -77,14 +84,26 @@ void TrackingObserver::on_training_start(TrainingState &state,
   ev.step(state.global_step)
       .epoch(state.epoch)
       .str("mode", estimate ? "DRY_RUN" : "TRAIN")
-      .i64("steps_per_epoch", static_cast<int64_t>(steps_per_epoch));
+      .str("config_path", configPath_)
+      .str("git_commit", build_info::kGitCommit)
+      .boolean("git_dirty", build_info::kGitDirty)
+      .str("backend_library", cfg_.backend.library)
+      .str("position_encoding", cfg_.model_algo.position_encoding)
+      .i64("vocab_size", cfg_.model.target_vocab_size)
+      .i64("param_bytes", static_cast<int64_t>(data_arena.bytes))
+      .i64("steps_per_epoch", static_cast<int64_t>(steps_per_epoch))
+      .boolean("resumed", !parentRunId_.empty());
+  if (!parentRunId_.empty()) {
+    ev.str("parent_run_id", parentRunId_);
+  }
+  ev.str("config_yaml", config_to_yaml(cfg_));
   add_model_config(ev, cfg_.model);
   add_training_config(ev, cfg_.training);
   tracking_->emit(ev);
 }
 
 void TrackingObserver::on_epoch_start(uint32_t epoch) {
-  (void)epoch;
+  current_epoch_ = epoch;
   epoch_started_at_ = Clock::now();
   epoch_started_ = true;
 }
@@ -114,6 +133,20 @@ bool TrackingObserver::on_epoch_end(uint32_t epoch, float mean_loss,
   return true;
 }
 
+// global_step is the index of the step that just finished; metrics use the
+// completed-step count, like the per-epoch events.
+void TrackingObserver::on_train_step_end(uint64_t global_step, double loss) {
+  const uint32_t every = cfg_.tracking.metrics_every_n_steps;
+  const uint64_t completed = global_step + 1;
+  if (every == 0 || completed % every != 0) {
+    return;
+  }
+  tracking_->emit(TrackingEventBuilder(TRACKING_EVENT_METRICS, "step")
+                      .step(completed)
+                      .epoch(current_epoch_)
+                      .f64("train_loss", loss));
+}
+
 void TrackingObserver::on_checkpoint_save_start(uint64_t global_step,
                                                 uint32_t epoch) {
   pending_save_step_ = global_step;
@@ -121,6 +154,11 @@ void TrackingObserver::on_checkpoint_save_start(uint64_t global_step,
 }
 
 void TrackingObserver::on_checkpoint_save_end(bool ok) {
+  if (ok) {
+    std::ofstream(run_sidecar_path(cfg_.paths.model_file_latest),
+                  std::ios::trunc)
+        << tracking_->run_id() << "\n";
+  }
   tracking_->emit(TrackingEventBuilder(TRACKING_EVENT_CHECKPOINT, "SAVE")
                       .step(pending_save_step_)
                       .epoch(pending_save_epoch_)
@@ -128,10 +166,19 @@ void TrackingObserver::on_checkpoint_save_end(bool ok) {
                       .str("path", cfg_.paths.model_file_latest));
 }
 
+// Called while the convergence listener resumes, before this observer's
+// on_training_start, so RUN_START can name the parent run.
 void TrackingObserver::on_checkpoint_load_end(bool ok) {
-  tracking_->emit(TrackingEventBuilder(TRACKING_EVENT_CHECKPOINT, "LOAD")
-                      .boolean("ok", ok)
-                      .str("path", cfg_.paths.model_file_latest));
+  TrackingEventBuilder ev(TRACKING_EVENT_CHECKPOINT, "LOAD");
+  ev.boolean("ok", ok).str("path", cfg_.paths.model_file_latest);
+  if (ok) {
+    std::ifstream in(run_sidecar_path(cfg_.paths.model_file_latest));
+    std::getline(in, parentRunId_);
+    if (!parentRunId_.empty()) {
+      ev.str("parent_run_id", parentRunId_);
+    }
+  }
+  tracking_->emit(ev);
 }
 
 void TrackingObserver::on_training_end(const TrainingState &state,

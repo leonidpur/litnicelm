@@ -444,11 +444,14 @@ bool ModelConvergenceAndCheckpointListener::copy_latest_checkpoint_to_best(
     }
     std::filesystem::copy_file(latest_path, best_path,
                                std::filesystem::copy_options::overwrite_existing);
-    const std::string latest_fp = latest_path + ".tokfp";
-    const std::string best_fp = best_path + ".tokfp";
-    if (std::filesystem::exists(latest_fp)) {
-      std::filesystem::copy_file(latest_fp, best_fp,
-                                 std::filesystem::copy_options::overwrite_existing);
+    // Sidecars: tokenizer fingerprint and the run that wrote the checkpoint.
+    for (const char *suffix : {".tokfp", ".run"}) {
+      const std::string latest_sidecar = latest_path + suffix;
+      if (std::filesystem::exists(latest_sidecar)) {
+        std::filesystem::copy_file(
+            latest_sidecar, best_path + suffix,
+            std::filesystem::copy_options::overwrite_existing);
+      }
     }
     std::cout << "[MC&CListener] best to " << best_path << ", loss=" << oss.str()
               << "\n";
