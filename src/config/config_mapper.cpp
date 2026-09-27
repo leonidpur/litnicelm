@@ -111,6 +111,27 @@ std::pair<int32_t, int32_t> parse_i32_pair_or_throw(const std::string &v,
   return {parse_i32_or_throw(a, k), parse_i32_or_throw(b, k)};
 }
 
+// ["a", "b"] -> {a, b}; items may be quoted.
+std::vector<std::string> parse_string_list_or_throw(const std::string &v,
+                                                    const std::string &k) {
+  std::string s = string_utils::trim_copy(v);
+  if (s.size() < 2 || s.front() != '[' || s.back() != ']') {
+    throw std::runtime_error("Config::load_from_file: invalid [list] for key " +
+                             k + ": " + v);
+  }
+  s = s.substr(1, s.size() - 2);
+  std::vector<std::string> items;
+  std::stringstream ss(s);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    item = string_utils::unquote_copy(string_utils::trim_copy(item));
+    if (!item.empty()) {
+      items.push_back(item);
+    }
+  }
+  return items;
+}
+
 std::string canonical_config_key(const std::string &key) {
   if (key == "model.window_capacity") {
     return "model.max_seq_len";
@@ -664,6 +685,25 @@ bool map_inference_fields(const std::string &key, const std::string &value, Conf
   return false;
 }
 
+bool map_tracking_fields(const std::string &key, const std::string &value,
+                         Config &cfg) {
+  const std::string prefix = "tracking.";
+  if (key.rfind(prefix, 0) != 0) {
+    return false;
+  }
+  if (key == "tracking.sinks") {
+    cfg.tracking.sinks = parse_string_list_or_throw(value, key);
+    return true;
+  }
+  // Sink-specific options are validated by the sink itself.
+  const std::string option = key.substr(prefix.size());
+  if (option.find('.') == std::string::npos) {
+    return false;
+  }
+  cfg.tracking.options.emplace_back(option, value);
+  return true;
+}
+
 bool map_logging_fields(const std::string &key, const std::string &value, Config &cfg) {
   if (key == "logging.show_bpe") {
     cfg.logging.show_bpe = parse_bool_or_throw(value, key);
@@ -712,7 +752,8 @@ void map_config_entries(const std::vector<YamlEntry> &entries, Config &cfg) {
         map_tokenization_fields(entry.key, entry.value, cfg) ||
         map_training_fields(entry.key, entry.value, cfg) ||
         map_inference_fields(entry.key, entry.value, cfg) ||
-        map_logging_fields(entry.key, entry.value, cfg);
+        map_logging_fields(entry.key, entry.value, cfg) ||
+        map_tracking_fields(entry.key, entry.value, cfg);
 
     if (!mapped) {
       throw std::runtime_error("Config::load_from_file: unknown key at line " +

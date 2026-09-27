@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 enum class Device : uint8_t {
@@ -150,6 +151,14 @@ struct ModelAlgoRuntimeConfig {
   std::string position_encoding = "learned";
 };
 
+// Experiment-tracking plugins. Without `sinks`, the journal plugin is loaded
+// with paths.journal_file (the pre-plugin behavior).
+struct TrackingConfig {
+  std::vector<std::string> sinks;
+  // tracking.<sink>.<option> keys, stored as {"<sink>.<option>", value}.
+  std::vector<std::pair<std::string, std::string>> options;
+};
+
 struct Command;
 
 struct Config {
@@ -170,6 +179,7 @@ struct Config {
   InferenceConfig inference;
   LoggingConfig logging;
   ReportingConfig reporting;
+  TrackingConfig tracking;
 
   static Config load_from_file(const std::string &path);
   void apply_env_overrides(const std::string &prefix);

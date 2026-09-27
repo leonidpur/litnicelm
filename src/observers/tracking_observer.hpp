@@ -1,18 +1,23 @@
 #pragma once
 
+#include "experiment_tracking_sink.hpp"
 #include "training_observer.hpp"
 
 #include <config.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 
 class ModelConvergenceAndCheckpointListener;
 
-class JournalListener final : public ITrainingObserver {
+// Turns training callbacks into experiment-tracking events: RUN_START,
+// per-epoch METRICS, CHECKPOINT and RUN_END (with the run summary that the
+// convergence listener holds).
+class TrackingObserver final : public ITrainingObserver {
 public:
-  JournalListener(const Config &cfg, const Command &cmd,
-                  const ModelConvergenceAndCheckpointListener &convergence);
+  TrackingObserver(const Config &cfg, const Command &cmd,
+                   const ModelConvergenceAndCheckpointListener &convergence);
 
   void on_training_start(TrainingState &state,
                          TensorStore &tensor_store,
@@ -28,6 +33,9 @@ public:
                     ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
+  void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) override;
+  void on_checkpoint_save_end(bool ok) override;
+  void on_checkpoint_load_end(bool ok) override;
   void on_training_end(const TrainingState &state, ReportSink *sink) override;
 
 private:
@@ -35,10 +43,13 @@ private:
 
   const Config &cfg_;
   const ModelConvergenceAndCheckpointListener &convergence_;
+  std::unique_ptr<ExperimentTrackingSink> tracking_;
   Clock::time_point training_started_at_{};
   Clock::time_point epoch_started_at_{};
   int64_t total_epoch_ms_ = 0;
   uint32_t measured_epochs_ = 0;
   bool training_started_ = false;
   bool epoch_started_ = false;
+  uint64_t pending_save_step_ = 0;
+  uint32_t pending_save_epoch_ = 0;
 };

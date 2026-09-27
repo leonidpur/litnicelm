@@ -21,6 +21,7 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/memory/*.cpp
     src/model/backend/*.cpp
     src/observers/*.cpp
+    src/tracking/*.cpp
     src/profiling/*.cpp
     src/config/*.cpp
     src/utils/*.cpp
@@ -47,6 +48,7 @@ target_include_directories(litnice_core PRIVATE
     src/model/algo
     src/model/memory
     src/observers
+    src/tracking
     src/profiling
     src/config
     src/utils
@@ -78,6 +80,7 @@ set_target_properties(litnice_backend_cpu PROPERTIES
 
 add_subdirectory(src/backend_libs/openblas_plugin)
 add_subdirectory(src/backend_libs/cuda_cublas_plugin)
+add_subdirectory(src/tracking_libs/journal)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicelm ${MAIN_SOURCE})
@@ -89,11 +92,15 @@ target_include_directories(litnicelm PRIVATE
     src/model/algo
     src/model/memory
     src/observers
+    src/tracking
     src/profiling
     src/tokenizer
     ${SPM_INCLUDE_DIRS}
 )
 target_link_libraries(litnicelm PRIVATE litnice_core)
+# Loaded at runtime from the executable's directory when no tracking sinks are
+# configured.
+add_dependencies(litnicelm litnice_tracking_journal)
 
 # Op-level tests, run once per available backend plugin: ctest --test-dir build
 enable_testing()
@@ -113,6 +120,28 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
              COMMAND litnice_rope_test $<TARGET_FILE:${plugin}>)
   endif()
 endforeach()
+
+# Experiment-tracking plugin loading, against fake tracking plugins.
+foreach(variant fake fake2 fake_bad_abi)
+  add_library(litnice_tracking_${variant} SHARED tests/fake_tracking_plugin.cpp)
+  target_include_directories(litnice_tracking_${variant} PRIVATE include)
+endforeach()
+target_compile_definitions(litnice_tracking_fake2 PRIVATE FAKE_NAME="fake2")
+target_compile_definitions(litnice_tracking_fake_bad_abi PRIVATE FAKE_ABI=999u)
+add_executable(litnice_tracking_sink_test tests/tracking_sink_test.cpp)
+target_include_directories(litnice_tracking_sink_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/tracking
+)
+target_link_libraries(litnice_tracking_sink_test PRIVATE litnice_core)
+add_test(NAME tracking_sink
+         COMMAND litnice_tracking_sink_test
+                 $<TARGET_FILE:litnice_tracking_fake>
+                 $<TARGET_FILE:litnice_tracking_fake2>
+                 $<TARGET_FILE:litnice_tracking_fake_bad_abi>
+                 ${CMAKE_CURRENT_BINARY_DIR}/tracking_sink_test_tmp)
 
 set(WORKFLOW_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cuda.yaml" CACHE FILEPATH
     "YAML config used by workflow targets")

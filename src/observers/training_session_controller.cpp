@@ -1,10 +1,10 @@
 #include "training_session_controller.hpp"
 
 #include "eta_observer.hpp"
-#include "journal_listener.hpp"
 #include "model_convergence_and_checkpoint_listener.hpp"
 #include "profiling_observer.hpp"
 #include "reporting_observer.hpp"
+#include "tracking_observer.hpp"
 #include "training_report_sink.hpp"
 
 #include <vector>
@@ -18,7 +18,7 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
   convergence_listener->set_observer_relay(*this);
   convergence_listener_ = convergence_listener.get();
   add_observer(std::move(convergence_listener));
-  add_observer(std::make_unique<JournalListener>(cfg, cmd, *convergence_listener_));
+  add_observer(std::make_unique<TrackingObserver>(cfg, cmd, *convergence_listener_));
   add_observer(
       std::make_unique<ReportingObserver>(training_sink, cmd.runtime_flags.probe));
   add_observer(std::make_unique<ProfilingObserver>());

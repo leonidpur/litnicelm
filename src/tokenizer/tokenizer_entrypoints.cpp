@@ -5,6 +5,7 @@
 #include <tokenizer_factory.hpp>
 
 #include <config.hpp>
+#include "experiment_tracking_sink.hpp"
 
 #include <ctime>
 #include <filesystem>
@@ -19,46 +20,6 @@
 namespace fs = std::filesystem;
 
 namespace {
-std::string now_timestamp_local() {
-  const auto now = std::time(nullptr);
-  std::tm tmv{};
-#if defined(_WIN32)
-  localtime_s(&tmv, &now);
-#else
-  localtime_r(&now, &tmv);
-#endif
-  std::ostringstream oss;
-  oss << std::put_time(&tmv, "%Y-%m-%d %H:%M:%S");
-  return oss.str();
-}
-
-void write_tokenizer_journal_entry(const std::string &journal_path,
-                                   const std::string &op_name,
-                                   const std::string &details) {
-  if (journal_path.empty()) {
-    return;
-  }
-
-  const fs::path path(journal_path);
-  if (!path.parent_path().empty()) {
-    fs::create_directories(path.parent_path());
-  }
-
-  std::ofstream journal(path, std::ios::app);
-  if (!journal) {
-    throw std::runtime_error(
-        "tokenizer journal: failed to open journal: " + path.string());
-  }
-
-  journal << "[" << now_timestamp_local() << "] OPERATION: " << op_name
-          << "\n\n";
-  journal << details << "\n\n";
-  if (!journal) {
-    throw std::runtime_error(
-        "tokenizer journal: failed to write journal: " + path.string());
-  }
-}
-
 std::string resolve_tokenizer_artifacts_dir(const Config &cfg) {
   if (!cfg.tokenizer.bpe_artifacts_dir.empty()) {
     return cfg.tokenizer.bpe_artifacts_dir;
@@ -134,17 +95,18 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
     fs::remove(temp_training_corpus);
   }
 
-  const std::string details =
-      "Status: SUCCESS\n\n"
-      "Training Corpus: " + training_corpus + "\n\n"
-      "Resolved Corpus: " +
-      (training_files.empty() ? "files=0" : CorpusInput::describe_files(training_files)) +
-      "\n\n"
-      "Artifacts Dir: " + artifacts_dir + "\n\n"
-      "Tokenizer: " + plugin->name() + "\n\n"
-      "Vocab Size: " + std::to_string(cfg.tokenizer.target_vocab_size);
-  write_tokenizer_journal_entry(cfg.paths.journal_file, "TOKENIZER_GEN",
-                                details);
+  ExperimentTrackingSink tracking(cfg, "tokenizer");
+  tracking.emit(
+      TrackingEventBuilder(TRACKING_EVENT_OPERATION, "TOKENIZER_GEN")
+          .str("status", "SUCCESS")
+          .str("training_corpus", training_corpus)
+          .str("resolved_corpus",
+               training_files.empty()
+                   ? "files=0"
+                   : CorpusInput::describe_files(training_files))
+          .str("artifacts_dir", artifacts_dir)
+          .str("tokenizer", plugin->name())
+          .i64("vocab_size", cfg.tokenizer.target_vocab_size));
   return 0;
 }
 
@@ -178,13 +140,13 @@ int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
                                   cfg.tokenizer.inter_file_boundary,
                                   cfg.tokenizer.run_validation, sink);
 
-  const std::string details =
-      "Status: SUCCESS\n\n"
-      "Input Corpus: " + cfg.tokenization.input_corpus + "\n\n"
-      "Output Dataset: " + cfg.tokenization.output_binary + "\n\n"
-      "Artifacts Dir: " + artifacts_dir + "\n\n"
-      "Tokenizer: " + plugin->name();
-  write_tokenizer_journal_entry(cfg.paths.journal_file, "TOKENIZATION_RUN",
-                                details);
+  ExperimentTrackingSink tracking(cfg, "tokenization");
+  tracking.emit(
+      TrackingEventBuilder(TRACKING_EVENT_OPERATION, "TOKENIZATION_RUN")
+          .str("status", "SUCCESS")
+          .str("input_corpus", cfg.tokenization.input_corpus)
+          .str("output_dataset", cfg.tokenization.output_binary)
+          .str("artifacts_dir", artifacts_dir)
+          .str("tokenizer", plugin->name()));
   return 0;
 }
