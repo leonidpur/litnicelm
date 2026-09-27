@@ -92,6 +92,7 @@ add_subdirectory(src/backend_libs/openblas_plugin)
 add_subdirectory(src/backend_libs/cuda_cublas_plugin)
 add_subdirectory(src/tracking_libs/journal)
 add_subdirectory(src/tracking_libs/runs)
+add_subdirectory(src/tracking_libs/tensorboard)
 
 # Build main executable using the path-referenced main.cpp
 add_executable(litnicelm ${MAIN_SOURCE})
@@ -145,6 +146,13 @@ add_test(NAME config_yaml_roundtrip
          COMMAND litnice_config_yaml_test
                  ${CMAKE_CURRENT_BINARY_DIR}/config_yaml_test_tmp
                  ${CHECKED_IN_CONFIGS})
+
+# TensorBoard event encoding against published CRC-32C / protobuf vectors.
+add_executable(litnice_tfevents_test tests/tfevents_test.cpp)
+target_include_directories(litnice_tfevents_test PRIVATE
+    src/tracking_libs/tensorboard
+)
+add_test(NAME tfevents_encoding COMMAND litnice_tfevents_test)
 
 # Experiment-tracking plugin loading, against fake tracking plugins.
 foreach(variant fake fake2 fake_bad_abi)
