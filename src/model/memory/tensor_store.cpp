@@ -11,14 +11,6 @@
   })
 
 namespace {
-bool uses_inplace_ffn_activation(const Config &cfg) {
-  return cfg.model_algo.ffn == "inplace_fused_bias_relu";
-}
-
-bool uses_fused_inplace_attention(const Config &cfg) {
-  return cfg.model_algo.attention == "fused_inplace" ||
-         cfg.model_algo.attention == "fused_inplace_multistream";
-}
 
 uint64_t splitmix64(uint64_t x) {
   x += 0x9e3779b97f4a7c15ULL;
@@ -57,10 +49,10 @@ private:
 
 class TensorStore::TempTensorSubStore {
 public:
-  TempTensorSubStore(const Config &cfg, uint8_t *temp_base,
-                       uint64_t temp_bytes, Device device)
-      : cfg_(cfg), temp_base_(temp_base), temp_bytes_(temp_bytes),
-        device_(device) {}
+  TempTensorSubStore(const Config &cfg, const ModelAlgoFactory &algo,
+                     uint8_t *temp_base, uint64_t temp_bytes, Device device)
+      : cfg_(cfg), algo_(algo), temp_base_(temp_base),
+        temp_bytes_(temp_bytes), device_(device) {}
   virtual ~TempTensorSubStore() = default;
 
   TensorView temp_ds_ids() const;
@@ -170,6 +162,7 @@ public:
 
 protected:
   const Config &cfg_;
+  const ModelAlgoFactory &algo_;
   uint8_t *temp_base_ = nullptr;
   uint64_t temp_bytes_ = 0;
   Device device_ = Device::CPU;
@@ -211,7 +204,7 @@ protected:
 class TrainingTempTensorSubStore final
     : public TensorStore::TempTensorSubStore {
 public:
-  TrainingTempTensorSubStore(const Config &cfg, const NamedLayout &temp_layout,
+  TrainingTempTensorSubStore(const Config &cfg, const ModelAlgoFactory &algo, const NamedLayout &temp_layout,
                                uint8_t *temp_base, uint64_t temp_bytes,
                                Device device);
 
@@ -231,7 +224,7 @@ private:
 class InferenceTempTensorSubStore final
     : public TensorStore::TempTensorSubStore {
 public:
-  InferenceTempTensorSubStore(const Config &cfg,
+  InferenceTempTensorSubStore(const Config &cfg, const ModelAlgoFactory &algo,
                                 const NamedLayout &temp_layout,
                                 uint8_t *temp_base, uint64_t temp_bytes,
                                 Device device);
@@ -252,13 +245,13 @@ private:
 TensorStore::~TensorStore() = default;
 
 TensorStore::TensorStore(const Config &cfg,
-                         const IPositionEncoding &position_encoding,
+                         const ModelAlgoFactory &algo,
                          const NamedLayout &param_layout,
                              void *params_base, uint64_t params_bytes,
                              Device device, const NamedLayout &temp_layout,
                              void *temp_base, uint64_t temp_bytes,
                              TempLayoutKind temp_kind)
-    : cfg_(cfg), positionEncoding_(position_encoding),
+    : cfg_(cfg), algo_(algo),
       base_(reinterpret_cast<uint8_t *>(params_base)),
       bytes_(params_bytes), device_(device) {
   require(base_ != nullptr, "params_base is null");
@@ -273,10 +266,10 @@ TensorStore::TensorStore(const Config &cfg,
   build_param_views(param_layout);
   if (temp_kind == TempLayoutKind::Training) {
     temp_tensor_substore_ = std::make_unique<TrainingTempTensorSubStore>(
-        cfg_, temp_layout, temp_base_bytes, temp_bytes, device_);
+        cfg_, algo_, temp_layout, temp_base_bytes, temp_bytes, device_);
   } else {
     temp_tensor_substore_ = std::make_unique<InferenceTempTensorSubStore>(
-        cfg_, temp_layout, temp_base_bytes, temp_bytes, device_);
+        cfg_, algo_, temp_layout, temp_base_bytes, temp_bytes, device_);
   }
 }
 
@@ -316,7 +309,7 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
   LayoutCursor cursor(param_layout.slices(), "parameter");
   tok_embedding_ = make_view_f32(cursor.next("tok_embedding"),
                                  {vocab_size, model_dim});
-  if (positionEncoding_.needs_position_table()) {
+  if (algo_.create_position_encoding(cfg_)->needs_position_table()) {
     pos_embedding_ = make_view_f32(
         cursor.next("pos_embedding"),
         {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim});
@@ -368,9 +361,9 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
 }
 
 TrainingTempTensorSubStore::TrainingTempTensorSubStore(
-    const Config &cfg, const NamedLayout &temp_layout, uint8_t *temp_base,
+    const Config &cfg, const ModelAlgoFactory &algo, const NamedLayout &temp_layout, uint8_t *temp_base,
     uint64_t temp_bytes, Device device)
-    : TempTensorSubStore(cfg, temp_base, temp_bytes, device) {
+    : TempTensorSubStore(cfg, algo, temp_base, temp_bytes, device) {
   const int64_t training_batch_size =
       static_cast<int64_t>(cfg_.training.batch_size);
   const int64_t training_seq_len =
@@ -443,7 +436,7 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
     views.attn_scores = make_temp_view(
         cursor.next(lname(static_cast<int>(layer), "attn.scores")),
         Shape{training_batch_size, training_seq_len, training_seq_len});
-    if (!uses_fused_inplace_attention(cfg_)) {
+    if (algo_.attention_needs_weights_buffer()) {
       views.attn_weights = make_temp_view(
           cursor.next(lname(static_cast<int>(layer), "attn.weights")),
           Shape{training_batch_size, training_seq_len, training_seq_len});
@@ -460,7 +453,7 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
     views.ffn_h =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.h")),
                        Shape{training_batch_size, training_seq_len, ffn_dim});
-    if (!uses_inplace_ffn_activation(cfg_)) {
+    if (algo_.ffn_needs_activation_buffers()) {
       views.ffn_a =
           make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.a")),
                          Shape{training_batch_size, training_seq_len, ffn_dim});
@@ -528,7 +521,7 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
     views.ffn_da =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.da")),
                        Shape{training_batch_size, training_seq_len, ffn_dim});
-    if (!uses_inplace_ffn_activation(cfg_)) {
+    if (algo_.ffn_needs_activation_buffers()) {
       views.ffn_dh =
           make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.dh")),
                          Shape{training_batch_size, training_seq_len, ffn_dim});
@@ -546,9 +539,9 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
 }
 
 InferenceTempTensorSubStore::InferenceTempTensorSubStore(
-    const Config &cfg, const NamedLayout &temp_layout, uint8_t *temp_base,
+    const Config &cfg, const ModelAlgoFactory &algo, const NamedLayout &temp_layout, uint8_t *temp_base,
     uint64_t temp_bytes, Device device)
-    : TempTensorSubStore(cfg, temp_base, temp_bytes, device) {
+    : TempTensorSubStore(cfg, algo, temp_base, temp_bytes, device) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t qkv_dim = 3 * model_dim;
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
@@ -601,7 +594,7 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
     views.attn_scores = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "attn.scores")),
         Shape{1, max_seq_len, max_seq_len});
-    if (!uses_fused_inplace_attention(cfg_)) {
+    if (algo_.attention_needs_weights_buffer()) {
       views.attn_weights = make_temp_view(
           cursor.next(infer_lname(static_cast<int>(layer), "attn.weights")),
           Shape{1, max_seq_len, max_seq_len});
@@ -616,7 +609,7 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
     views.ffn_h = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "ffn.h")),
         Shape{1, max_seq_len, ffn_dim});
-    if (!uses_inplace_ffn_activation(cfg_)) {
+    if (algo_.ffn_needs_activation_buffers()) {
       views.ffn_a = make_temp_view(
           cursor.next(infer_lname(static_cast<int>(layer), "ffn.a")),
           Shape{1, max_seq_len, ffn_dim});
@@ -1934,14 +1927,15 @@ const TensorView &TensorStore::param_ln2_beta(int layer) const {
 }
 const TensorView &TensorStore::param_tok_embedding() const { return tok_embedding_; }
 const TensorView &TensorStore::param_pos_embedding() const {
-  require(positionEncoding_.needs_position_table(),
-          std::string("pos_embedding is not allocated for position encoding ") +
-              positionEncoding_.name());
+  require(has_pos_embedding(),
+          "pos_embedding is not allocated for position encoding " +
+              cfg_.model_algo.position_encoding);
   return pos_embedding_;
 }
-const IPositionEncoding &TensorStore::position_encoding() const {
-  return positionEncoding_;
+bool TensorStore::has_pos_embedding() const {
+  return pos_embedding_.data() != nullptr;
 }
+const ModelAlgoFactory &TensorStore::algo_factory() const { return algo_; }
 const TensorView &TensorStore::param_lnf_gamma() const { return lnf_gamma_; }
 const TensorView &TensorStore::param_lnf_beta() const { return lnf_beta_; }
 const TensorView &TensorStore::param_lm_head_w() const { return lm_head_w_; }
@@ -1988,7 +1982,7 @@ void TensorStore::initialize_parameters_deterministic(
   };
 
   init_weight(tok_embedding_, 0.02f);
-  if (positionEncoding_.needs_position_table()) {
+  if (has_pos_embedding()) {
     init_weight(pos_embedding_, 0.02f);
   }
   for (const LayerParamViews &layer : layer_param_views_) {

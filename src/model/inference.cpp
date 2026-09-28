@@ -50,7 +50,8 @@ struct InferRuntime {
   Config cfg;
   std::unique_ptr<DeviceBackend> backend;
   std::unique_ptr<Tokenizer> tokenizer;
-  std::unique_ptr<IPositionEncoding> position_encoding;
+  // Model algorithm choices; memory and model are built with it.
+  ModelAlgoFactory algo;
   std::unique_ptr<InferenceMemoryManager> memory_manager;
   Ops ops;
   std::unique_ptr<Transformer> model;
@@ -60,16 +61,15 @@ struct InferRuntime {
       : cfg(base_cfg),
         backend(DeviceBackend::create_instance(cfg)),
         tokenizer(TokenizerFactory::create(cfg, sink_in)),
+        algo(ModelAlgoConfig::from_config(cfg)),
         ops(*backend),
         sink(sink_in) {
     cfg.model.target_vocab_size =
         static_cast<uint32_t>(tokenizer->vocab_size());
     validate_vocab_contract_or_throw(cfg, *tokenizer);
-    position_encoding = ModelAlgoFactory(ModelAlgoConfig::from_config(cfg))
-                            .create_position_encoding(cfg);
-    memory_manager = std::make_unique<InferenceMemoryManager>(
-        cfg, *position_encoding, *backend);
-    model = std::make_unique<Transformer>(cfg, *position_encoding,
+    memory_manager = std::make_unique<InferenceMemoryManager>(cfg, algo,
+                                                              *backend);
+    model = std::make_unique<Transformer>(cfg, algo,
                                           memory_manager->tensor_store(),
                                           nullptr, ops, sink_in);
   }
@@ -81,7 +81,8 @@ void load_weights_or_throw(InferRuntime &rt) {
   std::string ckpt_error;
   const std::string &checkpoint_path = rt.cfg.paths.model_file_best;
   const bool ok =
-      load_checkpoint(checkpoint_path, rt.cfg.model, *rt.position_encoding,
+      load_checkpoint(checkpoint_path, rt.cfg.model,
+                      *rt.algo.create_position_encoding(rt.cfg),
                       rt.cfg.conf_version, rt.cfg.memory.alignment_bytes,
                       *rt.backend, rt.memory_manager->data_arena(),
                       rt.memory_manager->adam_state(), restored_step,

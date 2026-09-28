@@ -11,9 +11,10 @@
 
 TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      const Command &cmd,
+                                                     const ModelAlgoFactory &algo,
                                                      TrainingReportSink &training_sink) {
   auto convergence_listener =
-      std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd);
+      std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd, algo);
   total_epochs_ = convergence_listener->total_epochs();
   convergence_listener->set_observer_relay(*this);
   convergence_listener_ = convergence_listener.get();

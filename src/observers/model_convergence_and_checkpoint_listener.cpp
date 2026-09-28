@@ -1,5 +1,6 @@
 #include "model_convergence_and_checkpoint_listener.hpp"
 
+#include "model_algo_factory.hpp"
 #include "tensor_store.hpp"
 
 #include <report_interface.hpp>
@@ -13,8 +14,8 @@
 #include <vector>
 
 ModelConvergenceAndCheckpointListener::ModelConvergenceAndCheckpointListener(
-    const Config &cfg, const Command &cmd)
-    : cfg_(cfg), cmd_(cmd) {}
+    const Config &cfg, const Command &cmd, const ModelAlgoFactory &algo)
+    : cfg_(cfg), cmd_(cmd), algo_(algo) {}
 
 void ModelConvergenceAndCheckpointListener::set_observer_relay(
     ITrainingObserver &observer_relay) {
@@ -51,7 +52,6 @@ void ModelConvergenceAndCheckpointListener::on_training_start(
     uint64_t steps_per_epoch, DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena,
     const AdamStateView &adam_state) {
-  positionEncoding_ = &tensor_store.position_encoding();
   reset_convergence_state();
   const bool estimate = is_estimation_mode();
   std::ostringstream oss;
@@ -115,7 +115,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
     std::string error_detail;
     CheckpointConvergenceState restored_convergence_state;
     if (!load_checkpoint(cfg_.paths.model_file_latest, cfg_.model,
-                         *positionEncoding_,
+                         *algo_.create_position_encoding(cfg_),
                          cfg_.conf_version, cfg_.memory.alignment_bytes,
                          device_backend, data_arena, adam_state,
                          state.global_step, state.epoch,
@@ -394,7 +394,8 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
 
     const CheckpointConvergenceState convergence_state =
         checkpoint_convergence_state();
-    const bool ok = save_checkpoint(path, cfg_.model, *positionEncoding_,
+    const bool ok = save_checkpoint(path, cfg_.model,
+                                    *algo_.create_position_encoding(cfg_),
                                     cfg_.conf_version,
                                     cfg_.memory.alignment_bytes, device_backend,
                                     data_arena, adam_state, global_step, epoch,

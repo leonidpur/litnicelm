@@ -1,5 +1,5 @@
 #include "gradient_store.hpp"
-#include "i_position_encoding.hpp"
+#include "model_algo_factory.hpp"
 
 #include <utils/assert.hpp>
 
@@ -42,7 +42,7 @@ private:
 } // namespace
 
 GradientStore::GradientStore(const Config &cfg,
-                                 const IPositionEncoding &position_encoding,
+                                 const ModelAlgoFactory &algo,
                                  const NamedLayout &param_layout,
                                  void *params_base, uint64_t params_bytes,
                                  const ArenaView &grad_arena)
@@ -63,7 +63,7 @@ GradientStore::GradientStore(const Config &cfg,
           "grad arena must cover parameter layout bytes");
   require((param_layout.total_bytes() % sizeof(float)) == 0,
           "param layout bytes must be a multiple of sizeof(float)");
-  build_gradient_views(param_layout, position_encoding);
+  build_gradient_views(param_layout, algo);
 }
 
 TensorView GradientStore::grad_for_param(const TensorView &param) const {
@@ -79,7 +79,7 @@ TensorView GradientStore::full_gradient_view() const {
 
 void GradientStore::build_gradient_views(
     const NamedLayout &param_layout,
-    const IPositionEncoding &position_encoding) {
+    const ModelAlgoFactory &algo) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -94,7 +94,7 @@ void GradientStore::build_gradient_views(
       make_param_view_f32(tok_embedding_slice, {vocab_size, model_dim}),
       make_grad_view_f32(tok_embedding_slice, {vocab_size, model_dim}));
 
-  if (position_encoding.needs_position_table()) {
+  if (algo.create_position_encoding(cfg_)->needs_position_table()) {
     const LayoutSlice &pos_embedding_slice = cursor.next("pos_embedding");
     register_gradient_slot(
         "pos_embedding",

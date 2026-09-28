@@ -14,9 +14,9 @@ class DeviceBackend;
 
 class InferenceMemoryManager {
 public:
-  // position_encoding must outlive the manager.
+  // algo must outlive the manager (it lives next to the backend).
   InferenceMemoryManager(const Config &cfg,
-                         const IPositionEncoding &position_encoding,
+                         const ModelAlgoFactory &algo,
                          DeviceBackend &backend);
 
   const NamedLayout &param_layout() const;

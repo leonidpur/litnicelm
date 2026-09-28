@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <string>
 
-class IPositionEncoding;
+class ModelAlgoFactory;
 
 class ReportSink;
 class TensorStore;
@@ -17,7 +17,8 @@ struct TrainingState;
 
 class ModelConvergenceAndCheckpointListener final : public ITrainingObserver {
 public:
-  ModelConvergenceAndCheckpointListener(const Config &cfg, const Command &cmd);
+  ModelConvergenceAndCheckpointListener(const Config &cfg, const Command &cmd,
+                                        const ModelAlgoFactory &algo);
   void set_observer_relay(ITrainingObserver &observer_relay);
 
   void on_training_start(TrainingState &state,
@@ -78,8 +79,8 @@ private:
 
   const Config &cfg_;
   const Command &cmd_;
-  // Set in on_training_start; checkpoints record and verify it.
-  const IPositionEncoding *positionEncoding_ = nullptr;
+  // Checkpoints record and verify the position encoding it creates.
+  const ModelAlgoFactory &algo_;
   ITrainingObserver *observer_relay_ = &default_training_observer();
   float best_loss_ = 0.0f;
   float last_epoch_loss_ = -1.0f;

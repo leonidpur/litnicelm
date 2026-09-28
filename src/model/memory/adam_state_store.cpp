@@ -1,5 +1,5 @@
 #include "adam_state_store.hpp"
-#include "i_position_encoding.hpp"
+#include "model_algo_factory.hpp"
 
 #include <utils/assert.hpp>
 
@@ -39,7 +39,7 @@ private:
 } // namespace
 
 AdamStateStore::AdamStateStore(const Config &cfg,
-                                   const IPositionEncoding &position_encoding,
+                                   const ModelAlgoFactory &algo,
                                    const NamedLayout &param_layout,
                                    void *params_base, uint64_t params_bytes,
                                    const AdamStateView &adam_state)
@@ -57,7 +57,7 @@ AdamStateStore::AdamStateStore(const Config &cfg,
   require(adam_base_ != nullptr, "adam_base is null");
   require(adam_bytes_ >= param_bytes_ * 2,
           "adam state must hold both m and v buffers");
-  build_state_views(param_layout, position_encoding);
+  build_state_views(param_layout, algo);
 }
 
 const AdamStateStore::StatePair &
@@ -160,7 +160,7 @@ void AdamStateStore::check_layer(int layer) const {
 
 void AdamStateStore::build_state_views(
     const NamedLayout &param_layout,
-    const IPositionEncoding &position_encoding) {
+    const ModelAlgoFactory &algo) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
@@ -175,7 +175,7 @@ void AdamStateStore::build_state_views(
   register_state(make_param_view_f32(tok_embedding_slice, {vocab_size, model_dim}),
                  tok_embedding_);
 
-  if (position_encoding.needs_position_table()) {
+  if (algo.create_position_encoding(cfg_)->needs_position_table()) {
     const LayoutSlice &pos_embedding_slice = cursor.next("pos_embedding");
     pos_embedding_ = make_state_pair_f32(
         pos_embedding_slice,

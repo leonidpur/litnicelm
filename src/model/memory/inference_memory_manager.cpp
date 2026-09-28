@@ -5,12 +5,12 @@
 #include <stdexcept>
 
 InferenceMemoryManager::InferenceMemoryManager(
-    const Config &cfg, const IPositionEncoding &position_encoding,
+    const Config &cfg, const ModelAlgoFactory &algo,
     DeviceBackend &backend)
     : cfg_(cfg),
       backend_(backend),
-      param_layout_(NamedLayout::build_param_layout(cfg, position_encoding)),
-      temp_layout_(NamedLayout::build_inference_temp_layout(cfg)) {
+      param_layout_(NamedLayout::build_param_layout(cfg, algo)),
+      temp_layout_(NamedLayout::build_inference_temp_layout(cfg, algo)) {
   const uint64_t param_bytes = param_layout_.total_bytes();
   const uint64_t temp_bytes = temp_layout_.total_bytes();
   const Device device = backend_.device();
@@ -28,7 +28,7 @@ InferenceMemoryManager::InferenceMemoryManager(
                              device};
 
   tensor_store_ = std::make_unique<TensorStore>(
-      cfg_, position_encoding, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
+      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
       temp_layout_, temp_arena_->ptr(), temp_arena_->size_bytes(),
       TensorStore::TempLayoutKind::Inference);
 }

@@ -18,9 +18,9 @@ class TrainingSessionController;
 
 class TrainingMemoryManager {
 public:
-  // position_encoding must outlive the manager.
+  // algo must outlive the manager (it lives next to the backend).
   TrainingMemoryManager(const Config &cfg,
-                        const IPositionEncoding &position_encoding,
+                        const ModelAlgoFactory &algo,
                         DeviceBackend &backend,
                         TrainingSessionController &session_controller);
 

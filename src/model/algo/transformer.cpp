@@ -19,26 +19,23 @@ static void report_if(ReportSink *sink, ReportEvent event, uint32_t step,
 }
 
 Transformer::Transformer(const Config &cfg,
-                         IPositionEncoding &position_encoding,
+                         const ModelAlgoFactory &algo,
                          TensorStore &tensor_store,
                          GradientStore *gradient_store, Ops &ops,
                          ReportSink *sink)
     : cfg_(cfg),
-      positionEncoding_(position_encoding),
+      positionEncoding_(algo.create_position_encoding(cfg)),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops),
-      algoConfig_(ModelAlgoConfig::from_config(cfg)),
-      algoFactory_(algoConfig_),
       outputHead_(cfg_, tensorStore_, gradientStore_, ops_),
       sink_(sink) {
   layers_.reserve(cfg_.model.n_layers);
   for (uint32_t i = 0; i < cfg_.model.n_layers; ++i) {
     layers_.emplace_back(static_cast<int>(i), cfg_, tensorStore_,
-                         gradientStore_, ops_, algoFactory_,
-                         positionEncoding_);
+                         gradientStore_, ops_, algo, *positionEncoding_);
   }
-  positionEncoding_.bind(tensorStore_, gradientStore_, ops_);
+  positionEncoding_->bind(tensorStore_, gradientStore_, ops_);
   validate_contract();
 }
 
@@ -56,7 +53,7 @@ void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
     layer.set_diagnostics(diagnostics);
   }
   outputHead_.set_diagnostics(diagnostics);
-  positionEncoding_.set_diagnostics(diagnostics);
+  positionEncoding_->set_diagnostics(diagnostics);
 }
 
 void Transformer::validate_contract() const {
@@ -90,7 +87,7 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
   ops_.embedding_lookup(tok_emb, ids, X);
-  positionEncoding_.apply_to_input(X);
+  positionEncoding_->apply_to_input(X);
   cache_x0_ = X;
 
   TensorView report_Y = tensorStore_.temp_tr_Y(batch_size, seq_len);
@@ -155,12 +152,12 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   diagnostics_->bk_transformer_d_cur_before_embeddings(d_cur);
   ops_.accumulate_embedding_grads(ids, d_cur, d_tok);
   diagnostics_->bk_transformer_d_tok(d_tok);
-  positionEncoding_.backward_input(d_cur);
+  positionEncoding_->backward_input(d_cur);
 
   if (probe.embeddings && sink_ != nullptr) {
     sink_->report_probe_tensor("embeddings", "tok_embedding", tok_emb);
     sink_->report_probe_tensor("embeddings", "tok_embedding.grad", d_tok);
-    positionEncoding_.report_probes(*sink_);
+    positionEncoding_->report_probes(*sink_);
   }
   observer_->on_backward_end();
 }

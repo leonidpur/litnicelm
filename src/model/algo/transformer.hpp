@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -36,8 +37,8 @@ class TrainingDiagnosticsController;
 //     lm_head_w      [D, V]
 class Transformer {
 public:
-  // position_encoding must outlive the Transformer; it is bound here.
-  Transformer(const Config &cfg, IPositionEncoding &position_encoding,
+  // Creates its attention, FFN and position-encoding objects with algo.
+  Transformer(const Config &cfg, const ModelAlgoFactory &algo,
               TensorStore &tensor_store, GradientStore *gradient_store,
               Ops &ops, ReportSink *sink = nullptr);
   void set_observer(ITrainingObserver *observer);
@@ -55,13 +56,12 @@ private:
   void validate_contract() const;
 
   const Config &cfg_;
-  IPositionEncoding &positionEncoding_;
+  // Declared before layers_, which hold references to it.
+  std::unique_ptr<IPositionEncoding> positionEncoding_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
   Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
-  ModelAlgoConfig algoConfig_;
-  ModelAlgoFactory algoFactory_;
   OutputHead outputHead_;
 
   std::vector<TransformerLayer> layers_;

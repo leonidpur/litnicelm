@@ -12,11 +12,14 @@
 #include <vector>
 
 class TrainingReportSink;
+class ModelAlgoFactory;
 class ModelConvergenceAndCheckpointListener;
 
 class TrainingSessionController : public ITrainingObserver {
 public:
+  // algo must outlive the controller (it lives next to the backend).
   TrainingSessionController(const Config &cfg, const Command &cmd,
+                            const ModelAlgoFactory &algo,
                             TrainingReportSink &training_sink);
 
   uint32_t total_epochs() const;

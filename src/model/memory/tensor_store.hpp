@@ -1,7 +1,7 @@
 #pragma once
 
 #include <config.hpp>
-#include "i_position_encoding.hpp"
+#include "model_algo_factory.hpp"
 #include "named_layout.hpp"
 #include "backend/device_backend.hpp"
 #include "tensor.hpp"
@@ -81,7 +81,8 @@ public:
     TensorView ffn_W1T;
   };
 
-  TensorStore(const Config &cfg, const IPositionEncoding &position_encoding,
+  // algo must outlive the store (it lives next to the backend).
+  TensorStore(const Config &cfg, const ModelAlgoFactory &algo,
               const NamedLayout &param_layout,
                 void *params_base, uint64_t params_bytes, Device device,
                 const NamedLayout &temp_layout, void *temp_base,
@@ -128,9 +129,11 @@ public:
   const TensorView &param_ln2_gamma(int layer) const;
   const TensorView &param_ln2_beta(int layer) const;
   const TensorView &param_tok_embedding() const;
-  // Allocated only when position_encoding().needs_position_table().
+  // Allocated only when the position encoding needs a position table.
   const TensorView &param_pos_embedding() const;
-  const IPositionEncoding &position_encoding() const;
+  bool has_pos_embedding() const;
+  // The algorithm choices this store's layout was built for.
+  const ModelAlgoFactory &algo_factory() const;
   const TensorView &param_lnf_gamma() const;
   const TensorView &param_lnf_beta() const;
   const TensorView &param_lm_head_w() const;
@@ -242,7 +245,7 @@ public:
 
 private:
   const Config &cfg_;
-  const IPositionEncoding &positionEncoding_;
+  const ModelAlgoFactory &algo_;
   uint8_t *base_ = nullptr;
   uint64_t bytes_ = 0;
   Device device_ = Device::CPU;

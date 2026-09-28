@@ -63,3 +63,11 @@ ModelAlgoFactory::create_position_encoding(const Config &cfg) const {
   throw std::runtime_error(
       "ModelAlgoFactory: unknown position encoding implementation");
 }
+
+bool ModelAlgoFactory::attention_needs_weights_buffer() const {
+  return cfg_.attention_impl == AttentionImplKind::Reference;
+}
+
+bool ModelAlgoFactory::ffn_needs_activation_buffers() const {
+  return cfg_.ffn_impl != FFNImplKind::InplaceFusedBiasRelu;
+}

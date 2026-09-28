@@ -33,7 +33,7 @@ public:
     StatePair ffn_b2;
   };
 
-  AdamStateStore(const Config &cfg, const IPositionEncoding &position_encoding,
+  AdamStateStore(const Config &cfg, const ModelAlgoFactory &algo,
                  const NamedLayout &param_layout,
                    void *params_base, uint64_t params_bytes,
                    const AdamStateView &adam_state);
@@ -78,7 +78,7 @@ private:
 
   void check_layer(int layer) const;
   void build_state_views(const NamedLayout &param_layout,
-                         const IPositionEncoding &position_encoding);
+                         const ModelAlgoFactory &algo);
   void register_state(const TensorView &param, const StatePair &state);
   TensorView make_param_view_f32(const LayoutSlice &s, Shape shape) const;
   TensorView make_state_view_f32(const LayoutSlice &s, Shape shape,

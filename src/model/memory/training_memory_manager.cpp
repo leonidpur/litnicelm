@@ -6,13 +6,13 @@
 #include <stdexcept>
 
 TrainingMemoryManager::TrainingMemoryManager(
-    const Config &cfg, const IPositionEncoding &position_encoding,
+    const Config &cfg, const ModelAlgoFactory &algo,
     DeviceBackend &backend,
                                              TrainingSessionController &session_controller)
     : cfg_(cfg),
       backend_(backend),
-      param_layout_(NamedLayout::build_param_layout(cfg, position_encoding)),
-      temp_layout_(NamedLayout::build_training_temp_layout(cfg)) {
+      param_layout_(NamedLayout::build_param_layout(cfg, algo)),
+      temp_layout_(NamedLayout::build_training_temp_layout(cfg, algo)) {
   session_controller.init_config_ready(cfg_, param_layout_, temp_layout_);
 
   const uint64_t param_bytes = param_layout_.total_bytes();
@@ -51,14 +51,14 @@ TrainingMemoryManager::TrainingMemoryManager(
   session_controller.memory_usage_ready(memory_usage_);
 
   tensor_store_ = std::make_unique<TensorStore>(
-      cfg_, position_encoding, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
+      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
       temp_layout_, temp_arena_->ptr(), temp_arena_->size_bytes(),
       TensorStore::TempLayoutKind::Training);
   session_controller.tensor_store_topology_ready(cfg_, *tensor_store_);
   gradient_store_ = std::make_unique<GradientStore>(
-      cfg_, position_encoding, param_layout_, data_view_.base, data_view_.bytes, grad_view_);
+      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, grad_view_);
   adam_state_store_ = std::make_unique<AdamStateStore>(
-      cfg_, position_encoding, param_layout_, data_view_.base, data_view_.bytes, adam_view_);
+      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, adam_view_);
 }
 
 const NamedLayout &TrainingMemoryManager::param_layout() const {

@@ -242,7 +242,9 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   Trainer::import_vocab_size(runtime_cfg, *tokenizer);
   TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
   TrainingReportSink training_sink(runtime_cfg.logging);
-  TrainingSessionController session_controller(runtime_cfg, cmd, training_sink);
+  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(runtime_cfg));
+  TrainingSessionController session_controller(runtime_cfg, cmd, algo,
+                                               training_sink);
 
   session_controller.runtime_cfg_ready(runtime_cfg);
 
@@ -253,15 +255,11 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   // Asset construction
   //////////////////////////
   std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(runtime_cfg);
-  std::unique_ptr<IPositionEncoding> position_encoding =
-      ModelAlgoFactory(ModelAlgoConfig::from_config(runtime_cfg))
-          .create_position_encoding(runtime_cfg);
-  TrainingMemoryManager memory_manager(runtime_cfg, *position_encoding,
-                                       *backend, session_controller);
+  TrainingMemoryManager memory_manager(runtime_cfg, algo, *backend,
+                                       session_controller);
   Ops ops(*backend);
   OptimizerAdamW opt(*backend);
-  Transformer transformer(runtime_cfg, *position_encoding,
-                          memory_manager.tensor_store(),
+  Transformer transformer(runtime_cfg, algo, memory_manager.tensor_store(),
                           &memory_manager.gradient_store(), ops, &training_sink);
 
   TextDataset loader(memory_manager.tensor_store(), *backend, runtime_cfg,

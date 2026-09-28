@@ -1,21 +1,12 @@
 #include "named_layout.hpp"
 
 #include <config.hpp>
-#include "i_position_encoding.hpp"
+#include "model_algo_factory.hpp"
 
 #include <algorithm>
 #include <stdexcept>
 
 namespace {
-bool uses_inplace_ffn_activation(const Config &cfg) {
-  return cfg.model_algo.ffn == "inplace_fused_bias_relu";
-}
-
-bool uses_fused_inplace_attention(const Config &cfg) {
-  return cfg.model_algo.attention == "fused_inplace" ||
-         cfg.model_algo.attention == "fused_inplace_multistream";
-}
-
 void push_slice(std::vector<LayoutSlice> &out, uint64_t alignment,
                 const std::string &name, uint64_t bytes, uint64_t &cursor,
                 DType dtype = DType::F32) {
@@ -38,8 +29,8 @@ void append_param_spec(std::vector<ParamSliceSpec> &out, const std::string &name
 }
 }
 
-NamedLayout NamedLayout::build_param_layout(
-    const Config &cfg, const IPositionEncoding &position_encoding) {
+NamedLayout NamedLayout::build_param_layout(const Config &cfg,
+                                            const ModelAlgoFactory &algo) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -57,7 +48,7 @@ NamedLayout NamedLayout::build_param_layout(
                                               cfg.model.d_model, DType::F32,
                                               "tok_embedding"),
                     true);
-  if (position_encoding.needs_position_table()) {
+  if (algo.create_position_encoding(cfg)->needs_position_table()) {
     append_param_spec(specs, "pos_embedding",
                       NamedLayout::tensor_bytes(cfg.model.max_seq_len,
                                                 cfg.model.d_model, DType::F32,
@@ -164,7 +155,8 @@ NamedLayout NamedLayout::build_param_layout(
   return layout;
 }
 
-NamedLayout NamedLayout::build_training_temp_layout(const Config &cfg) {
+NamedLayout NamedLayout::build_training_temp_layout(
+    const Config &cfg, const ModelAlgoFactory &algo) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -251,7 +243,7 @@ NamedLayout NamedLayout::build_training_temp_layout(const Config &cfg) {
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.scores",
                NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.scores"),
                cursor);
-    if (!uses_fused_inplace_attention(cfg)) {
+    if (algo.attention_needs_weights_buffer()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
                  NamedLayout::tensor_bytes(T, train_seq, DType::F32,
                                            "attn.weights"),
@@ -266,7 +258,7 @@ NamedLayout NamedLayout::build_training_temp_layout(const Config &cfg) {
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
                NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.h"), cursor);
-    if (!uses_inplace_ffn_activation(cfg)) {
+    if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.a",
                  NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.a"), cursor);
     }
@@ -324,7 +316,7 @@ NamedLayout NamedLayout::build_training_temp_layout(const Config &cfg) {
                NamedLayout::tensor_bytes(D, F, DType::F32, "ffn.W2T"), cursor);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.da",
                NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.da"), cursor);
-    if (!uses_inplace_ffn_activation(cfg)) {
+    if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.dh",
                  NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.dh"),
                  cursor);
@@ -340,7 +332,8 @@ NamedLayout NamedLayout::build_training_temp_layout(const Config &cfg) {
 }
 
 
-NamedLayout NamedLayout::build_inference_temp_layout(const Config &cfg) {
+NamedLayout NamedLayout::build_inference_temp_layout(
+    const Config &cfg, const ModelAlgoFactory &algo) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -417,7 +410,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(const Config &cfg) {
                NamedLayout::tensor_bytes(S, S, DType::F32,
                                          "infer.attn.scores"),
                cursor);
-    if (!uses_fused_inplace_attention(cfg)) {
+    if (algo.attention_needs_weights_buffer()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
                  NamedLayout::tensor_bytes(S, S, DType::F32,
                                            "infer.attn.weights"),
@@ -436,7 +429,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(const Config &cfg) {
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
                NamedLayout::tensor_bytes(S, F, DType::F32, "infer.ffn.h"),
                cursor);
-    if (!uses_inplace_ffn_activation(cfg)) {
+    if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.a",
                  NamedLayout::tensor_bytes(S, F, DType::F32, "infer.ffn.a"),
                  cursor);
@@ -447,6 +440,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(const Config &cfg) {
   return layout;
 }
 
-NamedLayout NamedLayout::build_temp_layout(const Config &cfg) {
-  return build_training_temp_layout(cfg);
+NamedLayout NamedLayout::build_temp_layout(const Config &cfg,
+                                           const ModelAlgoFactory &algo) {
+  return build_training_temp_layout(cfg, algo);
 }

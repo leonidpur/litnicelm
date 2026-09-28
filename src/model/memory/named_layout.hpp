@@ -9,7 +9,7 @@
 #include <vector>
 
 struct Config;
-class IPositionEncoding;
+class ModelAlgoFactory;
 
 struct LayoutSlice {
   std::string name;
@@ -21,10 +21,13 @@ struct LayoutSlice {
 class NamedLayout {
 public:
   static NamedLayout build_param_layout(const Config &cfg,
-                                        const IPositionEncoding &position_encoding);
-  static NamedLayout build_training_temp_layout(const Config &cfg);
-  static NamedLayout build_inference_temp_layout(const Config &cfg);
-  static NamedLayout build_temp_layout(const Config &cfg);
+                                        const ModelAlgoFactory &algo);
+  static NamedLayout build_training_temp_layout(const Config &cfg,
+                                                const ModelAlgoFactory &algo);
+  static NamedLayout build_inference_temp_layout(const Config &cfg,
+                                                 const ModelAlgoFactory &algo);
+  static NamedLayout build_temp_layout(const Config &cfg,
+                                       const ModelAlgoFactory &algo);
 
   const std::vector<LayoutSlice> &slices() const { return slices_; }
   uint64_t total_bytes() const { return total_bytes_; }

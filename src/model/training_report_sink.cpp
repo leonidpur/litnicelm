@@ -592,7 +592,7 @@ void TrainingReportSink::report_tensor_store_topology(
   std::vector<std::string> no_decay_rows;
   append_param_row(decay_rows, no_decay_rows, "tok_embedding",
                    tensor_store.param_tok_embedding());
-  if (tensor_store.position_encoding().needs_position_table()) {
+  if (tensor_store.has_pos_embedding()) {
     append_param_row(decay_rows, no_decay_rows, "pos_embedding",
                      tensor_store.param_pos_embedding());
   }
@@ -740,8 +740,7 @@ void TrainingReportSink::report_tensor_store_topology(
                                          static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.context")));
     lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_store.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
-    if (cfg.model_algo.attention != "fused_inplace" &&
-        cfg.model_algo.attention != "fused_inplace_multistream") {
+    if (tensor_store.algo_factory().attention_needs_weights_buffer()) {
       lines.push_back(tensor_metadata_row(
           p + "attn.weights", tensor_store.temp_attn_weights(li, T),
           infer_temp_purpose("attn.weights")));
@@ -770,7 +769,7 @@ void TrainingReportSink::report_tensor_store_topology(
         tensor_store.temp_ffn_h(li, static_cast<int64_t>(cfg.training.batch_size),
                                   static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("ffn.h")));
-    if (cfg.model_algo.ffn != "inplace_fused_bias_relu") {
+    if (tensor_store.algo_factory().ffn_needs_activation_buffers()) {
       lines.push_back(tensor_metadata_row(
           p + "ffn.a",
           tensor_store.temp_ffn_a(
@@ -785,7 +784,7 @@ void TrainingReportSink::report_tensor_store_topology(
         tensor_store.temp_ffn_da(li, static_cast<int64_t>(cfg.training.batch_size),
                                    static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("ffn.da")));
-    if (cfg.model_algo.ffn != "inplace_fused_bias_relu") {
+    if (tensor_store.algo_factory().ffn_needs_activation_buffers()) {
       lines.push_back(tensor_metadata_row(
           p + "ffn.dh",
           tensor_store.temp_ffn_dh(
