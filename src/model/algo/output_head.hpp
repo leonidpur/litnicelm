@@ -11,7 +11,7 @@ class TrainingDiagnosticsController;
 class OutputHead final {
 public:
   OutputHead(const Config &cfg, TensorStore &tensor_store,
-             GradientStore *gradient_store, Ops &ops);
+             GradientStore *gradient_store, const Ops &ops);
 
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
@@ -26,7 +26,7 @@ private:
   const Config &cfg_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
-  Ops &ops_;
+  const Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;
   TensorView cache_xn_;

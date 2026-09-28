@@ -33,7 +33,7 @@ TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
 }
 } // namespace
 
-Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, Ops &ops,
+Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
                  OptimizerAdamW &opt, Transformer &transformer,
                  const ArenaView &data_arena, const ArenaView &grad_arena,
                  GradientStore &gradient_store, uint64_t decay_bytes,
@@ -235,12 +235,16 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   //////////////////////////////
   // Validate training context and runtime initialization
   //////////////////////////////
-  Config runtime_cfg = cfg;
-  TrainerValidationUtils::validate_training_context(runtime_cfg);
-  std::cout << "[Trainer] Training context validated.\n";
-  auto tokenizer = TokenizerFactory::create(runtime_cfg, nullptr);
-  Trainer::import_vocab_size(runtime_cfg, *tokenizer);
-  TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
+  // Fixed once set up: every object below keeps a reference to it.
+  const Config runtime_cfg = [&cfg] {
+    Config c = cfg;
+    TrainerValidationUtils::validate_training_context(c);
+    std::cout << "[Trainer] Training context validated.\n";
+    const auto tokenizer = TokenizerFactory::create(c, nullptr);
+    Trainer::import_vocab_size(c, *tokenizer);
+    TrainerValidationUtils::validate_vocab_contract_or_throw(c);
+    return c;
+  }();
   TrainingReportSink training_sink(runtime_cfg.logging);
   const ModelAlgoFactory algo(ModelAlgoConfig::from_config(runtime_cfg));
   TrainingSessionController session_controller(runtime_cfg, cmd, algo,
@@ -254,10 +258,11 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   //////////////////////////
   // Asset construction
   //////////////////////////
-  std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(runtime_cfg);
+  const std::unique_ptr<DeviceBackend> backend =
+      DeviceBackend::create_instance(runtime_cfg);
   TrainingMemoryManager memory_manager(runtime_cfg, algo, *backend,
                                        session_controller);
-  Ops ops(*backend);
+  const Ops ops(*backend);
   OptimizerAdamW opt(*backend);
   Transformer transformer(runtime_cfg, algo, memory_manager.tensor_store(),
                           &memory_manager.gradient_store(), ops, &training_sink);

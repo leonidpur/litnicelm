@@ -18,12 +18,12 @@ public:
 
   std::unique_ptr<ISelfAttention>
   create_attention(int layer_index, const Config &cfg, TensorStore &tensor_store,
-                   GradientStore *gradient_store, Ops &ops,
+                   GradientStore *gradient_store, const Ops &ops,
                    IPositionEncoding &position_encoding) const;
 
   std::unique_ptr<IFFN>
   create_ffn(int layer_index, const Config &cfg, TensorStore &tensor_store,
-             GradientStore *gradient_store, Ops &ops) const;
+             GradientStore *gradient_store, const Ops &ops) const;
 
   // Position encodings are cheap and their queries depend only on the
   // config, so callers that only need an answer create one on demand.

@@ -14,7 +14,7 @@ LearnedPositionEncoding::LearnedPositionEncoding(const Config &cfg)
     : cfg_(cfg) {}
 
 void LearnedPositionEncoding::bind(TensorStore &tensor_store,
-                                   GradientStore *gradient_store, Ops &ops) {
+                                   GradientStore *gradient_store, const Ops &ops) {
   ops_ = &ops;
   pos_emb_ = tensor_store.param_pos_embedding();
   TensorContracts::validate_position_embedding_param(
@@ -74,7 +74,7 @@ RopePositionEncoding::RopePositionEncoding(const Config &cfg) : cfg_(cfg) {
   }
 }
 
-void RopePositionEncoding::bind(TensorStore &, GradientStore *, Ops &ops) {
+void RopePositionEncoding::bind(TensorStore &, GradientStore *, const Ops &ops) {
   ops_ = &ops;
 }
 

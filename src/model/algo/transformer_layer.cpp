@@ -6,7 +6,7 @@
 
 TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
                                    TensorStore &tensor_store,
-                                   GradientStore *gradient_store, Ops &ops,
+                                   GradientStore *gradient_store, const Ops &ops,
                                    const ModelAlgoFactory &algo_factory,
                                    IPositionEncoding &position_encoding)
     : idx_(layer_index),

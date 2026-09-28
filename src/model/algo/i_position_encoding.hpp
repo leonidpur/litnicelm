@@ -25,7 +25,7 @@ public:
   // Called once by the Transformer after memory is allocated.
   // gradient_store is null for inference.
   virtual void bind(TensorStore &tensor_store, GradientStore *gradient_store,
-                    Ops &ops) = 0;
+                    const Ops &ops) = 0;
   virtual void set_diagnostics(TrainingDiagnosticsController *diagnostics) = 0;
 
   // x: [B, S, D] token embeddings, updated in place.

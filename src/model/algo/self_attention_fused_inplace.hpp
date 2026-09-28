@@ -16,7 +16,7 @@ class SelfAttentionFusedInplace final : public ISelfAttention {
 public:
   SelfAttentionFusedInplace(int layer_index, const Config &cfg,
                             TensorStore &tensor_store,
-                            GradientStore *gradient_store, Ops &ops,
+                            GradientStore *gradient_store, const Ops &ops,
                             IPositionEncoding &position_encoding);
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
@@ -31,7 +31,7 @@ private:
   const Config &cfg_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
-  Ops &ops_;
+  const Ops &ops_;
   IPositionEncoding &positionEncoding_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;

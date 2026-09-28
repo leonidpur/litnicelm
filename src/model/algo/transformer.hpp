@@ -40,7 +40,7 @@ public:
   // Creates its attention, FFN and position-encoding objects with algo.
   Transformer(const Config &cfg, const ModelAlgoFactory &algo,
               TensorStore &tensor_store, GradientStore *gradient_store,
-              Ops &ops, ReportSink *sink = nullptr);
+              const Ops &ops, ReportSink *sink = nullptr);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
@@ -60,7 +60,7 @@ private:
   std::unique_ptr<IPositionEncoding> positionEncoding_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
-  Ops &ops_;
+  const Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   OutputHead outputHead_;
 

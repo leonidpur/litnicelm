@@ -14,7 +14,7 @@ public:
   bool needs_position_table() const override { return true; }
 
   void bind(TensorStore &tensor_store, GradientStore *gradient_store,
-            Ops &ops) override;
+            const Ops &ops) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
   void apply_to_input(TensorView &x) override;
@@ -27,7 +27,7 @@ public:
 
 private:
   const Config &cfg_;
-  Ops *ops_ = nullptr;
+  const Ops *ops_ = nullptr;
   TensorView pos_emb_;
   TensorView d_pos_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
@@ -39,7 +39,7 @@ public:
   const char *name() const override { return "none"; }
   bool needs_position_table() const override { return false; }
 
-  void bind(TensorStore &, GradientStore *, Ops &) override {}
+  void bind(TensorStore &, GradientStore *, const Ops &) override {}
   void set_diagnostics(TrainingDiagnosticsController *) override {}
 
   void apply_to_input(TensorView &) override {}
@@ -65,7 +65,7 @@ public:
   bool needs_position_table() const override { return false; }
 
   void bind(TensorStore &tensor_store, GradientStore *gradient_store,
-            Ops &ops) override;
+            const Ops &ops) override;
   void set_diagnostics(TrainingDiagnosticsController *) override {}
 
   void apply_to_input(TensorView &) override {}
@@ -80,5 +80,5 @@ private:
   void rotate_qk(TensorView &qkv, bool inverse);
 
   const Config &cfg_;
-  Ops *ops_ = nullptr;
+  const Ops *ops_ = nullptr;
 };

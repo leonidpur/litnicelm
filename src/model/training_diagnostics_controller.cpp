@@ -7,7 +7,7 @@
 #include <sstream>
 
 TrainingDiagnosticsController::TrainingDiagnosticsController(
-    TensorStore &tensor_store, Ops &ops, Transformer &model,
+    TensorStore &tensor_store, const Ops &ops, Transformer &model,
     GradientStore &gradient_store, DeviceBackend &device_backend,
     const RuntimeFlags &runtime_flags, const Config &cfg)
     : tensorStore_(tensor_store),
@@ -19,7 +19,7 @@ TrainingDiagnosticsController::TrainingDiagnosticsController(
       cfg_(cfg) {}
 
 void TrainingDiagnosticsController::check_finite(
-    Ops &ops, const TensorView &tensor, const std::string &label) {
+    const Ops &ops, const TensorView &tensor, const std::string &label) {
   if (tensor.dtype() != DType::F32 || tensor.numel() == 0) {
     return;
   }

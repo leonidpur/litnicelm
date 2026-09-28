@@ -25,7 +25,7 @@ class Tokenizer;
 // optimizer step, save.
 class Trainer {
 public:
-  Trainer(const Config &cfg, TensorStore &tensor_store, Ops &ops,
+  Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
           OptimizerAdamW &opt, Transformer &transformer, const ArenaView &data_arena,
           const ArenaView &grad_arena, GradientStore &gradient_store,
           uint64_t decay_bytes,
@@ -42,7 +42,7 @@ public:
 private:
   const Config &cfg_;
   TensorStore &tensorStore_;
-  Ops &ops_;
+  const Ops &ops_;
   OptimizerAdamW &opt_;
   Transformer &transformer_;
   ArenaView data_arena_;

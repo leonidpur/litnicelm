@@ -21,7 +21,7 @@ static void report_if(ReportSink *sink, ReportEvent event, uint32_t step,
 Transformer::Transformer(const Config &cfg,
                          const ModelAlgoFactory &algo,
                          TensorStore &tensor_store,
-                         GradientStore *gradient_store, Ops &ops,
+                         GradientStore *gradient_store, const Ops &ops,
                          ReportSink *sink)
     : cfg_(cfg),
       positionEncoding_(algo.create_position_encoding(cfg)),

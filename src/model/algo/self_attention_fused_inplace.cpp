@@ -6,7 +6,7 @@
 
 SelfAttentionFusedInplace::SelfAttentionFusedInplace(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
-    GradientStore *gradient_store, Ops &ops,
+    GradientStore *gradient_store, const Ops &ops,
     IPositionEncoding &position_encoding)
     : idx_(layer_index),
       cfg_(cfg),

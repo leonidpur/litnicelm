@@ -4,7 +4,7 @@
 
 
 OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
-                       GradientStore *gradient_store, Ops &ops)
+                       GradientStore *gradient_store, const Ops &ops)
     : cfg_(cfg),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),

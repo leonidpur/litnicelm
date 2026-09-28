@@ -14,7 +14,7 @@ ModelAlgoFactory::ModelAlgoFactory(ModelAlgoConfig cfg) : cfg_(cfg) {}
 
 std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
-    GradientStore *gradient_store, Ops &ops,
+    GradientStore *gradient_store, const Ops &ops,
     IPositionEncoding &position_encoding) const {
   switch (cfg_.attention_impl) {
   case AttentionImplKind::Reference:
@@ -35,7 +35,7 @@ std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
 
 std::unique_ptr<IFFN> ModelAlgoFactory::create_ffn(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
-    GradientStore *gradient_store, Ops &ops) const {
+    GradientStore *gradient_store, const Ops &ops) const {
   switch (cfg_.ffn_impl) {
   case FFNImplKind::Reference:
     return std::make_unique<FFN>(layer_index, cfg, tensor_store, gradient_store,

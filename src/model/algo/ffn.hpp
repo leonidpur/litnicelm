@@ -23,7 +23,7 @@ class TrainingDiagnosticsController;
 class FFN : public IFFN {
 public:
   FFN(int layer_index, const Config &cfg, TensorStore &tensor_store,
-      GradientStore *gradient_store, Ops &ops);
+      GradientStore *gradient_store, const Ops &ops);
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
@@ -39,7 +39,7 @@ protected:
   const Config &cfg_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
-  Ops &ops_;
+  const Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;
   TensorView cache_h_;

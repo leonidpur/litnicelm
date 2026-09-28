@@ -40,7 +40,7 @@ class TransformerLayer {
 public:
   TransformerLayer(int layer_index, const Config &cfg,
                    TensorStore &tensor_store,
-                   GradientStore *gradient_store, Ops &ops,
+                   GradientStore *gradient_store, const Ops &ops,
                    const ModelAlgoFactory &algo_factory,
                    IPositionEncoding &position_encoding);
   void set_observer(ITrainingObserver *observer);
@@ -58,7 +58,7 @@ private:
   const Config &cfg_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
-  Ops &ops_;
+  const Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
 
   std::unique_ptr<ISelfAttention> attn_;

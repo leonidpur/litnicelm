@@ -53,7 +53,7 @@ struct InferRuntime {
   // Model algorithm choices; memory and model are built with it.
   ModelAlgoFactory algo;
   std::unique_ptr<InferenceMemoryManager> memory_manager;
-  Ops ops;
+  const Ops ops;
   std::unique_ptr<Transformer> model;
   ReportSink *sink = nullptr;
 

@@ -17,14 +17,14 @@ class Transformer;
 
 class TrainingDiagnosticsController {
 public:
-  TrainingDiagnosticsController(TensorStore &tensor_store, Ops &ops,
+  TrainingDiagnosticsController(TensorStore &tensor_store, const Ops &ops,
                                 Transformer &model,
                                 GradientStore &gradient_store,
                                 DeviceBackend &device_backend,
                                 const RuntimeFlags &runtime_flags,
                                 const Config &cfg);
 
-  static void check_finite(Ops &ops, const TensorView &tensor,
+  static void check_finite(const Ops &ops, const TensorView &tensor,
                            const std::string &label);
 
   void bk_transformer_dlogits(const TensorView &dlogits) const;
@@ -87,7 +87,7 @@ public:
 
 private:
   TensorStore &tensorStore_;
-  Ops &ops_;
+  const Ops &ops_;
   Transformer &model_;
   GradientStore &gradientStore_;
   DeviceBackend &deviceBackend_;
