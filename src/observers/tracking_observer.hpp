@@ -23,25 +23,26 @@ public:
   TrackingObserver(const Config &cfg, const Command &cmd,
                    const ModelConvergenceAndCheckpointListener &convergence);
 
-  void on_training_start(TrainingState &state,
-                         TensorStore &tensor_store,
-                         uint64_t steps_per_epoch,
-                         DeviceBackend &device_backend,
-                         ReportSink *sink,
-                         const ArenaView &data_arena,
-                         const AdamStateView &adam_state) override;
+  void init_topology_ready(const NamedLayout &param_layout, void *param_base,
+                           uint64_t param_size, void *grad_base,
+                           uint64_t grad_size, void *adam_base,
+                           uint64_t adam_size, void *temp_base,
+                           uint64_t temp_size) override;
+  void on_training_start(const TrainingPosition &training_position,
+                         uint64_t steps_per_epoch, ReportSink *sink) override;
   void on_epoch_start(uint32_t epoch) override;
-  void on_train_step_end(uint64_t global_step, double loss) override;
-  bool on_epoch_end(uint32_t epoch, float mean_loss,
-                    TrainingState &state,
+  void on_train_step_end(uint64_t optimizer_steps, double loss) override;
+  ContinueTrainingDecision on_epoch_end(uint32_t epoch,
+                                        const EpochMetrics &metrics,
+                    TrainingPosition &training_position,
                     DeviceBackend &device_backend,
                     ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
-  void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) override;
+  void on_checkpoint_save_start(uint64_t optimizer_steps, uint32_t epoch) override;
   void on_checkpoint_save_end(bool ok) override;
   void on_checkpoint_load_end(bool ok) override;
-  void on_training_end(const TrainingState &state, ReportSink *sink) override;
+  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
 
 private:
   using Clock = std::chrono::steady_clock;
@@ -59,5 +60,6 @@ private:
   uint64_t pending_save_step_ = 0;
   uint32_t pending_save_epoch_ = 0;
   std::string parentRunId_;
+  uint64_t paramBytes_ = 0;
   uint32_t current_epoch_ = 0;
 };

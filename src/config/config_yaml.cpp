@@ -173,6 +173,9 @@ std::string config_to_yaml(const Config &cfg) {
     << "  patience_epochs: " << t.patience_epochs << "\n"
     << "  min_epochs: " << t.min_epochs << "\n"
     << "  stop_on_nonfinite_loss: " << boolean(t.stop_on_nonfinite_loss) << "\n"
+    << "  validation_fraction: " << float_text(t.validation_fraction) << "\n"
+    << "  validation_chunk_tokens: " << t.validation_chunk_tokens << "\n"
+    << "  validation_every_epochs: " << t.validation_every_epochs << "\n"
     << "  diagnostics:\n";
 #define LITNICE_DUMP_DIAGNOSTIC(name) \
   y << "    " #name ": " << boolean(t.diagnostics.name) << "\n";

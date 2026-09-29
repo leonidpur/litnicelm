@@ -15,7 +15,7 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      TrainingReportSink &training_sink) {
   auto convergence_listener =
       std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd, algo);
-  total_epochs_ = convergence_listener->total_epochs();
+  last_epoch_ = convergence_listener->last_epoch();
   convergence_listener->set_observer_relay(*this);
   convergence_listener_ = convergence_listener.get();
   add_observer(std::move(convergence_listener));
@@ -112,26 +112,31 @@ void TrainingSessionController::init_tensors_xy_ready(int64_t x_rows,
   }
 }
 
-uint32_t TrainingSessionController::total_epochs() const {
-  return total_epochs_;
+uint32_t TrainingSessionController::last_epoch() const {
+  return last_epoch_;
 }
 
 std::string TrainingSessionController::early_stop_message() const {
   return convergence_listener_->early_stop_message();
 }
 
+TrainingPosition TrainingSessionController::restore_or_initialize(
+    TensorStore &tensor_store, DeviceBackend &device_backend,
+    const ArenaView &data_arena, const AdamStateView &adam_state,
+    uint64_t steps_per_epoch) {
+  return convergence_listener_->restore_or_initialize(
+      tensor_store, device_backend, data_arena, adam_state, steps_per_epoch);
+}
+
 void TrainingSessionController::on_training_start(
-    TrainingState &state, TensorStore &tensor_store,
-    uint64_t steps_per_epoch, DeviceBackend &device_backend, ReportSink *sink,
-    const ArenaView &data_arena,
-    const AdamStateView &adam_state) {
+    const TrainingPosition &training_position, uint64_t steps_per_epoch,
+    ReportSink *sink) {
   steps_per_epoch_ = steps_per_epoch;
   for (const auto &observer : observers_) {
-    observer->on_training_start(state, tensor_store, steps_per_epoch_,
-                                device_backend, sink, data_arena, adam_state);
+    observer->on_training_start(training_position, steps_per_epoch_, sink);
   }
   if (convergence_listener_->should_stop()) {
-    total_epochs_ = state.epoch;
+    last_epoch_ = training_position.epoch;
   }
 }
 
@@ -141,65 +146,74 @@ void TrainingSessionController::on_epoch_start(uint32_t epoch) {
   }
 }
 
-bool TrainingSessionController::on_epoch_end(uint32_t epoch, float mean_loss,
-                                             TrainingState &state,
+ContinueTrainingDecision TrainingSessionController::on_epoch_end(uint32_t epoch,
+                                             const EpochMetrics &metrics,
+                                             TrainingPosition &training_position,
                                              DeviceBackend &device_backend,
                                              ReportSink *sink,
                                              const ArenaView &data_arena,
                                              const AdamStateView &adam_state) {
-  state.epoch = epoch;
-  bool should_continue = true;
+  training_position.epoch = epoch;
+  // Every observer runs. Training stops if any observer decides to stop (the
+  // first such observer's message is kept); undecided observers are ignored.
+  ContinueTrainingDecision combined;
   for (const auto &observer : observers_) {
-    should_continue =
-        observer->on_epoch_end(epoch, mean_loss, state, device_backend, sink,
-                               data_arena, adam_state) &&
-        should_continue;
+    const ContinueTrainingDecision decision = observer->on_epoch_end(
+        epoch, metrics, training_position, device_backend, sink, data_arena,
+        adam_state);
+    if (!decision.decided) {
+      continue;
+    }
+    if (combined.decided && !combined.continue_training) {
+      continue;
+    }
+    combined = decision;
   }
-  return should_continue;
+  return combined;
 }
 
-void TrainingSessionController::on_training_end(const TrainingState &state,
+void TrainingSessionController::on_training_end(const TrainingPosition &training_position,
                                                 ReportSink *sink) {
   for (const auto &observer : observers_) {
-    observer->on_training_end(state, sink);
+    observer->on_training_end(training_position, sink);
   }
 }
 
-void TrainingSessionController::on_batch_start(uint64_t global_step) {
+void TrainingSessionController::on_batch_start(uint64_t optimizer_steps) {
   for (const auto &observer : observers_) {
-    observer->on_batch_start(global_step);
+    observer->on_batch_start(optimizer_steps);
   }
 }
 
-void TrainingSessionController::on_batch_end(uint64_t global_step, double loss) {
+void TrainingSessionController::on_batch_end(uint64_t optimizer_steps, double loss) {
   for (const auto &observer : observers_) {
-    observer->on_batch_end(global_step, loss);
+    observer->on_batch_end(optimizer_steps, loss);
   }
 }
 
-void TrainingSessionController::on_batch_load_start(uint64_t global_step) {
+void TrainingSessionController::on_batch_load_start(uint64_t optimizer_steps) {
   for (const auto &observer : observers_) {
-    observer->on_batch_load_start(global_step);
+    observer->on_batch_load_start(optimizer_steps);
   }
 }
 
-void TrainingSessionController::on_batch_load_end(uint64_t global_step,
+void TrainingSessionController::on_batch_load_end(uint64_t optimizer_steps,
                                                   bool has_batch) {
   for (const auto &observer : observers_) {
-    observer->on_batch_load_end(global_step, has_batch);
+    observer->on_batch_load_end(optimizer_steps, has_batch);
   }
 }
 
-void TrainingSessionController::on_train_step_start(uint64_t global_step) {
+void TrainingSessionController::on_train_step_start(uint64_t optimizer_steps) {
   for (const auto &observer : observers_) {
-    observer->on_train_step_start(global_step);
+    observer->on_train_step_start(optimizer_steps);
   }
 }
 
-void TrainingSessionController::on_train_step_end(uint64_t global_step,
+void TrainingSessionController::on_train_step_end(uint64_t optimizer_steps,
                                                   double loss) {
   for (const auto &observer : observers_) {
-    observer->on_train_step_end(global_step, loss);
+    observer->on_train_step_end(optimizer_steps, loss);
   }
 }
 
@@ -287,10 +301,10 @@ void TrainingSessionController::on_checkpoint_load_end(bool ok) {
   }
 }
 
-void TrainingSessionController::on_checkpoint_save_start(uint64_t global_step,
+void TrainingSessionController::on_checkpoint_save_start(uint64_t optimizer_steps,
                                                          uint32_t epoch) {
   for (const auto &observer : observers_) {
-    observer->on_checkpoint_save_start(global_step, epoch);
+    observer->on_checkpoint_save_start(optimizer_steps, epoch);
   }
 }
 

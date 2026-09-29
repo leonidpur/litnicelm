@@ -38,7 +38,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,
-                     const AdamStateView &adam_state, uint64_t global_step,
+                     const AdamStateView &adam_state, uint64_t optimizer_steps,
                      uint32_t epoch,
                      const CheckpointConvergenceState *convergence_state = nullptr);
 

@@ -397,7 +397,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
                      const std::string &conf_version,
                      uint64_t alignment_bytes, DeviceBackend &backend,
                      const ArenaView &data_arena,
-                     const AdamStateView &adam_state, uint64_t global_step,
+                     const AdamStateView &adam_state, uint64_t optimizer_steps,
                      uint32_t epoch,
                      const CheckpointConvergenceState *convergence_state) {
   if (!arena_memory_ok(data_arena.base, data_arena.bytes) ||
@@ -424,7 +424,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
   h.vocab_size = model.target_vocab_size;
   h.max_seq_len = model.max_seq_len;
   h.alignment_bytes = alignment_bytes;
-  h.global_step = global_step;
+  h.global_step = optimizer_steps;
   h.epoch = epoch;
   h.data_bytes = data_arena.bytes;
   h.adam_bytes = adam_state.bytes;

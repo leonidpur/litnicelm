@@ -22,7 +22,7 @@ public:
                             const ModelAlgoFactory &algo,
                             TrainingReportSink &training_sink);
 
-  uint32_t total_epochs() const;
+  uint32_t last_epoch() const;
   std::string early_stop_message() const;
   void add_observer(std::unique_ptr<ITrainingObserver> observer);
   void runtime_cfg_ready(const Config &cfg) override;
@@ -45,27 +45,30 @@ public:
   void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols, int64_t y_rows,
                              int64_t y_cols, const TensorView &tok_emb) override;
 
-  void on_training_start(TrainingState &state,
-                         TensorStore &tensor_store,
-                         uint64_t steps_per_epoch,
-                         DeviceBackend &device_backend,
-                         ReportSink *sink,
-                         const ArenaView &data_arena,
-                         const AdamStateView &adam_state) override;
-  void on_training_end(const TrainingState &state, ReportSink *sink) override;
+  // Resumes from the latest checkpoint or initializes parameters and
+  // optimizer state; returns the position training starts from.
+  TrainingPosition restore_or_initialize(TensorStore &tensor_store,
+                                        DeviceBackend &device_backend,
+                                        const ArenaView &data_arena,
+                                        const AdamStateView &adam_state,
+                                        uint64_t steps_per_epoch);
+  void on_training_start(const TrainingPosition &training_position,
+                         uint64_t steps_per_epoch, ReportSink *sink) override;
+  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
   void on_epoch_start(uint32_t epoch) override;
-  bool on_epoch_end(uint32_t epoch, float mean_loss,
-                    TrainingState &state,
+  ContinueTrainingDecision on_epoch_end(uint32_t epoch,
+                                        const EpochMetrics &metrics,
+                    TrainingPosition &training_position,
                     DeviceBackend &device_backend,
                     ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
-  void on_batch_start(uint64_t global_step) override;
-  void on_batch_end(uint64_t global_step, double loss) override;
-  void on_batch_load_start(uint64_t global_step) override;
-  void on_batch_load_end(uint64_t global_step, bool has_batch) override;
-  void on_train_step_start(uint64_t global_step) override;
-  void on_train_step_end(uint64_t global_step, double loss) override;
+  void on_batch_start(uint64_t optimizer_steps) override;
+  void on_batch_end(uint64_t optimizer_steps, double loss) override;
+  void on_batch_load_start(uint64_t optimizer_steps) override;
+  void on_batch_load_end(uint64_t optimizer_steps, bool has_batch) override;
+  void on_train_step_start(uint64_t optimizer_steps) override;
+  void on_train_step_end(uint64_t optimizer_steps, double loss) override;
   void on_forward_start() override;
   void on_forward_end() override;
   void on_backward_start() override;
@@ -80,12 +83,12 @@ public:
   void on_output_head_end() override;
   void on_checkpoint_load_start() override;
   void on_checkpoint_load_end(bool ok) override;
-  void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) override;
+  void on_checkpoint_save_start(uint64_t optimizer_steps, uint32_t epoch) override;
   void on_checkpoint_save_end(bool ok) override;
 
 private:
   uint64_t steps_per_epoch_ = 0;
-  uint32_t total_epochs_ = 0;
+  uint32_t last_epoch_ = 0;
   std::vector<std::unique_ptr<ITrainingObserver>> observers_;
   ModelConvergenceAndCheckpointListener *convergence_listener_ = nullptr;
 };

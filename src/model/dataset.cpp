@@ -177,13 +177,16 @@ std::string TextDataset::early_evaluate_input(const Config &cfg, bool report) {
   return selected_input_path;
 }
 
-TextDataset::TextDataset(TensorStore &tensor_store,
-                         DeviceBackend &device_backend,
-                         const Config &cfg,
+TextDataset::TextDataset(const std::string &dataset_path,
+                         TensorStore &tensor_store,
+                         DeviceBackend &device_backend, const Config &cfg,
+                         const DatasetSplit &split, DatasetSplit::Side side,
                          bool shuffle_blocks, TrainingReportSink *report_sink,
                          ITrainingObserver *load_observer)
     : IDataLoader(load_observer),
       tensorStore_(tensor_store),
+      split_(split),
+      side_(side),
       device_backend_(&device_backend),
       device_(device_backend.device()),
       seq_len_(cfg.training.train_seq_len),
@@ -191,7 +194,6 @@ TextDataset::TextDataset(TensorStore &tensor_store,
       batch_size_(cfg.training.batch_size),
       shuffle_blocks_(shuffle_blocks),
       report_sink_(report_sink) {
-  const std::string dataset_path = early_evaluate_input(cfg, false);
 
   if (device_ == Device::CPU) {
     backend_ = std::make_unique<DatasetCPU>();
@@ -253,6 +255,12 @@ TextDataset::TextDataset(TensorStore &tensor_store,
   if (num_tokens_ < static_cast<uint64_t>(seq_len_ + 1)) {
     throw std::runtime_error("TextDataset: dataset is too small for training");
   }
+  if (split_.num_tokens() != num_tokens_) {
+    throw std::runtime_error(
+        "TextDataset: split was built for " +
+        std::to_string(split_.num_tokens()) + " tokens but " + dataset_path +
+        " has " + std::to_string(num_tokens_));
+  }
 
   build_blocks_();
   reset_epoch();
@@ -284,9 +292,28 @@ void TextDataset::build_blocks_() {
 
   const uint64_t min_needed = static_cast<uint64_t>(seq_len_) + 1;
   const uint64_t N = num_tokens_;
+
+  if (side_ == DatasetSplit::Side::Validation) {
+    // Back-to-back windows inside each validation range, rounded down to
+    // whole batches (the model's work buffers take full batches only).
+    // Empty when nothing is held out.
+    for (const TokenRange &r : split_.validation_ranges()) {
+      for (uint64_t start = r.begin; start + min_needed <= r.end;
+           start += seq_len_) {
+        block_starts_.push_back(start);
+      }
+    }
+    block_starts_.resize((block_starts_.size() / batch_size_) * batch_size_);
+    return;
+  }
+
+  // Training windows every window_stride, skipping any window that reads a
+  // validation token.
   const uint64_t stride = static_cast<uint64_t>(window_stride_);
   for (uint64_t start = 0; start + min_needed <= N; start += stride) {
-    block_starts_.push_back(start);
+    if (split_.contains(DatasetSplit::Side::Train, start, start + min_needed)) {
+      block_starts_.push_back(start);
+    }
   }
 
   if (block_starts_.empty()) {

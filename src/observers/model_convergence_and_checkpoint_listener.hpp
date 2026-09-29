@@ -13,7 +13,7 @@ class ModelAlgoFactory;
 
 class ReportSink;
 class TensorStore;
-struct TrainingState;
+struct TrainingPosition;
 
 class ModelConvergenceAndCheckpointListener final : public ITrainingObserver {
 public:
@@ -21,23 +21,27 @@ public:
                                         const ModelAlgoFactory &algo);
   void set_observer_relay(ITrainingObserver &observer_relay);
 
-  void on_training_start(TrainingState &state,
-                         TensorStore &tensor_store,
-                         uint64_t steps_per_epoch,
-                         DeviceBackend &device_backend,
-                         ReportSink *sink,
-                         const ArenaView &data_arena,
-                         const AdamStateView &adam_state) override;
-  void on_training_end(const TrainingState &state, ReportSink *sink) override;
-  bool on_epoch_end(uint32_t epoch, float mean_loss,
-                    TrainingState &state,
+  // Resumes from the latest checkpoint when training.incremental is set and
+  // it loads; otherwise initializes parameters and optimizer state. Returns
+  // the position training starts from.
+  TrainingPosition restore_or_initialize(TensorStore &tensor_store,
+                                        DeviceBackend &device_backend,
+                                        const ArenaView &data_arena,
+                                        const AdamStateView &adam_state,
+                                        uint64_t steps_per_epoch);
+  void on_training_start(const TrainingPosition &training_position,
+                         uint64_t steps_per_epoch, ReportSink *sink) override;
+  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
+  ContinueTrainingDecision on_epoch_end(uint32_t epoch,
+                                        const EpochMetrics &metrics,
+                    TrainingPosition &training_position,
                     DeviceBackend &device_backend,
                     ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
 
   bool is_estimation_mode() const;
-  uint32_t total_epochs() const;
+  uint32_t last_epoch() const;
   bool should_stop() const;
   std::string early_stop_message() const;
   bool has_best() const;
@@ -53,16 +57,17 @@ private:
     NonFiniteLoss = 3,
   };
 
-  bool maybe_resume(TrainingState &state, DeviceBackend &device_backend,
+  bool maybe_resume(TrainingPosition &training_position, DeviceBackend &device_backend,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state, uint64_t steps_per_epoch,
                     ITrainingObserver &observer_relay);
-  void maybe_save(const TrainingState &state, DeviceBackend &device_backend,
+  void maybe_save(const TrainingPosition &training_position, DeviceBackend &device_backend,
                   const ArenaView &data_arena,
                   const AdamStateView &adam_state,
                   ITrainingObserver &observer_relay);
   void clear_persisted_stop_for_resume();
   void reset_convergence_state();
+  ContinueTrainingDecision epoch_end_decision() const;
   void restore_convergence_state(const CheckpointConvergenceState &state);
   CheckpointConvergenceState checkpoint_convergence_state() const;
   std::string stop_reason_text() const;
@@ -73,7 +78,7 @@ private:
   bool save_checkpoint_file(const std::string &path, DeviceBackend &device_backend,
                             const ArenaView &data_arena,
                             const AdamStateView &adam_state,
-                            uint64_t global_step, uint32_t epoch,
+                            uint64_t optimizer_steps, uint32_t epoch,
                             bool notify_observers,
                             ITrainingObserver &observer_relay);
 

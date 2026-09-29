@@ -1,5 +1,7 @@
 #include "trainer.hpp"
 
+#include "mean_loss.hpp"
+
 #include "dataset.hpp"
 #include "memory/training_memory_manager.hpp"
 #include "model_algo_factory.hpp"
@@ -130,8 +132,8 @@ void Trainer::apply_no_decay_zone_gradients(uint64_t step) {
   opt_.step(cfg_.training, params, grads, m, v, step, false);
 }
 
-double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
-  session_controller_.on_train_step_start(state.global_step);
+double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &training_position) {
+  session_controller_.on_train_step_start(training_position.optimizer_steps);
   const int64_t token_rows = batch.token_count();
   const int64_t batch_size = batch.batch_size();
   const int64_t seq_len = batch.seq_len();
@@ -165,7 +167,7 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
 
   zero_gradients();
   transformer_.backward(batch.ids, logits, runtime_flags_.probe);
-  const uint64_t step = state.global_step + 1;
+  const uint64_t step = training_position.optimizer_steps + 1;
   try {
     clip_gradients();
   } catch (const std::runtime_error &err) {
@@ -175,54 +177,76 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingState &state) {
   apply_decay_zone_gradients(step);
   apply_no_decay_zone_gradients(step);
 
-  session_controller_.on_train_step_end(state.global_step, loss);
+  session_controller_.on_train_step_end(training_position.optimizer_steps, loss);
 
   return loss;
 }
 
-void Trainer::train(IDataLoader &loader) {
-  TrainingState state{};
-  session_controller_.on_training_start(state, tensorStore_,
-                                        loader.steps_per_epoch(),
-                                        device_backend_, sink_,
-                                        data_arena_, adam_state_);
+double Trainer::evaluate(IDataLoader &val_dataset) {
+  val_dataset.reset_epoch();
+  TrainBatch batch{};
+  MeanLoss val_loss;
+  while (val_dataset.next(batch)) {
+    TensorView logits =
+        tensorStore_.temp_tr_logits(batch.batch_size(), batch.seq_len());
+    transformer_.forward(batch.ids, logits);
+    TensorView loss_scalar = tensorStore_.temp_tr_loss();
+    ops_.cross_entropy_mean(logits, batch.targets, loss_scalar);
+    val_loss.add(ops_.read_scalar_f32(loss_scalar));
+  }
+  return val_loss.mean();
+}
 
-  const uint32_t total_epochs = session_controller_.total_epochs();
-  for (uint32_t e = state.epoch + 1; e <= total_epochs; ++e) {
-    session_controller_.on_epoch_start(e);
-    loader.reset_epoch();
+void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
+  TrainingPosition training_position =
+      session_controller_.restore_or_initialize(
+          tensorStore_, device_backend_, data_arena_, adam_state_,
+          training_dataset.steps_per_epoch());
+  // Notification: pure information for the reporting observers.
+  session_controller_.on_training_start(training_position,
+                                        training_dataset.steps_per_epoch(), sink_);
+
+  const uint32_t last_epoch = session_controller_.last_epoch();
+  for (uint32_t current_epoch = training_position.epoch + 1; current_epoch <= last_epoch; ++current_epoch) {
+    session_controller_.on_epoch_start(current_epoch);
+    training_dataset.reset_epoch();
     TrainBatch batch{};
-    uint32_t n = 0;
-    double sum_loss = 0.0;
-    const uint64_t steps_this_epoch = loader.steps_per_epoch();
+    MeanLoss train_loss;
+    const uint64_t steps_this_epoch = training_dataset.steps_per_epoch();
     for (uint64_t batch_idx = 0; batch_idx < steps_this_epoch; ++batch_idx) {
-      session_controller_.on_batch_start(state.global_step);
-      const bool has_batch = loader.next(batch, state.global_step);
+      //prepare batch and notify observers
+      session_controller_.on_batch_start(training_position.optimizer_steps);
+      const bool has_batch = training_dataset.next(batch, training_position.optimizer_steps);
       if (!has_batch) {
-        session_controller_.on_batch_end(state.global_step, 0.0);
+        session_controller_.on_batch_end(training_position.optimizer_steps, 0.0);
         break;
       }
-      const double loss = train_one_batch(batch, state);
-      session_controller_.on_batch_end(state.global_step, loss);
-      sum_loss += loss;
-      n += 1;
-      state.global_step += 1;
+      //execute forward, backward, and optimizer step
+      const double loss = train_one_batch(batch, training_position);
+      session_controller_.on_batch_end(training_position.optimizer_steps, loss);
+      train_loss.add(loss);
+      training_position.optimizer_steps += 1;
     }
-
-    const float mean_loss =
-        static_cast<float>(sum_loss / std::max<uint32_t>(1, n));
-
-    const bool continue_training =
-        session_controller_.on_epoch_end(e, mean_loss, state, device_backend_,
-                                         sink_, data_arena_, adam_state_);
-    if (!continue_training) {
-      std::cout << "[Trainer] Early stop at epoch " << e << ": "
-                << session_controller_.early_stop_message() << "\n";
+    //consolidate epoch metrics
+    EpochMetrics metrics;
+    metrics.train_loss = static_cast<float>(train_loss.mean());
+    const bool validation_due =
+        current_epoch % cfg_.training.validation_every_epochs == 0 || current_epoch == last_epoch;
+    if (validation_due && val_dataset.steps_per_epoch() > 0) {
+      metrics.val_loss = static_cast<float>(evaluate(val_dataset));
+    }
+    //notify observers and check for early stopping
+    const ContinueTrainingDecision decision = session_controller_.on_epoch_end(
+        current_epoch, metrics, training_position, device_backend_, sink_, data_arena_,
+        adam_state_);
+    if (decision.decided && !decision.continue_training) {
+      std::cout << "[Trainer] Early stop at epoch " << current_epoch << ": "
+                << decision.early_stop_message << "\n";
       break;
     }
   }
 
-  session_controller_.on_training_end(state, sink_);
+  session_controller_.on_training_end(training_position, sink_);
 }
 
 void Trainer::import_vocab_size(Config &cfg, const Tokenizer &tokenizer) {
@@ -235,16 +259,12 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   //////////////////////////////
   // Validate training context and runtime initialization
   //////////////////////////////
-  // Fixed once set up: every object below keeps a reference to it.
-  const Config runtime_cfg = [&cfg] {
-    Config c = cfg;
-    TrainerValidationUtils::validate_training_context(c);
-    std::cout << "[Trainer] Training context validated.\n";
-    const auto tokenizer = TokenizerFactory::create(c, nullptr);
-    Trainer::import_vocab_size(c, *tokenizer);
-    TrainerValidationUtils::validate_vocab_contract_or_throw(c);
-    return c;
-  }();
+  Config runtime_cfg = cfg;
+  TrainerValidationUtils::validate_training_context(runtime_cfg);
+  std::cout << "[Trainer] Training context validated.\n";
+  auto tokenizer = TokenizerFactory::create(runtime_cfg, nullptr);
+  Trainer::import_vocab_size(runtime_cfg, *tokenizer);
+  TrainerValidationUtils::validate_vocab_contract_or_throw(runtime_cfg);
   TrainingReportSink training_sink(runtime_cfg.logging);
   const ModelAlgoFactory algo(ModelAlgoConfig::from_config(runtime_cfg));
   TrainingSessionController session_controller(runtime_cfg, cmd, algo,
@@ -252,7 +272,8 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
 
   session_controller.runtime_cfg_ready(runtime_cfg);
 
-  TextDataset::early_evaluate_input(runtime_cfg);
+  const std::string dataset_path =
+      TextDataset::early_evaluate_input(runtime_cfg);
 
   std::cout << "[Trainer] Training runtime initialization done.\n";
   //////////////////////////
@@ -267,9 +288,14 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   Transformer transformer(runtime_cfg, algo, memory_manager.tensor_store(),
                           &memory_manager.gradient_store(), ops, &training_sink);
 
-  TextDataset loader(memory_manager.tensor_store(), *backend, runtime_cfg,
+  const DatasetHeader header = TextDataset::read_header_or_throw(dataset_path);
+  const DatasetSplit split = DatasetSplit::from_config(runtime_cfg, header.num_tokens);
+  TextDataset training_dataset(dataset_path, memory_manager.tensor_store(), *backend,
+                     runtime_cfg, split, DatasetSplit::Side::Train,
                      /*shuffle_blocks=*/true, &training_sink, &session_controller);
-  TrainerValidationUtils::print_dataset_stats(runtime_cfg, loader);
+  TextDataset val_dataset(dataset_path, memory_manager.tensor_store(), *backend,
+                       runtime_cfg, split, DatasetSplit::Side::Validation);
+  TrainerValidationUtils::print_dataset_stats(runtime_cfg, training_dataset);
   
   std::cout << "\n[Trainer] Engine, memory arenas, tensor store, model, optimizer, and dataset are initialized.\n\n";
 
@@ -282,6 +308,6 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
                   cmd.runtime_flags, &training_sink);
   
   // Do it! Train the model using the dataset loader
-  trainer.train(loader);
+  trainer.train(training_dataset, val_dataset);
   return 0;
 }

@@ -35,7 +35,9 @@ public:
           TrainingReportSink *sink = nullptr);
 
   // Train for the epoch count selected by TrainingSessionController.
-  void train(IDataLoader &loader);
+  // val_loader is evaluated every training.validation_every_epochs epochs and
+  // after the last epoch, when it has batches.
+  void train(IDataLoader &loader, IDataLoader &val_loader);
   static void import_vocab_size(Config &cfg, const Tokenizer &tokenizer);
   static int train_entry_point(const Config &cfg, const Command &cmd);
 
@@ -64,5 +66,8 @@ private:
   void clip_gradients();
   void apply_decay_zone_gradients(uint64_t step);
   void apply_no_decay_zone_gradients(uint64_t step);
-  double train_one_batch(const TrainBatch &batch, TrainingState &state);
+  double train_one_batch(const TrainBatch &batch, TrainingPosition &training_position);
+  // Mean loss over val_loader's batches: forward pass only, parameters and
+  // optimizer state untouched.
+  double evaluate(IDataLoader &val_loader);
 };

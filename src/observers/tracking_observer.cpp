@@ -61,17 +61,25 @@ TrackingObserver::TrackingObserver(
       tracking_(std::make_unique<ExperimentTrackingSink>(
           cfg, std::filesystem::path(cmd.config_path).stem().string())) {}
 
-void TrackingObserver::on_training_start(TrainingState &state,
-                                         TensorStore &tensor_store,
-                                         uint64_t steps_per_epoch,
-                                         DeviceBackend &device_backend,
-                                         ReportSink *sink,
-                                         const ArenaView &data_arena,
-                                         const AdamStateView &adam_state) {
-  (void)tensor_store;
-  (void)device_backend;
+void TrackingObserver::init_topology_ready(
+    const NamedLayout &param_layout, void *param_base, uint64_t param_size,
+    void *grad_base, uint64_t grad_size, void *adam_base, uint64_t adam_size,
+    void *temp_base, uint64_t temp_size) {
+  (void)param_layout;
+  (void)param_base;
+  (void)grad_base;
+  (void)grad_size;
+  (void)adam_base;
+  (void)adam_size;
+  (void)temp_base;
+  (void)temp_size;
+  paramBytes_ = param_size;
+}
+
+void TrackingObserver::on_training_start(
+    const TrainingPosition &training_position, uint64_t steps_per_epoch,
+    ReportSink *sink) {
   (void)sink;
-  (void)adam_state;
   training_started_at_ = Clock::now();
   total_epoch_ms_ = 0;
   measured_epochs_ = 0;
@@ -81,8 +89,8 @@ void TrackingObserver::on_training_start(TrainingState &state,
   const bool estimate = convergence_.is_estimation_mode();
   TrackingEventBuilder ev(TRACKING_EVENT_RUN_START,
                           estimate ? "DRY_RUN" : "TRAIN_RUN");
-  ev.step(state.global_step)
-      .epoch(state.epoch)
+  ev.step(training_position.optimizer_steps)
+      .epoch(training_position.epoch)
       .str("mode", estimate ? "DRY_RUN" : "TRAIN")
       .str("config_path", configPath_)
       .str("git_commit", build_info::kGitCommit)
@@ -90,7 +98,7 @@ void TrackingObserver::on_training_start(TrainingState &state,
       .str("backend_library", cfg_.backend.library)
       .str("position_encoding", cfg_.model_algo.position_encoding)
       .i64("vocab_size", cfg_.model.target_vocab_size)
-      .i64("param_bytes", static_cast<int64_t>(data_arena.bytes))
+      .i64("param_bytes", static_cast<int64_t>(paramBytes_))
       .i64("steps_per_epoch", static_cast<int64_t>(steps_per_epoch))
       .boolean("resumed", !parentRunId_.empty());
   if (!parentRunId_.empty()) {
@@ -108,8 +116,9 @@ void TrackingObserver::on_epoch_start(uint32_t epoch) {
   epoch_started_ = true;
 }
 
-bool TrackingObserver::on_epoch_end(uint32_t epoch, float mean_loss,
-                                    TrainingState &state,
+ContinueTrainingDecision TrackingObserver::on_epoch_end(uint32_t epoch,
+                                    const EpochMetrics &metrics,
+                                    TrainingPosition &training_position,
                                     DeviceBackend &device_backend,
                                     ReportSink *sink,
                                     const ArenaView &data_arena,
@@ -125,19 +134,23 @@ bool TrackingObserver::on_epoch_end(uint32_t epoch, float mean_loss,
     measured_epochs_ += 1;
     epoch_started_ = false;
   }
-  tracking_->emit(TrackingEventBuilder(TRACKING_EVENT_METRICS, "epoch")
-                      .step(state.global_step)
-                      .epoch(epoch)
-                      .f64("train_loss", mean_loss)
-                      .i64("epoch_ms", epoch_ms));
-  return true;
+  TrackingEventBuilder ev(TRACKING_EVENT_METRICS, "epoch");
+  ev.step(training_position.optimizer_steps)
+      .epoch(epoch)
+      .f64("train_loss", metrics.train_loss)
+      .i64("epoch_ms", epoch_ms);
+  if (metrics.val_loss) {
+    ev.f64("val_loss", *metrics.val_loss);
+  }
+  tracking_->emit(ev);
+  return {};
 }
 
-// global_step is the index of the step that just finished; metrics use the
+// optimizer_steps is the index of the step that just finished; metrics use the
 // completed-step count, like the per-epoch events.
-void TrackingObserver::on_train_step_end(uint64_t global_step, double loss) {
+void TrackingObserver::on_train_step_end(uint64_t optimizer_steps, double loss) {
   const uint32_t every = cfg_.tracking.metrics_every_n_steps;
-  const uint64_t completed = global_step + 1;
+  const uint64_t completed = optimizer_steps + 1;
   if (every == 0 || completed % every != 0) {
     return;
   }
@@ -147,9 +160,9 @@ void TrackingObserver::on_train_step_end(uint64_t global_step, double loss) {
                       .f64("train_loss", loss));
 }
 
-void TrackingObserver::on_checkpoint_save_start(uint64_t global_step,
+void TrackingObserver::on_checkpoint_save_start(uint64_t optimizer_steps,
                                                 uint32_t epoch) {
-  pending_save_step_ = global_step;
+  pending_save_step_ = optimizer_steps;
   pending_save_epoch_ = epoch;
 }
 
@@ -181,7 +194,7 @@ void TrackingObserver::on_checkpoint_load_end(bool ok) {
   tracking_->emit(ev);
 }
 
-void TrackingObserver::on_training_end(const TrainingState &state,
+void TrackingObserver::on_training_end(const TrainingPosition &training_position,
                                        ReportSink *sink) {
   (void)sink;
   const bool estimate = convergence_.is_estimation_mode();
@@ -192,8 +205,8 @@ void TrackingObserver::on_training_end(const TrainingState &state,
 
   TrackingEventBuilder ev(TRACKING_EVENT_RUN_END,
                           estimate ? "DRY_RUN" : "TRAIN_RUN");
-  ev.step(state.global_step)
-      .epoch(state.epoch)
+  ev.step(training_position.optimizer_steps)
+      .epoch(training_position.epoch)
       .str("status", "SUCCESS")
       .str("mode", estimate ? "DRY_RUN" : "TRAIN")
       .str("input_corpus", cfg_.tokenization.input_corpus)
@@ -201,8 +214,8 @@ void TrackingObserver::on_training_end(const TrainingState &state,
       .i64("time_total_ms", total_ms)
       .i64("avg_epoch_ms", avg_epoch_ms)
       .i64("measured_epochs", measured_epochs_)
-      .i64("epochs_completed", state.epoch)
-      .i64("global_step", static_cast<int64_t>(state.global_step));
+      .i64("epochs_completed", training_position.epoch)
+      .i64("global_step", static_cast<int64_t>(training_position.optimizer_steps));
   if (!estimate) {
     ev.str("checkpoint_latest", cfg_.paths.model_file_latest)
         .str("checkpoint_best", convergence_.best_checkpoint_path());

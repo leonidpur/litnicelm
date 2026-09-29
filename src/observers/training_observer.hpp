@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 struct Config;
@@ -13,9 +14,23 @@ struct AdamStateView;
 struct ArenaView;
 struct TrainingMemoryUsage;
 
-struct TrainingState {
-  uint64_t global_step = 0;
+struct TrainingPosition {
+  uint64_t optimizer_steps = 0;
   uint32_t epoch = 0;
+};
+
+// An observer's verdict at the end of an epoch. When decided is false the
+// observer has no opinion and continue_training is ignored.
+struct ContinueTrainingDecision {
+  bool decided = false;
+  bool continue_training = true;
+  std::string early_stop_message;  // why training stops, when it does
+};
+
+// Losses of one finished epoch.
+struct EpochMetrics {
+  float train_loss = 0.0f;  // mean over the epoch's training batches
+  std::optional<float> val_loss;  // set when validation ran this epoch
 };
 
 class ITrainingObserver {
@@ -81,56 +96,50 @@ public:
     (void)tok_emb;
   }
 
-  virtual void on_training_start(TrainingState &state,
-                                 TensorStore &tensor_store,
-                                 uint64_t steps_per_epoch,
-                                 DeviceBackend &device_backend,
-                                 ReportSink *sink,
-                                 const ArenaView &data_arena,
-                                 const AdamStateView &adam_state) {
-    (void)state;
-    (void)tensor_store;
+  // Training starts at training_position (restored on resume). Information
+  // only: weights and position are already decided.
+  virtual void on_training_start(const TrainingPosition &training_position,
+                                 uint64_t steps_per_epoch, ReportSink *sink) {
+    (void)training_position;
     (void)steps_per_epoch;
-    (void)device_backend;
     (void)sink;
-    (void)data_arena;
-    (void)adam_state;
   }
-  virtual void on_training_end(const TrainingState &state, ReportSink *sink) {
-    (void)state;
+  virtual void on_training_end(const TrainingPosition &training_position, ReportSink *sink) {
+    (void)training_position;
     (void)sink;
   }
 
   virtual void on_epoch_start(uint32_t epoch) { (void)epoch; }
-  virtual bool on_epoch_end(uint32_t epoch, float mean_loss,
-                            TrainingState &state,
+  virtual ContinueTrainingDecision on_epoch_end(uint32_t epoch,
+                                                const EpochMetrics &metrics,
+                            TrainingPosition &training_position,
                             DeviceBackend &device_backend,
                             ReportSink *sink,
                             const ArenaView &data_arena,
                             const AdamStateView &adam_state) {
     (void)epoch;
-    (void)mean_loss;
-    (void)state;
+    (void)metrics;
+    (void)training_position;
     (void)device_backend;
     (void)sink;
     (void)data_arena;
     (void)adam_state;
-    return true;
+    return {};
   }
 
-  virtual void on_batch_start(uint64_t global_step) { (void)global_step; }
-  virtual void on_batch_end(uint64_t global_step, double loss) {
-    (void)global_step;
+  virtual void on_batch_start(uint64_t optimizer_steps) { (void)optimizer_steps; }
+  virtual void on_batch_end(uint64_t optimizer_steps, double loss) {
+    (void)optimizer_steps;
     (void)loss;
   }
-  virtual void on_batch_load_start(uint64_t global_step) { (void)global_step; }
-  virtual void on_batch_load_end(uint64_t global_step, bool has_batch) {
-    (void)global_step;
+  virtual void on_batch_load_start(uint64_t optimizer_steps) { (void)optimizer_steps; }
+  virtual void on_batch_load_end(uint64_t optimizer_steps, bool has_batch) {
+    (void)optimizer_steps;
     (void)has_batch;
   }
-  virtual void on_train_step_start(uint64_t global_step) { (void)global_step; }
-  virtual void on_train_step_end(uint64_t global_step, double loss) {
-    (void)global_step;
+  virtual void on_train_step_start(uint64_t optimizer_steps) { (void)optimizer_steps; }
+  virtual void on_train_step_end(uint64_t optimizer_steps, double loss) {
+    (void)optimizer_steps;
     (void)loss;
   }
 
@@ -155,8 +164,8 @@ public:
   virtual void on_checkpoint_load_start() {}
   virtual void on_checkpoint_load_end(bool ok) { (void)ok; }
 
-  virtual void on_checkpoint_save_start(uint64_t global_step, uint32_t epoch) {
-    (void)global_step;
+  virtual void on_checkpoint_save_start(uint64_t optimizer_steps, uint32_t epoch) {
+    (void)optimizer_steps;
     (void)epoch;
   }
   virtual void on_checkpoint_save_end(bool ok) { (void)ok; }

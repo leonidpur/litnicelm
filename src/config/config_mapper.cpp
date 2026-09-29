@@ -452,6 +452,22 @@ bool map_training_fields(const std::string &key, const std::string &value, Confi
     cfg.training.min_epochs = parse_u32_or_throw(value, key);
     return true;
   }
+  if (key == "training.validation_fraction") {
+    cfg.training.validation_fraction = parse_f32_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.validation_chunk_tokens") {
+    cfg.training.validation_chunk_tokens = parse_u64_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.validation_every_epochs") {
+    cfg.training.validation_every_epochs = parse_u32_or_throw(value, key);
+    if (cfg.training.validation_every_epochs == 0) {
+      throw std::runtime_error(
+          "Config::load_from_file: training.validation_every_epochs must be > 0");
+    }
+    return true;
+  }
   if (key == "training.stop_on_nonfinite_loss") {
     cfg.training.stop_on_nonfinite_loss = parse_bool_or_throw(value, key);
     return true;

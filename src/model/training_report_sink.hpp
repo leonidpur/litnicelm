@@ -26,7 +26,7 @@ public:
 
   void report_training_start(const Config &cfg);
   void report_epoch_complete(uint32_t epoch, float mean_loss);
-  void report_training_end(uint32_t global_step);
+  void report_training_end(uint32_t optimizer_steps);
   void report_error(const std::string &message);
   void report_fetch(const TrainingFetchReportData &data);
   void report_batch_step(uint32_t batch_cfg, uint32_t seq_len,

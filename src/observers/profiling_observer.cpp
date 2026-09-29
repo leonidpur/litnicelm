@@ -2,59 +2,51 @@
 
 #include <iostream>
 
-void ProfilingObserver::on_training_start(TrainingState &state,
-                                          TensorStore &tensor_store,
-                                          uint64_t steps_per_epoch,
-                                          DeviceBackend &device_backend,
-                                          ReportSink *sink,
-                                          const ArenaView &data_arena,
-                                          const AdamStateView &adam_state) {
-  (void)state;
-  (void)tensor_store;
+void ProfilingObserver::on_training_start(
+    const TrainingPosition &training_position, uint64_t steps_per_epoch,
+    ReportSink *sink) {
+  (void)training_position;
   (void)steps_per_epoch;
-  (void)device_backend;
   (void)sink;
-  (void)data_arena;
-  (void)adam_state;
   profiling_.reset();
 }
 
-void ProfilingObserver::on_training_end(const TrainingState &state,
+void ProfilingObserver::on_training_end(const TrainingPosition &training_position,
                                         ReportSink *sink) {
-  (void)state;
+  (void)training_position;
   (void)sink;
   std::cout << profiling_.summary();
 }
 
-void ProfilingObserver::on_batch_start(uint64_t global_step) {
-  (void)global_step;
+void ProfilingObserver::on_batch_start(uint64_t optimizer_steps) {
+  (void)optimizer_steps;
   profiling_.enter(Stage::BATCH_STEP);
 }
 
-void ProfilingObserver::on_batch_end(uint64_t global_step, double loss) {
-  (void)global_step;
+void ProfilingObserver::on_batch_end(uint64_t optimizer_steps, double loss) {
+  (void)optimizer_steps;
   (void)loss;
   profiling_.leave();
 }
 
-void ProfilingObserver::on_batch_load_start(uint64_t global_step) {
-  (void)global_step;
+void ProfilingObserver::on_batch_load_start(uint64_t optimizer_steps) {
+  (void)optimizer_steps;
   profiling_.enter(Stage::BATCH_LOAD);
 }
 
-void ProfilingObserver::on_batch_load_end(uint64_t global_step, bool has_batch) {
-  (void)global_step;
+void ProfilingObserver::on_batch_load_end(uint64_t optimizer_steps, bool has_batch) {
+  (void)optimizer_steps;
   (void)has_batch;
   profiling_.leave();
 }
 
-void ProfilingObserver::on_train_step_start(uint64_t global_step) {
-  (void)global_step;
+void ProfilingObserver::on_train_step_start(uint64_t optimizer_steps) {
+  (void)optimizer_steps;
   profiling_.enter(Stage::TRAIN_STEP);
 }
 
-void ProfilingObserver::on_train_step_end(uint64_t global_step, double loss) {
-  (void)global_step;
+void ProfilingObserver::on_train_step_end(uint64_t optimizer_steps, double loss) {
+  (void)optimizer_steps;
   (void)loss;
   profiling_.leave();
 }
@@ -109,9 +101,9 @@ void ProfilingObserver::on_checkpoint_load_end(bool ok) {
   profiling_.leave();
 }
 
-void ProfilingObserver::on_checkpoint_save_start(uint64_t global_step,
+void ProfilingObserver::on_checkpoint_save_start(uint64_t optimizer_steps,
                                                  uint32_t epoch) {
-  (void)global_step;
+  (void)optimizer_steps;
   (void)epoch;
   profiling_.enter(Stage::CHECKPOINT_SAVE);
 }

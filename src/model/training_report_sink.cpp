@@ -332,9 +332,9 @@ void TrainingReportSink::report_epoch_complete(uint32_t epoch, float mean_loss) 
   report(ReportEvent::STEP_COMPLETE, oss.str());
 }
 
-void TrainingReportSink::report_training_end(uint32_t global_step) {
+void TrainingReportSink::report_training_end(uint32_t optimizer_steps) {
   report(ReportEvent::END, "[TrainingReportSink][END] Training complete at global_step=" +
-                               std::to_string(global_step));
+                               std::to_string(optimizer_steps));
 }
 
 void TrainingReportSink::report_error(const std::string &message) {

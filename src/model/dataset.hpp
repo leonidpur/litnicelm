@@ -1,5 +1,6 @@
 #pragma once
 
+#include "dataset_split.hpp"
 #include "tensor_store.hpp"
 #include "training_observer.hpp"
 
@@ -42,13 +43,13 @@ public:
       : load_observer_(load_observer) {}
   virtual ~IDataLoader() = default;
   virtual void reset_epoch() = 0;
-  bool next(TrainBatch &out, uint64_t global_step = 0) {
+  bool next(TrainBatch &out, uint64_t optimizer_steps = 0) {
     if (load_observer_ != nullptr) {
-      load_observer_->on_batch_load_start(global_step);
+      load_observer_->on_batch_load_start(optimizer_steps);
     }
     const bool has_batch = next_impl(out);
     if (load_observer_ != nullptr) {
-      load_observer_->on_batch_load_end(global_step, has_batch);
+      load_observer_->on_batch_load_end(optimizer_steps, has_batch);
     }
     return has_batch;
   }
@@ -108,8 +109,11 @@ public:
     TOKEN_U32 = 1,
   };
 
-  TextDataset(TensorStore &tensor_store, DeviceBackend &device_backend,
-              const Config &cfg,
+  // Maps dataset_path and emits the windows of `side` in `split`. The split
+  // must outlive the dataset and be built for this file's token count.
+  TextDataset(const std::string &dataset_path, TensorStore &tensor_store,
+              DeviceBackend &device_backend, const Config &cfg,
+              const DatasetSplit &split, DatasetSplit::Side side,
               bool shuffle_blocks = false,
               TrainingReportSink *report_sink = nullptr,
               class ITrainingObserver *load_observer = nullptr);
@@ -130,6 +134,8 @@ public:
 
 private:
   TensorStore &tensorStore_;
+  const DatasetSplit &split_;
+  const DatasetSplit::Side side_;
   DeviceBackend *device_backend_ = nullptr;
   Device device_;
 

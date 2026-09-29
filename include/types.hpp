@@ -78,6 +78,12 @@ struct TrainingConfig {
   uint32_t patience_epochs;
   uint32_t min_epochs;
   bool stop_on_nonfinite_loss;
+  // Share of the dataset held out for validation (0: none), taken as one
+  // chunk of validation_chunk_tokens in every round(1 / fraction).
+  float validation_fraction = 0.0f;
+  uint64_t validation_chunk_tokens = 16384;
+  // Validate after every N-th epoch and after the last one.
+  uint32_t validation_every_epochs = 1;
   DiagnosticsConfig diagnostics;
 };
 
