@@ -1,0 +1,15 @@
+LitniceLM
+Copyright 2026 Leonid Purgalin
+
+This product is licensed under the Apache License, Version 2.0
+(see the LICENSE file).
+
+--------------------------------------------------------------------------------
+Third-party software
+
+This product uses the following third-party software:
+
+SentencePiece
+Copyright 2018 Google Inc.
+Licensed under the Apache License, Version 2.0.
+https://github.com/google/sentencepiece
