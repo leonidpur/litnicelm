@@ -1,6 +1,7 @@
 #pragma once
 
 #include "training_observer.hpp"
+#include "training_plan.hpp"
 
 #include <config.hpp>
 #include <report_interface.hpp>
@@ -12,7 +13,7 @@
 
 class EtaObserver final : public ITrainingObserver {
 public:
-  EtaObserver(const Config &cfg, const Command &cmd, ReportSink *sink,
+  EtaObserver(const Config &cfg, const TrainingPlan &plan, ReportSink *sink,
               uint32_t epoch_report_every);
 
   void on_training_start(const TrainingPosition &training_position,
@@ -28,13 +29,11 @@ public:
   void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
 
 private:
-  bool is_estimation_mode() const;
-  uint32_t last_epoch() const;
   std::string format_duration(int64_t ms) const;
   std::string get_eta_report(uint32_t current_epoch) const;
 
   const Config &cfg_;
-  const Command &cmd_;
+  const TrainingPlan plan_;
   ReportSink *sink_ = nullptr;
   uint32_t epoch_report_every_ = 1;
   std::chrono::steady_clock::time_point start_time_{};

@@ -3,7 +3,11 @@
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
 #include "tensor_store.hpp"
+#include "checkpoint_policy.hpp"
+#include "checkpoint_store.hpp"
+#include "convergence_monitor.hpp"
 #include "reporters.hpp"
+#include "training_plan.hpp"
 #include "training_observer.hpp"
 
 #include <report_interface.hpp>
@@ -14,7 +18,6 @@
 
 class TrainingReportSink;
 class ModelAlgoFactory;
-class ModelConvergenceAndCheckpointListener;
 
 class TrainingSessionController : public ITrainingObserver {
 public:
@@ -25,6 +28,12 @@ public:
 
   uint32_t last_epoch() const;
   std::string early_stop_message() const;
+  bool is_dry_run() const { return training_plan_.dry_run(); }
+  bool should_stop() const { return convergence_monitor_.should_stop(); }
+  bool has_best() const { return convergence_monitor_.has_best(); }
+  float best_loss() const { return convergence_monitor_.best_loss(); }
+  uint32_t best_epoch() const { return convergence_monitor_.best_epoch(); }
+  std::string best_checkpoint_path() const { return checkpoint_store_.best_path(); }
   void add_observer(std::unique_ptr<ITrainingObserver> observer);
   void runtime_cfg_ready(const Config &cfg) override;
   void init_config_ready(const Config &cfg, const NamedLayout &param_layout,
@@ -84,10 +93,18 @@ public:
   void on_output_head_end() override;
 
 private:
-  uint64_t steps_per_epoch_ = 0;
-  uint32_t last_epoch_ = 0;
+  bool resume_from_latest(TrainingPosition &training_position,
+                          DeviceBackend &device_backend,
+                          const ArenaView &data_arena,
+                          const AdamStateView &adam_state,
+                          uint64_t steps_per_epoch);
+
+  const Config &cfg_;
+  const TrainingPlan training_plan_;
   std::vector<std::unique_ptr<ITrainingObserver>> observers_;
-  // Report access to observers_, handed to the listener for its own reports.
+  // Report access to observers_, shared with the components below.
   Reporters reporters_{observers_};
-  ModelConvergenceAndCheckpointListener *convergence_listener_ = nullptr;
+  ConvergenceMonitor convergence_monitor_;
+  CheckpointStore checkpoint_store_;
+  CheckpointPolicy checkpoint_policy_;
 };

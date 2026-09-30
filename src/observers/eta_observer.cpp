@@ -19,10 +19,10 @@ void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
 }
 } // namespace
 
-EtaObserver::EtaObserver(const Config &cfg, const Command &cmd, ReportSink *sink,
+EtaObserver::EtaObserver(const Config &cfg, const TrainingPlan &plan, ReportSink *sink,
                          uint32_t epoch_report_every)
     : cfg_(cfg),
-      cmd_(cmd),
+      plan_(plan),
       sink_(sink),
       epoch_report_every_(std::max<uint32_t>(1, epoch_report_every)) {}
 
@@ -79,21 +79,12 @@ ContinueTrainingDecision EtaObserver::on_epoch_end(uint32_t epoch,
 
 void EtaObserver::on_training_end(const TrainingPosition &training_position, ReportSink *sink) {
   (void)sink;
-  if (!is_estimation_mode()) {
+  if (!plan_.dry_run()) {
     return;
   }
   report_if(sink_, ReportEvent::END,
             static_cast<uint32_t>(training_position.optimizer_steps), 0.0f,
             get_eta_report(training_position.epoch));
-}
-
-bool EtaObserver::is_estimation_mode() const {
-  return cmd_.target == Command::Target::DRY_RUN || cfg_.training.dry_run;
-}
-
-uint32_t EtaObserver::last_epoch() const {
-  return is_estimation_mode() ? cfg_.training.num_epochs_dry_run
-                              : cfg_.training.num_epochs_train;
 }
 
 std::string EtaObserver::format_duration(int64_t ms) const {
@@ -122,7 +113,7 @@ std::string EtaObserver::get_eta_report(uint32_t current_epoch) const {
     return "Calculating...";
   }
 
-  if (is_estimation_mode()) {
+  if (plan_.dry_run()) {
     const uint32_t dry_total = cfg_.training.num_epochs_dry_run;
     const uint32_t train_total = cfg_.training.num_epochs_train;
     const int64_t projected_total =
@@ -139,7 +130,7 @@ std::string EtaObserver::get_eta_report(uint32_t current_epoch) const {
            format_duration(projected_remaining);
   }
 
-  const uint32_t train_total = last_epoch();
+  const uint32_t train_total = plan_.last_epoch;
   const int64_t remaining_epochs =
       std::max<int64_t>(0, static_cast<int64_t>(train_total) -
                                static_cast<int64_t>(current_epoch));

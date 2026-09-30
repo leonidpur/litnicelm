@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 
-class ModelConvergenceAndCheckpointListener;
+class TrainingSessionController;
 
 // Turns training callbacks into experiment-tracking events: RUN_START,
 // METRICS (per epoch, optionally every N steps), CHECKPOINT and RUN_END (with
@@ -21,7 +21,7 @@ class ModelConvergenceAndCheckpointListener;
 class TrackingObserver final : public ITrainingObserver {
 public:
   TrackingObserver(const Config &cfg, const Command &cmd,
-                   const ModelConvergenceAndCheckpointListener &convergence);
+                   const TrainingSessionController &session);
 
   void init_topology_ready(const NamedLayout &param_layout, void *param_base,
                            uint64_t param_size, void *grad_base,
@@ -49,7 +49,7 @@ private:
 
   const Config &cfg_;
   const std::string configPath_;
-  const ModelConvergenceAndCheckpointListener &convergence_;
+  const TrainingSessionController &session_;
   std::unique_ptr<ExperimentTrackingSink> tracking_;
   Clock::time_point training_started_at_{};
   Clock::time_point epoch_started_at_{};

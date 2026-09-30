@@ -1,6 +1,6 @@
 #include "tracking_observer.hpp"
 
-#include "model_convergence_and_checkpoint_listener.hpp"
+#include "training_session_controller.hpp"
 
 #include "build_info.hpp"
 #include "config_yaml.hpp"
@@ -56,8 +56,8 @@ void add_training_config(TrackingEventBuilder &ev,
 
 TrackingObserver::TrackingObserver(
     const Config &cfg, const Command &cmd,
-    const ModelConvergenceAndCheckpointListener &convergence)
-    : cfg_(cfg), configPath_(cmd.config_path), convergence_(convergence),
+    const TrainingSessionController &session)
+    : cfg_(cfg), configPath_(cmd.config_path), session_(session),
       tracking_(std::make_unique<ExperimentTrackingSink>(
           cfg, std::filesystem::path(cmd.config_path).stem().string())) {}
 
@@ -86,7 +86,7 @@ void TrackingObserver::on_training_start(
   training_started_ = true;
   epoch_started_ = false;
 
-  const bool estimate = convergence_.is_estimation_mode();
+  const bool estimate = session_.is_dry_run();
   TrackingEventBuilder ev(TRACKING_EVENT_RUN_START,
                           estimate ? "DRY_RUN" : "TRAIN_RUN");
   ev.step(training_position.optimizer_steps)
@@ -179,7 +179,7 @@ void TrackingObserver::on_checkpoint_save_end(bool ok) {
                       .str("path", cfg_.paths.model_file_latest));
 }
 
-// Called while the convergence listener resumes, before this observer's
+// Called while the session controller resumes, before this observer's
 // on_training_start, so RUN_START can name the parent run.
 void TrackingObserver::on_checkpoint_load_end(bool ok) {
   TrackingEventBuilder ev(TRACKING_EVENT_CHECKPOINT, "LOAD");
@@ -197,7 +197,7 @@ void TrackingObserver::on_checkpoint_load_end(bool ok) {
 void TrackingObserver::on_training_end(const TrainingPosition &training_position,
                                        ReportSink *sink) {
   (void)sink;
-  const bool estimate = convergence_.is_estimation_mode();
+  const bool estimate = session_.is_dry_run();
   const int64_t total_ms =
       training_started_ ? elapsed_ms(training_started_at_, Clock::now()) : 0;
   const int64_t avg_epoch_ms =
@@ -218,14 +218,14 @@ void TrackingObserver::on_training_end(const TrainingPosition &training_position
       .i64("global_step", static_cast<int64_t>(training_position.optimizer_steps));
   if (!estimate) {
     ev.str("checkpoint_latest", cfg_.paths.model_file_latest)
-        .str("checkpoint_best", convergence_.best_checkpoint_path());
+        .str("checkpoint_best", session_.best_checkpoint_path());
   }
-  if (convergence_.has_best()) {
-    ev.f64("best_loss", convergence_.best_loss())
-        .i64("best_epoch", convergence_.best_epoch());
+  if (session_.has_best()) {
+    ev.f64("best_loss", session_.best_loss())
+        .i64("best_epoch", session_.best_epoch());
   }
-  if (convergence_.should_stop()) {
-    ev.str("stop_reason", convergence_.early_stop_message());
+  if (session_.should_stop()) {
+    ev.str("stop_reason", session_.early_stop_message());
   }
   add_model_config(ev, cfg_.model);
   add_training_config(ev, cfg_.training);

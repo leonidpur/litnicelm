@@ -2,31 +2,56 @@
 
 #include "console_reporter.hpp"
 #include "eta_observer.hpp"
-#include "model_convergence_and_checkpoint_listener.hpp"
 #include "profiling_observer.hpp"
 #include "reporting_observer.hpp"
 #include "tracking_observer.hpp"
 #include "training_report_sink.hpp"
 
+#include "tensor_store.hpp"
+
+#include <report_interface.hpp>
+
+#include <iostream>
+#include <sstream>
 #include <vector>
+
+namespace {
+void zero_buffer(DeviceBackend &device_backend, void *dst, uint64_t bytes) {
+  if (dst == nullptr || bytes == 0) {
+    return;
+  }
+  std::vector<uint8_t> zeros(static_cast<size_t>(bytes), 0u);
+  device_backend.copy_host2device(dst, zeros.data(), bytes);
+}
+
+void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
+               const std::string &message) {
+  if (sink == nullptr) {
+    return;
+  }
+  sink->report(event, std::string("[MC&CListener][") +
+                          report_utils::event_name(event) + "] step=" +
+                          std::to_string(step) + " val=" +
+                          std::to_string(value) + " " + message);
+}
+} // namespace
 
 TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      const Command &cmd,
                                                      const ModelAlgoFactory &algo,
-                                                     TrainingReportSink &training_sink) {
-  auto convergence_listener =
-      std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd, algo,
-                                                              reporters_);
-  last_epoch_ = convergence_listener->last_epoch();
-  convergence_listener_ = convergence_listener.get();
-  add_observer(std::move(convergence_listener));
+                                                     TrainingReportSink &training_sink)
+    : cfg_(cfg),
+      training_plan_(TrainingPlan::from(cfg, cmd)),
+      convergence_monitor_(cfg, reporters_),
+      checkpoint_store_(cfg, algo, reporters_),
+      checkpoint_policy_(cfg, training_plan_.mode) {
   add_observer(std::make_unique<ConsoleReporter>());
-  add_observer(std::make_unique<TrackingObserver>(cfg, cmd, *convergence_listener_));
+  add_observer(std::make_unique<TrackingObserver>(cfg, cmd, *this));
   add_observer(
       std::make_unique<ReportingObserver>(training_sink, cmd.runtime_flags.probe));
   add_observer(std::make_unique<ProfilingObserver>());
   add_observer(std::make_unique<EtaObserver>(
-      cfg, cmd, &training_sink, cmd.runtime_flags.epoch_report_every == 0
+      cfg, training_plan_, &training_sink, cmd.runtime_flags.epoch_report_every == 0
                                     ? cfg.logging.epoch_report_every
                                     : cmd.runtime_flags.epoch_report_every));
 }
@@ -115,30 +140,87 @@ void TrainingSessionController::init_tensors_xy_ready(int64_t x_rows,
 }
 
 uint32_t TrainingSessionController::last_epoch() const {
-  return last_epoch_;
+  return training_plan_.last_epoch;
 }
 
 std::string TrainingSessionController::early_stop_message() const {
-  return convergence_listener_->early_stop_message();
+  return convergence_monitor_.stop_reason_text();
 }
 
 TrainingPosition TrainingSessionController::restore_or_initialize(
     TensorStore &tensor_store, DeviceBackend &device_backend,
     const ArenaView &data_arena, const AdamStateView &adam_state,
     uint64_t steps_per_epoch) {
-  return convergence_listener_->restore_or_initialize(
-      tensor_store, device_backend, data_arena, adam_state, steps_per_epoch);
+  // Before resuming, which restores the saved convergence state.
+  convergence_monitor_.reset();
+  TrainingPosition training_position{};
+  const bool resumed = resume_from_latest(training_position, device_backend,
+                                          data_arena, adam_state,
+                                          steps_per_epoch);
+  if (!resumed) {
+    tensor_store.initialize_parameters_deterministic(device_backend);
+    training_position.optimizer_steps = 0;
+    training_position.epoch = 0;
+    zero_buffer(device_backend, adam_state.base, adam_state.bytes);
+    std::cout << "[MC&CListener] Fresh initialization completed for parameters and optimizer state.\n";
+  } else if (convergence_monitor_.should_stop()) {
+    convergence_monitor_.clear_persisted_stop_for_resume();
+  }
+  return training_position;
+}
+
+bool TrainingSessionController::resume_from_latest(
+    TrainingPosition &training_position, DeviceBackend &device_backend,
+    const ArenaView &data_arena, const AdamStateView &adam_state,
+    uint64_t steps_per_epoch) {
+  if (!cfg_.training.incremental) {
+    return false;
+  }
+
+  if (!checkpoint_store_.latest_exists()) {
+    std::cout << "[MC&CListener] Incremental enabled, but checkpoint not found at: "
+              << checkpoint_store_.latest_path() << ". Starting fresh.\n";
+    return false;
+  }
+
+  std::cout << "[MC&CListener] Resuming from " << checkpoint_store_.latest_path()
+            << "...\n";
+
+  const CheckpointLoad loaded =
+      checkpoint_store_.load_latest(device_backend, data_arena, adam_state);
+  if (!loaded.ok) {
+    std::cerr << "[MC&CListener] ERROR during resume: " << loaded.error
+              << "\n[MC&CListener] Falling back to fresh initialization.\n";
+    return false;
+  }
+  training_position = loaded.position;
+  convergence_monitor_.restore(loaded.convergence);
+  const uint64_t total_steps =
+      steps_per_epoch * static_cast<uint64_t>(training_plan_.last_epoch);
+  std::cout << "  -> Success. Resumed at Step [" << training_position.optimizer_steps << "/"
+            << total_steps << "], epoch[" << training_position.epoch << "/"
+            << training_plan_.last_epoch << "]\n";
+  return true;
 }
 
 void TrainingSessionController::on_training_start(
     const TrainingPosition &training_position, uint64_t steps_per_epoch,
     ReportSink *sink) {
-  steps_per_epoch_ = steps_per_epoch;
-  for (const auto &observer : observers_) {
-    observer->on_training_start(training_position, steps_per_epoch_, sink);
+  std::ostringstream oss;
+  if (training_plan_.dry_run()) {
+    oss << "Dry-run starting for " << cfg_.training.num_epochs_dry_run
+        << " epoch(s)"
+        << " (real training: " << cfg_.training.num_epochs_train
+        << " epoch(s)" << ")";
+  } else {
+    oss << "Training starting for " << cfg_.training.num_epochs_train
+        << " epoch(s)";
   }
-  if (convergence_listener_->should_stop()) {
-    last_epoch_ = training_position.epoch;
+  report_if(sink, ReportEvent::START,
+            static_cast<uint32_t>(training_position.optimizer_steps), 0.0f,
+            oss.str());
+  for (const auto &observer : observers_) {
+    observer->on_training_start(training_position, steps_per_epoch, sink);
   }
 }
 
@@ -156,9 +238,13 @@ ContinueTrainingDecision TrainingSessionController::on_epoch_end(uint32_t epoch,
                                              const ArenaView &data_arena,
                                              const AdamStateView &adam_state) {
   training_position.epoch = epoch;
-  // Every observer runs. Training stops if any observer decides to stop (the
-  // first such observer's message is kept); undecided observers are ignored.
-  ContinueTrainingDecision combined;
+  const ConvergenceVerdict verdict = convergence_monitor_.observe(epoch, metrics);
+  checkpoint_policy_.apply(verdict, convergence_monitor_, training_position, checkpoint_store_, device_backend,
+                data_arena, adam_state);
+  // Every observer runs. Training stops if the monitor or any observer
+  // decides to stop (the first such message is kept); undecided observers
+  // are ignored.
+  ContinueTrainingDecision combined = verdict.decision;
   for (const auto &observer : observers_) {
     const ContinueTrainingDecision decision = observer->on_epoch_end(
         epoch, metrics, training_position, device_backend, sink, data_arena,
@@ -176,6 +262,13 @@ ContinueTrainingDecision TrainingSessionController::on_epoch_end(uint32_t epoch,
 
 void TrainingSessionController::on_training_end(const TrainingPosition &training_position,
                                                 ReportSink *sink) {
+  const std::string end_message =
+      convergence_monitor_.early_stopped()
+          ? ("Training stopped early: " + convergence_monitor_.stop_reason_text())
+          : (training_plan_.dry_run() ? "Dry-run complete" : "Training complete");
+  report_if(sink, ReportEvent::END,
+            static_cast<uint32_t>(training_position.optimizer_steps), 0.0f,
+            end_message);
   for (const auto &observer : observers_) {
     observer->on_training_end(training_position, sink);
   }
