@@ -24,3 +24,9 @@ void Reporters::on_checkpoint_save_end(bool ok) const {
     observer->on_checkpoint_save_end(ok);
   }
 }
+
+void Reporters::message(const std::string &line) const {
+  for (const auto &observer : observers_) {
+    observer->on_message(line);
+  }
+}

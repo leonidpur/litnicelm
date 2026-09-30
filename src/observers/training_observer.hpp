@@ -169,6 +169,9 @@ public:
     (void)epoch;
   }
   virtual void on_checkpoint_save_end(bool ok) { (void)ok; }
+
+  // A formatted console line from a training component.
+  virtual void on_message(const std::string &line) { (void)line; }
 };
 
 inline ITrainingObserver &default_training_observer() {

@@ -16,13 +16,10 @@
 ModelConvergenceAndCheckpointListener::ModelConvergenceAndCheckpointListener(
     const Config &cfg, const Command &cmd, const ModelAlgoFactory &algo,
     const Reporters &reporters)
-    : cfg_(cfg), cmd_(cmd), algo_(algo), reporters_(reporters) {}
+    : cfg_(cfg), cmd_(cmd), algo_(algo), reporters_(reporters),
+      monitor_(cfg, reporters) {}
 
 namespace {
-constexpr const char *kAnsiGreen = "\033[32m";
-constexpr const char *kAnsiYellow = "\033[33m";
-constexpr const char *kAnsiReset = "\033[0m";
-
 void zero_buffer(DeviceBackend &device_backend, void *dst, uint64_t bytes) {
   if (dst == nullptr || bytes == 0) {
     return;
@@ -48,7 +45,8 @@ TrainingPosition ModelConvergenceAndCheckpointListener::restore_or_initialize(
     const ArenaView &data_arena, const AdamStateView &adam_state,
     uint64_t steps_per_epoch) {
   // Before resuming, which restores the saved convergence state.
-  reset_convergence_state();
+  monitor_.reset();
+  best_checkpoint_requested_ = false;
   TrainingPosition training_position{};
   const bool resumed = maybe_resume(training_position, device_backend, data_arena,
                                     adam_state, steps_per_epoch,
@@ -59,8 +57,8 @@ TrainingPosition ModelConvergenceAndCheckpointListener::restore_or_initialize(
     training_position.epoch = 0;
     zero_buffer(device_backend, adam_state.base, adam_state.bytes);
     std::cout << "[MC&CListener] Fresh initialization completed for parameters and optimizer state.\n";
-  } else if (stop_requested_) {
-    clear_persisted_stop_for_resume();
+  } else if (monitor_.should_stop()) {
+    monitor_.clear_persisted_stop_for_resume();
   }
   return training_position;
 }
@@ -87,9 +85,9 @@ void ModelConvergenceAndCheckpointListener::on_training_start(
 void ModelConvergenceAndCheckpointListener::on_training_end(
     const TrainingPosition &training_position, ReportSink *sink) {
   const bool estimate = is_estimation_mode();
-  const bool early_stopped = stop_requested_ && stop_reason_ != StopReason::None;
   const std::string end_message =
-      early_stopped ? ("Training stopped early: " + stop_reason_text())
+      monitor_.early_stopped()
+          ? ("Training stopped early: " + monitor_.stop_reason_text())
                     : (estimate ? "Dry-run complete" : "Training complete");
 
   report_if(sink, ReportEvent::END, static_cast<uint32_t>(training_position.optimizer_steps),
@@ -134,7 +132,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
                                cfg_.paths.model_file_latest + " | " +
                                error_detail);
     }
-    restore_convergence_state(restored_convergence_state);
+    monitor_.restore(restored_convergence_state);
     reporters.on_checkpoint_load_end(true);
     const uint64_t total_steps =
         steps_per_epoch * static_cast<uint64_t>(last_epoch());
@@ -161,12 +159,13 @@ void ModelConvergenceAndCheckpointListener::maybe_save(
   const bool epoch_milestone =
       (training_position.epoch > 0 &&
        (training_position.epoch % cfg_.training.save_interval_epochs == 0));
-  if (!epoch_milestone && !best_checkpoint_requested_ && !stop_requested_) {
+  if (!epoch_milestone && !best_checkpoint_requested_ &&
+      !monitor_.should_stop()) {
     return;
   }
 
   if (cfg_.training.stop_on_nonfinite_loss &&
-      !std::isfinite(last_epoch_loss_)) {
+      !std::isfinite(monitor_.last_epoch_loss())) {
     std::cerr << "[MC&CListener] Skipping latest checkpoint save because epoch loss is non-finite.\n";
     best_checkpoint_requested_ = false;
     return;
@@ -192,82 +191,11 @@ ContinueTrainingDecision ModelConvergenceAndCheckpointListener::on_epoch_end(
     DeviceBackend &device_backend, ReportSink *sink,
     const ArenaView &data_arena, const AdamStateView &adam_state) {
   (void)sink;
-  const float mean_loss = metrics.train_loss;
-  best_checkpoint_requested_ = false;
-  last_epoch_loss_ = mean_loss;
-
-  if (!std::isfinite(mean_loss)) {
-    if (cfg_.training.stop_on_nonfinite_loss) {
-      request_stop(StopReason::NonFiniteLoss,
-                   "epoch loss became non-finite at epoch " +
-                       std::to_string(epoch));
-    }
-    maybe_save(training_position, device_backend, data_arena, adam_state,
-               reporters_);
-    return epoch_end_decision();
-  }
-
-  if (!has_best_ || loss_improved(mean_loss)) {
-    has_best_ = true;
-    best_loss_ = mean_loss;
-    best_epoch_ = epoch;
-    epochs_without_improvement_ = 0;
-    best_checkpoint_requested_ = true;
-    std::cout << "[MC&CListener] New best loss " << best_loss_
-              << " at epoch " << best_epoch_
-              << ". Best checkpoint path: " << best_checkpoint_path() << "\n";
-  } else {
-    if (epoch >= cfg_.training.min_epochs) {
-      epochs_without_improvement_ += 1;
-    }
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4)
-        << "[MC&CListener] No new best at epoch " << epoch
-        << ": mean_loss=" << mean_loss
-        << ", best=" << best_loss_
-        << ", min_delta=" << cfg_.training.min_delta;
-    if (cfg_.training.patience_epochs > 0) {
-      if (epoch >= cfg_.training.min_epochs) {
-        oss << " | patience " << epochs_without_improvement_ << "/"
-            << cfg_.training.patience_epochs;
-      } else {
-        oss << " | patience starts at epoch "
-            << cfg_.training.min_epochs;
-      }
-    }
-    std::cout << kAnsiYellow << oss.str() << kAnsiReset << "\n";
-  }
-
-  if (cfg_.training.target_loss >= 0.0f &&
-      mean_loss <= cfg_.training.target_loss) {
-    request_stop(StopReason::TargetLoss,
-                 "target loss reached at epoch " + std::to_string(epoch) +
-                     " (loss=" + std::to_string(mean_loss) + ")");
-  }
-
-  if (cfg_.training.patience_epochs > 0 &&
-      epoch >= cfg_.training.min_epochs &&
-      epochs_without_improvement_ >= cfg_.training.patience_epochs) {
-    request_stop(StopReason::Patience,
-                 "no improvement for " +
-                     std::to_string(epochs_without_improvement_) +
-                     " epoch(s); best loss=" + std::to_string(best_loss_) +
-                     " at epoch " + std::to_string(best_epoch_));
-  }
+  const ConvergenceVerdict verdict = monitor_.observe(epoch, metrics);
+  best_checkpoint_requested_ = verdict.new_best;
   maybe_save(training_position, device_backend, data_arena, adam_state,
              reporters_);
-  return epoch_end_decision();
-}
-
-ContinueTrainingDecision
-ModelConvergenceAndCheckpointListener::epoch_end_decision() const {
-  ContinueTrainingDecision decision;
-  decision.decided = true;
-  decision.continue_training = !stop_requested_;
-  if (stop_requested_) {
-    decision.early_stop_message = early_stop_message();
-  }
-  return decision;
+  return verdict.decision;
 }
 
 bool ModelConvergenceAndCheckpointListener::is_estimation_mode() const {
@@ -280,118 +208,35 @@ uint32_t ModelConvergenceAndCheckpointListener::last_epoch() const {
 }
 
 bool ModelConvergenceAndCheckpointListener::should_stop() const {
-  return stop_requested_;
+  return monitor_.should_stop();
 }
 
 std::string ModelConvergenceAndCheckpointListener::early_stop_message() const {
-  return stop_reason_text();
+  return monitor_.stop_reason_text();
 }
 
 bool ModelConvergenceAndCheckpointListener::has_best() const {
-  return has_best_;
+  return monitor_.has_best();
 }
 
 float ModelConvergenceAndCheckpointListener::best_loss() const {
-  return best_loss_;
+  return monitor_.best_loss();
 }
 
 uint32_t ModelConvergenceAndCheckpointListener::best_epoch() const {
-  return best_epoch_;
+  return monitor_.best_epoch();
 }
 
-void ModelConvergenceAndCheckpointListener::clear_persisted_stop_for_resume() {
-  const std::string restored_stop_reason = stop_reason_text();
-  stop_requested_ = false;
-  stop_reason_ = StopReason::None;
-  stop_message_.clear();
-  epochs_without_improvement_ = 0;
-  std::cout << kAnsiGreen
-            << "[MC&CListener] Resumed checkpoint carries a prior early-stop state ("
-            << restored_stop_reason
-            << "). Current run explicitly requested incremental resume, so the "
-               "persisted stop state and no-improvement counter are cleared "
-               "and training will continue."
-            << kAnsiReset << "\n";
-}
 
-void ModelConvergenceAndCheckpointListener::reset_convergence_state() {
-  best_loss_ = 0.0f;
-  last_epoch_loss_ = -1.0f;
-  best_epoch_ = 0;
-  epochs_without_improvement_ = 0;
-  has_best_ = false;
-  stop_requested_ = false;
-  best_checkpoint_requested_ = false;
-  stop_reason_ = StopReason::None;
-  stop_message_.clear();
-}
 
-void ModelConvergenceAndCheckpointListener::restore_convergence_state(
-    const CheckpointConvergenceState &state) {
-  best_loss_ = state.best_loss;
-  last_epoch_loss_ = state.last_epoch_loss;
-  best_epoch_ = state.best_epoch;
-  epochs_without_improvement_ = state.epochs_without_improvement;
-  has_best_ = (state.flags & CheckpointConvergenceState::kHasBest) != 0;
-  stop_requested_ =
-      (state.flags & CheckpointConvergenceState::kStopRequested) != 0;
-  best_checkpoint_requested_ = false;
-  stop_reason_ = static_cast<StopReason>(state.stop_reason);
-  stop_message_.clear();
-}
 
-CheckpointConvergenceState
-ModelConvergenceAndCheckpointListener::checkpoint_convergence_state() const {
-  CheckpointConvergenceState state;
-  state.best_loss = best_loss_;
-  state.last_epoch_loss = last_epoch_loss_;
-  state.best_epoch = best_epoch_;
-  state.epochs_without_improvement = epochs_without_improvement_;
-  if (has_best_) {
-    state.flags |= CheckpointConvergenceState::kHasBest;
-  }
-  if (stop_requested_) {
-    state.flags |= CheckpointConvergenceState::kStopRequested;
-  }
-  state.stop_reason = static_cast<uint32_t>(stop_reason_);
-  return state;
-}
 
 std::string ModelConvergenceAndCheckpointListener::best_checkpoint_path() const {
   return cfg_.paths.model_file_best;
 }
 
-std::string ModelConvergenceAndCheckpointListener::stop_reason_text() const {
-  if (!stop_message_.empty()) {
-    return stop_message_;
-  }
-  switch (stop_reason_) {
-  case StopReason::TargetLoss:
-    return "target loss reached";
-  case StopReason::Patience:
-    return "patience exhausted";
-  case StopReason::NonFiniteLoss:
-    return "non-finite loss";
-  case StopReason::None:
-  default:
-    return "none";
-  }
-}
 
-bool ModelConvergenceAndCheckpointListener::loss_improved(float mean_loss) const {
-  return (best_loss_ - mean_loss) > cfg_.training.min_delta;
-}
 
-void ModelConvergenceAndCheckpointListener::request_stop(
-    StopReason reason, const std::string &message) {
-  if (stop_requested_) {
-    return;
-  }
-  stop_requested_ = true;
-  stop_reason_ = reason;
-  stop_message_ = message;
-  std::cout << "[MC&CListener] Early stop requested: " << stop_message_ << "\n";
-}
 
 bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     const std::string &path, DeviceBackend &device_backend,
@@ -408,7 +253,7 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     }
 
     const CheckpointConvergenceState convergence_state =
-        checkpoint_convergence_state();
+        monitor_.state();
     const bool ok = save_checkpoint(path, cfg_.model,
                                     *algo_.create_position_encoding(cfg_),
                                     cfg_.conf_version,
@@ -427,7 +272,7 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     }
     if (notify_observers) {
       std::ostringstream oss;
-      oss << std::fixed << std::setprecision(4) << last_epoch_loss_;
+      oss << std::fixed << std::setprecision(4) << monitor_.last_epoch_loss();
       reporters.on_checkpoint_save_end(true);
       std::cout << "[MC&CListener] latest to " << path << " at epoch=" << epoch
                 << ", step=" << optimizer_steps << ", loss=" << oss.str()
@@ -448,7 +293,7 @@ bool ModelConvergenceAndCheckpointListener::copy_latest_checkpoint_to_best(
     const std::string &latest_path, const std::string &best_path) const {
   try {
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(4) << best_loss_;
+    oss << std::fixed << std::setprecision(4) << monitor_.best_loss();
     if (latest_path == best_path) {
       std::cout << "[MC&CListener] best to " << best_path << ", loss="
                 << oss.str() << "\n";

@@ -2,6 +2,7 @@
 
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
+#include "convergence_monitor.hpp"
 #include "reporters.hpp"
 #include "training_observer.hpp"
 
@@ -53,13 +54,6 @@ public:
   std::string best_checkpoint_path() const;
 
 private:
-  enum class StopReason : uint32_t {
-    None = 0,
-    TargetLoss = 1,
-    Patience = 2,
-    NonFiniteLoss = 3,
-  };
-
   bool maybe_resume(TrainingPosition &training_position, DeviceBackend &device_backend,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state, uint64_t steps_per_epoch,
@@ -68,14 +62,6 @@ private:
                   const ArenaView &data_arena,
                   const AdamStateView &adam_state,
                   const Reporters &reporters);
-  void clear_persisted_stop_for_resume();
-  void reset_convergence_state();
-  ContinueTrainingDecision epoch_end_decision() const;
-  void restore_convergence_state(const CheckpointConvergenceState &state);
-  CheckpointConvergenceState checkpoint_convergence_state() const;
-  std::string stop_reason_text() const;
-  bool loss_improved(float mean_loss) const;
-  void request_stop(StopReason reason, const std::string &message);
   bool copy_latest_checkpoint_to_best(const std::string &latest_path,
                                       const std::string &best_path) const;
   bool save_checkpoint_file(const std::string &path, DeviceBackend &device_backend,
@@ -90,13 +76,6 @@ private:
   // Checkpoints record and verify the position encoding it creates.
   const ModelAlgoFactory &algo_;
   const Reporters &reporters_;
-  float best_loss_ = 0.0f;
-  float last_epoch_loss_ = -1.0f;
-  uint32_t best_epoch_ = 0;
-  uint32_t epochs_without_improvement_ = 0;
-  bool has_best_ = false;
-  bool stop_requested_ = false;
+  ConvergenceMonitor monitor_;
   bool best_checkpoint_requested_ = false;
-  StopReason stop_reason_ = StopReason::None;
-  std::string stop_message_;
 };

@@ -156,6 +156,20 @@ target_include_directories(litnice_tfevents_test PRIVATE
 )
 add_test(NAME tfevents_encoding COMMAND litnice_tfevents_test)
 
+# Convergence rules (target, patience, non-finite) and their saved state.
+add_executable(litnice_convergence_monitor_test tests/convergence_monitor_test.cpp)
+target_include_directories(litnice_convergence_monitor_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/memory
+    src/observers
+    src/training
+)
+target_link_libraries(litnice_convergence_monitor_test PRIVATE litnice_core)
+add_test(NAME convergence_monitor COMMAND litnice_convergence_monitor_test)
+
 # Experiment-tracking plugin loading, against fake tracking plugins.
 foreach(variant fake fake2 fake_bad_abi)
   add_library(litnice_tracking_${variant} SHARED tests/fake_tracking_plugin.cpp)
