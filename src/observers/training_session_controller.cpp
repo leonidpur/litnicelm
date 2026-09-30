@@ -14,9 +14,9 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
                                                      const ModelAlgoFactory &algo,
                                                      TrainingReportSink &training_sink) {
   auto convergence_listener =
-      std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd, algo);
+      std::make_unique<ModelConvergenceAndCheckpointListener>(cfg, cmd, algo,
+                                                              reporters_);
   last_epoch_ = convergence_listener->last_epoch();
-  convergence_listener->set_observer_relay(*this);
   convergence_listener_ = convergence_listener.get();
   add_observer(std::move(convergence_listener));
   add_observer(std::make_unique<TrackingObserver>(cfg, cmd, *convergence_listener_));
@@ -289,27 +289,3 @@ void TrainingSessionController::on_output_head_end() {
   }
 }
 
-void TrainingSessionController::on_checkpoint_load_start() {
-  for (const auto &observer : observers_) {
-    observer->on_checkpoint_load_start();
-  }
-}
-
-void TrainingSessionController::on_checkpoint_load_end(bool ok) {
-  for (const auto &observer : observers_) {
-    observer->on_checkpoint_load_end(ok);
-  }
-}
-
-void TrainingSessionController::on_checkpoint_save_start(uint64_t optimizer_steps,
-                                                         uint32_t epoch) {
-  for (const auto &observer : observers_) {
-    observer->on_checkpoint_save_start(optimizer_steps, epoch);
-  }
-}
-
-void TrainingSessionController::on_checkpoint_save_end(bool ok) {
-  for (const auto &observer : observers_) {
-    observer->on_checkpoint_save_end(ok);
-  }
-}

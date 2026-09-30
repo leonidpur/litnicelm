@@ -21,6 +21,7 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/memory/*.cpp
     src/model/backend/*.cpp
     src/observers/*.cpp
+    src/training/*.cpp
     src/tracking/*.cpp
     src/profiling/*.cpp
     src/config/*.cpp
@@ -48,6 +49,7 @@ target_include_directories(litnice_core PRIVATE
     src/model/algo
     src/model/memory
     src/observers
+    src/training
     src/tracking
     src/profiling
     src/config

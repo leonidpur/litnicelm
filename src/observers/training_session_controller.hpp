@@ -3,6 +3,7 @@
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
 #include "tensor_store.hpp"
+#include "reporters.hpp"
 #include "training_observer.hpp"
 
 #include <report_interface.hpp>
@@ -81,14 +82,12 @@ public:
   void on_ffn_end(int layer_idx) override;
   void on_output_head_start() override;
   void on_output_head_end() override;
-  void on_checkpoint_load_start() override;
-  void on_checkpoint_load_end(bool ok) override;
-  void on_checkpoint_save_start(uint64_t optimizer_steps, uint32_t epoch) override;
-  void on_checkpoint_save_end(bool ok) override;
 
 private:
   uint64_t steps_per_epoch_ = 0;
   uint32_t last_epoch_ = 0;
   std::vector<std::unique_ptr<ITrainingObserver>> observers_;
+  // Report access to observers_, handed to the listener for its own reports.
+  Reporters reporters_{observers_};
   ModelConvergenceAndCheckpointListener *convergence_listener_ = nullptr;
 };

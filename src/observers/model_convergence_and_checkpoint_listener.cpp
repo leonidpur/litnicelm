@@ -14,13 +14,9 @@
 #include <vector>
 
 ModelConvergenceAndCheckpointListener::ModelConvergenceAndCheckpointListener(
-    const Config &cfg, const Command &cmd, const ModelAlgoFactory &algo)
-    : cfg_(cfg), cmd_(cmd), algo_(algo) {}
-
-void ModelConvergenceAndCheckpointListener::set_observer_relay(
-    ITrainingObserver &observer_relay) {
-  observer_relay_ = &observer_relay;
-}
+    const Config &cfg, const Command &cmd, const ModelAlgoFactory &algo,
+    const Reporters &reporters)
+    : cfg_(cfg), cmd_(cmd), algo_(algo), reporters_(reporters) {}
 
 namespace {
 constexpr const char *kAnsiGreen = "\033[32m";
@@ -56,7 +52,7 @@ TrainingPosition ModelConvergenceAndCheckpointListener::restore_or_initialize(
   TrainingPosition training_position{};
   const bool resumed = maybe_resume(training_position, device_backend, data_arena,
                                     adam_state, steps_per_epoch,
-                                    *observer_relay_);
+                                    reporters_);
   if (!resumed) {
     tensor_store.initialize_parameters_deterministic(device_backend);
     training_position.optimizer_steps = 0;
@@ -103,7 +99,7 @@ void ModelConvergenceAndCheckpointListener::on_training_end(
 bool ModelConvergenceAndCheckpointListener::maybe_resume(
     TrainingPosition &training_position, DeviceBackend &device_backend,
     const ArenaView &data_arena, const AdamStateView &adam_state,
-    uint64_t steps_per_epoch, ITrainingObserver &observer_relay) {
+    uint64_t steps_per_epoch, const Reporters &reporters) {
   if (!cfg_.training.incremental) {
     return false;
   }
@@ -118,7 +114,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
             << "...\n";
 
   try {
-    observer_relay.on_checkpoint_load_start();
+    reporters.on_checkpoint_load_start();
     std::string error_detail;
     CheckpointConvergenceState restored_convergence_state;
     if (!load_checkpoint(cfg_.paths.model_file_latest, cfg_.model,
@@ -139,7 +135,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
                                error_detail);
     }
     restore_convergence_state(restored_convergence_state);
-    observer_relay.on_checkpoint_load_end(true);
+    reporters.on_checkpoint_load_end(true);
     const uint64_t total_steps =
         steps_per_epoch * static_cast<uint64_t>(last_epoch());
     std::cout << "  -> Success. Resumed at Step [" << training_position.optimizer_steps << "/"
@@ -147,7 +143,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
               << last_epoch() << "]\n";
     return true;
   } catch (const std::exception &e) {
-    observer_relay.on_checkpoint_load_end(false);
+    reporters.on_checkpoint_load_end(false);
     std::cerr << "[MC&CListener] ERROR during resume: " << e.what()
               << "\n[MC&CListener] Falling back to fresh initialization.\n";
     return false;
@@ -157,7 +153,7 @@ bool ModelConvergenceAndCheckpointListener::maybe_resume(
 void ModelConvergenceAndCheckpointListener::maybe_save(
     const TrainingPosition &training_position, DeviceBackend &device_backend,
     const ArenaView &data_arena, const AdamStateView &adam_state,
-    ITrainingObserver &observer_relay) {
+    const Reporters &reporters) {
   if (is_estimation_mode()) {
     return;
   }
@@ -180,7 +176,7 @@ void ModelConvergenceAndCheckpointListener::maybe_save(
       save_checkpoint_file(cfg_.paths.model_file_latest, device_backend,
                            data_arena, adam_state, training_position.optimizer_steps,
                            training_position.epoch, /*notify_observers=*/true,
-                           observer_relay);
+                           reporters);
 
   if (latest_saved && best_checkpoint_requested_) {
     best_checkpoint_requested_ = false;
@@ -207,7 +203,7 @@ ContinueTrainingDecision ModelConvergenceAndCheckpointListener::on_epoch_end(
                        std::to_string(epoch));
     }
     maybe_save(training_position, device_backend, data_arena, adam_state,
-               *observer_relay_);
+               reporters_);
     return epoch_end_decision();
   }
 
@@ -259,7 +255,7 @@ ContinueTrainingDecision ModelConvergenceAndCheckpointListener::on_epoch_end(
                      " at epoch " + std::to_string(best_epoch_));
   }
   maybe_save(training_position, device_backend, data_arena, adam_state,
-             *observer_relay_);
+             reporters_);
   return epoch_end_decision();
 }
 
@@ -401,10 +397,10 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     const std::string &path, DeviceBackend &device_backend,
     const ArenaView &data_arena, const AdamStateView &adam_state,
     uint64_t optimizer_steps, uint32_t epoch, bool notify_observers,
-    ITrainingObserver &observer_relay) {
+    const Reporters &reporters) {
   try {
     if (notify_observers) {
-      observer_relay.on_checkpoint_save_start(optimizer_steps, epoch);
+      reporters.on_checkpoint_save_start(optimizer_steps, epoch);
     }
     std::filesystem::path p(path);
     if (p.has_parent_path()) {
@@ -432,7 +428,7 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     if (notify_observers) {
       std::ostringstream oss;
       oss << std::fixed << std::setprecision(4) << last_epoch_loss_;
-      observer_relay.on_checkpoint_save_end(true);
+      reporters.on_checkpoint_save_end(true);
       std::cout << "[MC&CListener] latest to " << path << " at epoch=" << epoch
                 << ", step=" << optimizer_steps << ", loss=" << oss.str()
                 << "\n";
@@ -440,7 +436,7 @@ bool ModelConvergenceAndCheckpointListener::save_checkpoint_file(
     return true;
   } catch (const std::exception &e) {
     if (notify_observers) {
-      observer_relay.on_checkpoint_save_end(false);
+      reporters.on_checkpoint_save_end(false);
       std::cerr << "[MC&CListener] CRITICAL: Failed to save checkpoint: " << e.what()
                 << "\n";
     }

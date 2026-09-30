@@ -2,6 +2,7 @@
 
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
+#include "reporters.hpp"
 #include "training_observer.hpp"
 
 #include <config.hpp>
@@ -17,9 +18,11 @@ struct TrainingPosition;
 
 class ModelConvergenceAndCheckpointListener final : public ITrainingObserver {
 public:
+  // reporters must outlive the listener; checkpoint save/load are reported
+  // through it.
   ModelConvergenceAndCheckpointListener(const Config &cfg, const Command &cmd,
-                                        const ModelAlgoFactory &algo);
-  void set_observer_relay(ITrainingObserver &observer_relay);
+                                        const ModelAlgoFactory &algo,
+                                        const Reporters &reporters);
 
   // Resumes from the latest checkpoint when training.incremental is set and
   // it loads; otherwise initializes parameters and optimizer state. Returns
@@ -60,11 +63,11 @@ private:
   bool maybe_resume(TrainingPosition &training_position, DeviceBackend &device_backend,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state, uint64_t steps_per_epoch,
-                    ITrainingObserver &observer_relay);
+                    const Reporters &reporters);
   void maybe_save(const TrainingPosition &training_position, DeviceBackend &device_backend,
                   const ArenaView &data_arena,
                   const AdamStateView &adam_state,
-                  ITrainingObserver &observer_relay);
+                  const Reporters &reporters);
   void clear_persisted_stop_for_resume();
   void reset_convergence_state();
   ContinueTrainingDecision epoch_end_decision() const;
@@ -80,13 +83,13 @@ private:
                             const AdamStateView &adam_state,
                             uint64_t optimizer_steps, uint32_t epoch,
                             bool notify_observers,
-                            ITrainingObserver &observer_relay);
+                            const Reporters &reporters);
 
   const Config &cfg_;
   const Command &cmd_;
   // Checkpoints record and verify the position encoding it creates.
   const ModelAlgoFactory &algo_;
-  ITrainingObserver *observer_relay_ = &default_training_observer();
+  const Reporters &reporters_;
   float best_loss_ = 0.0f;
   float last_epoch_loss_ = -1.0f;
   uint32_t best_epoch_ = 0;
