@@ -167,6 +167,55 @@ int main() {
           "clearing is reported as a message");
   }
 
+  {
+    // With a validation split, only epochs with a val loss are judged.
+    Fixture f;
+    f.cfg.training.validation_fraction = 0.1f;
+    ConvergenceMonitor m(f.cfg);
+    EpochMetrics e1 = loss(1.0f);
+    e1.val_loss = 2.0f;
+    EpochMetrics e2 = loss(0.5f);  // no validation this epoch
+    EpochMetrics e3 = loss(0.4f);
+    e3.val_loss = 1.5f;
+    check(m.observe(1, e1).new_best && m.best_loss() == 2.0f, "val: best is the val loss");
+    check(!m.observe(2, e2).new_best && m.best_epoch() == 1,
+          "val: epoch without validation makes no best decision");
+    check(m.observe(3, e3).new_best && m.best_loss() == 1.5f, "val: next val epoch improves best");
+    check(contains(f.lines(), "New best val loss 1.5000 at epoch 3"), "val: reported as val loss");
+  }
+  {
+    // Patience counts epochs, also when validation runs every 2 epochs.
+    Fixture f;
+    f.cfg.training.validation_fraction = 0.1f;
+    f.cfg.training.patience_epochs = 3;
+    ConvergenceMonitor m(f.cfg);
+    uint32_t stopped = 0;
+    for (uint32_t epoch = 1; epoch <= 8 && stopped == 0; ++epoch) {
+      EpochMetrics e = loss(1.0f);
+      if (epoch % 2 == 0) {
+        e.val_loss = 1.0f;  // never improves after epoch 2
+      }
+      if (!m.observe(epoch, e).decision.continue_training) {
+        stopped = epoch;
+      }
+    }
+    check(stopped == 6, "val: patience 3 epochs stops at the val epoch 4 epochs after the best");
+  }
+  {
+    // A checkpoint whose best was judged on train loss resets best in a val run.
+    Fixture f;
+    ConvergenceMonitor train_run(f.cfg);
+    run(train_run, {1.0f, 0.5f});
+    Fixture g;
+    g.cfg.training.validation_fraction = 0.1f;
+    ConvergenceMonitor val_run(g.cfg);
+    val_run.restore(train_run.state(), 2);
+    check(!val_run.has_best(), "best judged on another loss is reset on restore");
+    check(contains(g.lines(), "Best is reset"), "reset is reported");
+    check((val_run.state().flags & CheckpointConvergenceState::kBestIsVal) != 0,
+          "val run saves the val flag");
+  }
+
   std::cout << (g_failures == 0 ? "All convergence monitor tests passed.\n"
                                 : "Convergence monitor tests FAILED.\n");
   return g_failures == 0 ? 0 : 1;

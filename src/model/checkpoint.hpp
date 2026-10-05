@@ -24,6 +24,7 @@ struct AdamStateView {
 struct CheckpointConvergenceState {
   static constexpr uint32_t kHasBest = 1u << 0;
   static constexpr uint32_t kStopRequested = 1u << 1;
+  static constexpr uint32_t kBestIsVal = 1u << 2;  // best_loss is a val loss
 
   float best_loss = 0.0f;
   float last_epoch_loss = -1.0f;

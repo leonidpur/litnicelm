@@ -203,7 +203,7 @@ bool TrainingSessionController::resume_from_latest(
     return false;
   }
   training_position = loaded.position;
-  convergence_monitor_.restore(loaded.convergence);
+  convergence_monitor_.restore(loaded.convergence, training_position.epoch);
   const uint64_t total_steps =
       steps_per_epoch * static_cast<uint64_t>(training_plan_.last_epoch);
   logger().log(EventId::ResumeSucceeded,

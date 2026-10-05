@@ -62,7 +62,8 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
                                   const AdamStateView &adam_state,
                                   const TrainingPosition &training_position,
                                   const CheckpointConvergenceState &convergence,
-                                  float epoch_loss) const {
+                                  float train_loss,
+                                  std::optional<float> val_loss) const {
   const std::string &path = latest_path();
   const uint64_t optimizer_steps = training_position.optimizer_steps;
   const uint32_t epoch = training_position.epoch;
@@ -89,18 +90,25 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
       throw std::runtime_error("write tokenizer fingerprint failed: " +
                                fingerprint_error);
     }
-    std::ostringstream loss;
-    loss << std::fixed << std::setprecision(4) << epoch_loss;
+    std::ostringstream losses;
+    losses << std::fixed << std::setprecision(4) << "train " << train_loss;
+    if (val_loss) {
+      losses << ", val " << *val_loss;
+    }
     reporters_.on_checkpoint_save_end(true);
+    LogFields fields = LogFields()
+                           .str("path", path)
+                           .u64("epoch", epoch)
+                           .u64("step", optimizer_steps)
+                           .f64("loss", train_loss);
+    if (val_loss) {
+      fields.f64("val_loss", *val_loss);
+    }
     logger().log(EventId::CheckpointSaved,
                 path + " (epoch " + std::to_string(epoch) +
-                    ", step " + std::to_string(optimizer_steps) +
-                    ", train loss " + loss.str() + ")",
-                LogFields()
-                    .str("path", path)
-                    .u64("epoch", epoch)
-                    .u64("step", optimizer_steps)
-                    .f64("loss", epoch_loss));
+                    ", step " + std::to_string(optimizer_steps) + ", " +
+                    losses.str() + ")",
+                fields);
     return true;
   } catch (const std::exception &e) {
     reporters_.on_checkpoint_save_end(false);
@@ -109,13 +117,20 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
   }
 }
 
-bool CheckpointStore::promote_latest_to_best(float best_loss) const {
+bool CheckpointStore::promote_latest_to_best(float best_loss,
+                                             const std::string &best_metric) const {
   const std::string &latest = latest_path();
   const std::string &best = best_path();
   try {
-    const LogFields fields = LogFields().str("path", best).f64("loss", best_loss);
+    std::ostringstream loss;
+    loss << std::fixed << std::setprecision(4) << best_loss;
+    const std::string reason = " (" + best_metric + " loss " + loss.str() + ")";
+    const LogFields fields = LogFields()
+                                 .str("path", best)
+                                 .f64("loss", best_loss)
+                                 .str("metric", best_metric);
     if (latest == best) {
-      logger().log(EventId::BestCheckpointPromoted, "Latest is also best: " + best,
+      logger().log(EventId::BestCheckpointPromoted, "Latest is also best: " + best + reason,
                   fields);
       return true;
     }
@@ -134,7 +149,7 @@ bool CheckpointStore::promote_latest_to_best(float best_loss) const {
             std::filesystem::copy_options::overwrite_existing);
       }
     }
-    logger().log(EventId::BestCheckpointPromoted, "Copied latest → best: " + best,
+    logger().log(EventId::BestCheckpointPromoted, "Copied latest → best: " + best + reason,
                 fields);
     return true;
   } catch (const std::exception &e) {

@@ -33,8 +33,8 @@ void CheckpointPolicy::apply(const ConvergenceVerdict &verdict,
   const bool latest_saved =
       store.save_latest(device_backend, data_arena, adam_state,
                         training_position, monitor.state(),
-                        monitor.last_epoch_loss());
+                        monitor.last_epoch_loss(), monitor.last_val_loss());
   if (latest_saved && verdict.new_best) {
-    store.promote_latest_to_best(monitor.best_loss());
+    store.promote_latest_to_best(monitor.best_loss(), monitor.judged_loss_name());
   }
 }

@@ -300,6 +300,14 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
                      &session_controller);
   TextDataset val_dataset(dataset_path, memory_manager.tensor_store(), *backend,
                        runtime_cfg, split, DatasetSplit::Side::Validation);
+  // Best and patience are judged on val loss whenever the split exists.
+  if (runtime_cfg.training.validation_fraction > 0.0f &&
+      val_dataset.steps_per_epoch() == 0) {
+    throw std::runtime_error(
+        "validation split holds no full batch of " +
+        std::to_string(runtime_cfg.training.batch_size) +
+        "; raise training.validation_fraction or lower training.batch_size");
+  }
   TrainerValidationUtils::print_dataset_stats(runtime_cfg, training_dataset);
   
   logger().log(EventId::TrainingEngineInitialized);

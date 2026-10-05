@@ -81,6 +81,7 @@ enum class EventId : uint16_t {
   NoImprovement,
   EarlyStopRequested,
   PersistedStopCleared,
+  BestMetricChanged,
 
   // Checkpoints
   CheckpointSaveSkippedNonFinite,
@@ -184,6 +185,7 @@ inline constexpr EventDef kEventCatalog[] = {
     {EventId::NoImprovement, "no_improvement", EventType::History, "[ConvergenceMonitor] No new best at epoch", kAnsiYellow},
     {EventId::EarlyStopRequested, "early_stop_requested", EventType::History, "[ConvergenceMonitor] Early stop requested:"},
     {EventId::PersistedStopCleared, "persisted_stop_cleared", EventType::Info, "[ConvergenceMonitor] Resumed checkpoint carries a prior early-stop state", kAnsiGreen},
+    {EventId::BestMetricChanged, "best_metric_changed", EventType::Warning, "[ConvergenceMonitor] Best is reset:"},
 
     {EventId::CheckpointSaveSkippedNonFinite, "checkpoint_save_skipped_non_finite", EventType::Warning, "[CheckpointPolicy] Skipping latest checkpoint save because epoch loss is non-finite."},
     {EventId::CheckpointSaved, "checkpoint_saved", EventType::History, "[CheckpointStore] Saved latest:"},

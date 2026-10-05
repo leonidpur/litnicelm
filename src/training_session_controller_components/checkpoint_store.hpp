@@ -6,6 +6,7 @@
 
 #include <config.hpp>
 
+#include <optional>
 #include <string>
 
 class DeviceBackend;
@@ -43,10 +44,11 @@ public:
                    const AdamStateView &adam_state,
                    const TrainingPosition &training_position,
                    const CheckpointConvergenceState &convergence,
-                   float epoch_loss) const;
+                   float train_loss, std::optional<float> val_loss) const;
   // Copies the latest checkpoint and its sidecars to the best path.
   // best_loss is only reported.
-  bool promote_latest_to_best(float best_loss) const;
+  // best_metric: the loss best_loss was judged on, "val" or "train".
+  bool promote_latest_to_best(float best_loss, const std::string &best_metric) const;
 
 private:
   const Config &cfg_;
