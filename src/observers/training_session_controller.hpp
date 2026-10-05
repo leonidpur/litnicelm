@@ -25,7 +25,17 @@ public:
                             const ModelAlgoFactory &algo,
                             ReportRenderer &report_renderer);
 
-  uint32_t last_epoch() const;
+  bool has_epochs_left(const TrainingPosition &training_position) const {
+    return training_position.epoch < training_plan_.last_epoch;
+  }
+  // Explains why a run with no epochs left trains nothing.
+  void nothing_to_do(const TrainingPosition &training_position) const;
+  // Validation runs every training.validation_every_epochs and on the last
+  // epoch, when the validation split has batches.
+  bool validation_due(uint32_t epoch, uint64_t val_steps_per_epoch) const;
+  // Reports one validation pass against the epoch's training loss.
+  void on_evaluate_end(uint32_t epoch, const ValidationResult &result,
+                       float train_loss) const;
   std::string early_stop_message() const;
   bool is_dry_run() const { return training_plan_.dry_run(); }
   bool should_stop() const { return convergence_monitor_.should_stop(); }
@@ -91,6 +101,10 @@ public:
   void on_output_head_end() override;
 
 private:
+  // Logs why training ends: every reason that holds, joined.
+  void log_training_end(const TrainingPosition &training_position,
+                        bool plan_done, bool monitor_stop,
+                        bool observer_stop) const;
   bool resume_from_latest(TrainingPosition &training_position,
                           DeviceBackend &device_backend,
                           const ArenaView &data_arena,

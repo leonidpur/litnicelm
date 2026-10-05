@@ -63,5 +63,5 @@ private:
   double train_one_batch(const TrainBatch &batch, TrainingPosition &training_position);
   // Mean loss over val_loader's batches: forward pass only, parameters and
   // optimizer state untouched.
-  double evaluate(IDataLoader &val_loader);
+  ValidationResult evaluate(IDataLoader &val_loader);
 };

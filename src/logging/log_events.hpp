@@ -68,8 +68,10 @@ enum class EventId : uint16_t {
   TrainingStart,        // also: tracking run start
   EpochStart,           // now: observers on_epoch_start (no text)
   EpochProgress,
+  ValidationComplete,
   EpochComplete,        // now: tracking "epoch" metrics
   TrainingEnd,          // also: tracking run end
+  NothingToTrain,
   TrainingConfigFile,
   EtaSummary,
   ProfilingSummary,
@@ -79,7 +81,6 @@ enum class EventId : uint16_t {
   NoImprovement,
   EarlyStopRequested,
   PersistedStopCleared,
-  EarlyStop,
 
   // Checkpoints
   CheckpointSaveSkippedNonFinite,
@@ -171,8 +172,10 @@ inline constexpr EventDef kEventCatalog[] = {
     {EventId::TrainingStart, "training_start", EventType::Info, "[TrainingSessionController]", kAnsiCyan},
     {EventId::EpochStart, "epoch_start", EventType::Info, "[Epoch start]"},
     {EventId::EpochProgress, "epoch_progress", EventType::Info, "[EtaObserver][Epoch complete]"},
+    {EventId::ValidationComplete, "validation_complete", EventType::History, "[TrainingSessionController] Validation", kAnsiCyan},
     {EventId::EpochComplete, "epoch_complete", EventType::History, "[Epoch]"},
     {EventId::TrainingEnd, "training_end", EventType::Info, "[TrainingSessionController]", kAnsiCyan},
+    {EventId::NothingToTrain, "nothing_to_train", EventType::Warning, "[TrainingSessionController] Nothing to train:"},
     {EventId::TrainingConfigFile, "training_config_file", EventType::Info, "[Trainer] Config file:"},
     {EventId::EtaSummary, "eta_summary", EventType::Info, "[EtaObserver][End]"},
     {EventId::ProfilingSummary, "profiling_summary", EventType::Info, ""},
@@ -181,7 +184,6 @@ inline constexpr EventDef kEventCatalog[] = {
     {EventId::NoImprovement, "no_improvement", EventType::History, "[ConvergenceMonitor] No new best at epoch", kAnsiYellow},
     {EventId::EarlyStopRequested, "early_stop_requested", EventType::History, "[ConvergenceMonitor] Early stop requested:"},
     {EventId::PersistedStopCleared, "persisted_stop_cleared", EventType::Info, "[ConvergenceMonitor] Resumed checkpoint carries a prior early-stop state", kAnsiGreen},
-    {EventId::EarlyStop, "early_stop", EventType::History, "[Trainer] Early stop at epoch"},
 
     {EventId::CheckpointSaveSkippedNonFinite, "checkpoint_save_skipped_non_finite", EventType::Warning, "[CheckpointPolicy] Skipping latest checkpoint save because epoch loss is non-finite."},
     {EventId::CheckpointSaved, "checkpoint_saved", EventType::History, "[CheckpointStore] Saved latest:"},

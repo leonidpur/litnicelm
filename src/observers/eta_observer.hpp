@@ -28,7 +28,10 @@ public:
 
 private:
   std::string format_duration(int64_t ms) const;
+  // Time left in this run (training or dry run).
   std::string get_eta_report(uint32_t current_epoch) const;
+  // Dry run only: full-training time projected from the measured epochs.
+  std::string get_dry_run_estimate(uint32_t current_epoch) const;
 
   const Config &cfg_;
   const TrainingPlan plan_;

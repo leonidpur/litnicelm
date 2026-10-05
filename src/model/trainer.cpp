@@ -183,11 +183,13 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &train
   return loss;
 }
 
-double Trainer::evaluate(IDataLoader &val_dataset) {
+ValidationResult Trainer::evaluate(IDataLoader &val_dataset) {
   val_dataset.reset_epoch();
   TrainBatch batch{};
   MeanLoss val_loss;
+  uint64_t tokens = 0;
   while (val_dataset.next(batch)) {
+    tokens += static_cast<uint64_t>(batch.batch_size() * batch.seq_len());
     TensorView logits =
         tensorStore_.temp_tr_logits(batch.batch_size(), batch.seq_len());
     transformer_.forward(batch.ids, logits);
@@ -195,7 +197,11 @@ double Trainer::evaluate(IDataLoader &val_dataset) {
     ops_.cross_entropy_mean(logits, batch.targets, loss_scalar);
     val_loss.add(ops_.read_scalar_f32(loss_scalar));
   }
-  return val_loss.mean();
+  ValidationResult result;
+  result.loss = val_loss.mean();
+  result.batches = val_loss.count();
+  result.tokens = tokens;
+  return result;
 }
 
 void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
@@ -207,43 +213,48 @@ void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
   session_controller_.on_training_start(training_position,
                                         training_dataset.steps_per_epoch());
 
-  const uint32_t last_epoch = session_controller_.last_epoch();
-  for (uint32_t current_epoch = training_position.epoch + 1; current_epoch <= last_epoch; ++current_epoch) {
-    session_controller_.on_epoch_start(current_epoch);
-    training_dataset.reset_epoch();
-    TrainBatch batch{};
-    MeanLoss train_loss;
-    const uint64_t steps_this_epoch = training_dataset.steps_per_epoch();
-    for (uint64_t batch_idx = 0; batch_idx < steps_this_epoch; ++batch_idx) {
-      //prepare batch and notify observers
-      session_controller_.on_batch_start(training_position.optimizer_steps);
-      const bool has_batch = training_dataset.next(batch, training_position.optimizer_steps);
-      if (!has_batch) {
-        session_controller_.on_batch_end(training_position.optimizer_steps, 0.0);
+  // The controller decides when training ends: plan complete or early stop.
+  if (!session_controller_.has_epochs_left(training_position)) {
+    session_controller_.nothing_to_do(training_position);
+  } else {
+    while (true) {
+      const uint32_t current_epoch = training_position.epoch + 1;
+      session_controller_.on_epoch_start(current_epoch);
+      training_dataset.reset_epoch();
+      TrainBatch batch{};
+      MeanLoss train_loss;
+      const uint64_t steps_this_epoch = training_dataset.steps_per_epoch();
+      for (uint64_t batch_idx = 0; batch_idx < steps_this_epoch; ++batch_idx) {
+        //prepare batch and notify observers
+        session_controller_.on_batch_start(training_position.optimizer_steps);
+        const bool has_batch = training_dataset.next(batch, training_position.optimizer_steps);
+        if (!has_batch) {
+          session_controller_.on_batch_end(training_position.optimizer_steps, 0.0);
+          break;
+        }
+        //execute forward, backward, and optimizer step
+        const double loss = train_one_batch(batch, training_position);
+        session_controller_.on_batch_end(training_position.optimizer_steps, loss);
+        train_loss.add(loss);
+        training_position.optimizer_steps += 1;
+      }
+      //consolidate epoch metrics
+      EpochMetrics metrics;
+      metrics.train_loss = static_cast<float>(train_loss.mean());
+      if (session_controller_.validation_due(current_epoch,
+                                             val_dataset.steps_per_epoch())) {
+        const ValidationResult validation = evaluate(val_dataset);
+        metrics.val_loss = static_cast<float>(validation.loss);
+        session_controller_.on_evaluate_end(current_epoch, validation,
+                                            metrics.train_loss);
+      }
+      //notify observers; the controller decides whether training continues
+      const ContinueTrainingDecision decision = session_controller_.on_epoch_end(
+          current_epoch, metrics, training_position, device_backend_, data_arena_,
+          adam_state_);
+      if (!decision.continue_training) {
         break;
       }
-      //execute forward, backward, and optimizer step
-      const double loss = train_one_batch(batch, training_position);
-      session_controller_.on_batch_end(training_position.optimizer_steps, loss);
-      train_loss.add(loss);
-      training_position.optimizer_steps += 1;
-    }
-    //consolidate epoch metrics
-    EpochMetrics metrics;
-    metrics.train_loss = static_cast<float>(train_loss.mean());
-    const bool validation_due =
-        current_epoch % cfg_.training.validation_every_epochs == 0 || current_epoch == last_epoch;
-    if (validation_due && val_dataset.steps_per_epoch() > 0) {
-      metrics.val_loss = static_cast<float>(evaluate(val_dataset));
-    }
-    //notify observers and check for early stopping
-    const ContinueTrainingDecision decision = session_controller_.on_epoch_end(
-        current_epoch, metrics, training_position, device_backend_, data_arena_,
-        adam_state_);
-    if (decision.decided && !decision.continue_training) {
-      logger().log(EventId::EarlyStop, std::to_string(current_epoch) + ": " +
-                                           decision.early_stop_message);
-      break;
     }
   }
 

@@ -11,7 +11,7 @@
 // Outcome of one epoch for convergence.
 struct ConvergenceVerdict {
   bool new_best = false;
-  ContinueTrainingDecision decision;  // decided; stop and why, if stopping
+  ContinueTrainingDecision decision;  // decided; stop, if stopping
 };
 
 // Convergence rules on the epoch training loss and their state: best loss,

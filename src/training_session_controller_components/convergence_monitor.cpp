@@ -101,9 +101,6 @@ ConvergenceVerdict ConvergenceMonitor::verdict(bool new_best) const {
   v.new_best = new_best;
   v.decision.decided = true;
   v.decision.continue_training = !stop_requested_;
-  if (stop_requested_) {
-    v.decision.early_stop_message = stop_reason_text();
-  }
   return v;
 }
 

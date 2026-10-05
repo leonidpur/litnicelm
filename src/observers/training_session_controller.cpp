@@ -10,6 +10,8 @@
 #include "tensor_store.hpp"
 
 
+#include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -125,8 +127,29 @@ void TrainingSessionController::init_tensors_xy_ready(const TensorView &X,
   }
 }
 
-uint32_t TrainingSessionController::last_epoch() const {
-  return training_plan_.last_epoch;
+bool TrainingSessionController::validation_due(uint32_t epoch,
+                                               uint64_t val_steps_per_epoch) const {
+  const bool epoch_due = epoch % cfg_.training.validation_every_epochs == 0 ||
+                         epoch == training_plan_.last_epoch;
+  return epoch_due && val_steps_per_epoch > 0;
+}
+
+void TrainingSessionController::on_evaluate_end(uint32_t epoch,
+                                                const ValidationResult &result,
+                                                float train_loss) const {
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(4) << "epoch " << epoch << ": val "
+      << result.loss << " (ppl " << std::setprecision(2) << std::exp(result.loss)
+      << ") | train " << std::setprecision(4) << train_loss << ", gap "
+      << std::showpos << (result.loss - train_loss) << std::noshowpos << " | "
+      << result.batches << " batches, " << result.tokens << " tokens";
+  logger().log(EventId::ValidationComplete, oss.str(),
+               LogFields()
+                   .u64("epoch", epoch)
+                   .f64("val_loss", result.loss)
+                   .f64("train_loss", train_loss)
+                   .u64("batches", result.batches)
+                   .u64("tokens", result.tokens));
 }
 
 std::string TrainingSessionController::early_stop_message() const {
@@ -196,24 +219,24 @@ bool TrainingSessionController::resume_from_latest(
 
 void TrainingSessionController::on_training_start(
     const TrainingPosition &training_position, uint64_t steps_per_epoch) {
-  const uint32_t first_epoch = training_position.epoch + 1;
-  const uint32_t last_epoch = training_plan_.last_epoch;
-  std::ostringstream oss;
-  oss << (training_plan_.dry_run() ? "Dry run: " : "Training ");
-  if (first_epoch > last_epoch) {
-    oss << "no epochs left (at epoch " << training_position.epoch << " of "
-        << last_epoch << ")";
-  } else if (first_epoch == last_epoch) {
-    oss << "epoch " << first_epoch;
-  } else {
-    oss << "epochs " << first_epoch << "-" << last_epoch;
+  // With no epochs left, nothing_to_do() explains the run instead.
+  if (has_epochs_left(training_position)) {
+    const uint32_t first_epoch = training_position.epoch + 1;
+    const uint32_t last_epoch = training_plan_.last_epoch;
+    std::ostringstream oss;
+    oss << (training_plan_.dry_run() ? "Dry run: " : "Training ");
+    if (first_epoch == last_epoch) {
+      oss << "epoch " << first_epoch;
+    } else {
+      oss << "epochs " << first_epoch << "-" << last_epoch;
+    }
+    oss << ", starting at step " << training_position.optimizer_steps;
+    if (training_plan_.dry_run()) {
+      oss << " (real training: " << cfg_.training.num_epochs_train
+          << " epochs)";
+    }
+    logger().log(EventId::TrainingStart, oss.str());
   }
-  oss << ", starting at step " << training_position.optimizer_steps;
-  if (training_plan_.dry_run()) {
-    oss << " (real training: " << cfg_.training.num_epochs_train
-        << " epochs)";
-  }
-  logger().log(EventId::TrainingStart, oss.str());
   for (const auto &observer : observers_) {
     observer->on_training_start(training_position, steps_per_epoch);
   }
@@ -235,35 +258,64 @@ ContinueTrainingDecision TrainingSessionController::on_epoch_end(uint32_t epoch,
   const ConvergenceVerdict verdict = convergence_monitor_.observe(epoch, metrics);
   checkpoint_policy_.apply(verdict, convergence_monitor_, training_position, checkpoint_store_, device_backend,
                 data_arena, adam_state);
-  // Every observer runs. Training stops if the monitor or any observer
-  // decides to stop (the first such message is kept); undecided observers
-  // are ignored.
-  ContinueTrainingDecision combined = verdict.decision;
+  // Every observer runs; any observer that decides to stop stops training.
+  bool observer_stop = false;
   for (const auto &observer : observers_) {
     const ContinueTrainingDecision decision = observer->on_epoch_end(
         epoch, metrics, training_position, device_backend, data_arena,
         adam_state);
-    if (!decision.decided) {
-      continue;
-    }
-    if (combined.decided && !combined.continue_training) {
-      continue;
-    }
-    combined = decision;
+    observer_stop |= decision.decided && !decision.continue_training;
   }
-  return combined;
+  const bool plan_done = epoch >= training_plan_.last_epoch;
+  const bool monitor_stop = !verdict.decision.continue_training;
+
+  ContinueTrainingDecision result;
+  result.decided = true;
+  result.continue_training = !plan_done && !monitor_stop && !observer_stop;
+  if (!result.continue_training) {
+    log_training_end(training_position, plan_done, monitor_stop, observer_stop);
+  }
+  return result;
+}
+
+void TrainingSessionController::log_training_end(
+    const TrainingPosition &training_position, bool plan_done,
+    bool monitor_stop, bool observer_stop) const {
+  std::vector<std::string> reasons;
+  if (plan_done) {
+    reasons.push_back("reached last epoch " +
+                      std::to_string(training_plan_.last_epoch));
+  }
+  if (monitor_stop) {
+    reasons.push_back(convergence_monitor_.stop_reason_text());
+  }
+  if (observer_stop) {
+    reasons.push_back("requested by an observer");
+  }
+  std::string message =
+      plan_done ? (training_plan_.dry_run() ? "Dry run complete" : "Training complete")
+                : "Training stopped early";
+  message += " at step " + std::to_string(training_position.optimizer_steps) + ": ";
+  for (size_t i = 0; i < reasons.size(); ++i) {
+    message += (i ? " and " : "") + reasons[i];
+  }
+  logger().log(EventId::TrainingEnd, message);
+}
+
+void TrainingSessionController::nothing_to_do(
+    const TrainingPosition &training_position) const {
+  const char *epochs_key = training_plan_.dry_run()
+                               ? "training.num_epochs_dry_run"
+                               : "training.num_epochs_train";
+  logger().log(EventId::NothingToTrain,
+               "checkpoint is already at epoch " +
+                   std::to_string(training_position.epoch) + " of " +
+                   std::to_string(training_plan_.last_epoch) + " (step " +
+                   std::to_string(training_position.optimizer_steps) +
+                   "). Raise " + epochs_key + " or pass --epochs N to continue.");
 }
 
 void TrainingSessionController::on_training_end(const TrainingPosition &training_position) {
-  const std::string at_step =
-      " at step " + std::to_string(training_position.optimizer_steps);
-  const std::string end_message =
-      convergence_monitor_.early_stopped()
-          ? ("Training stopped early" + at_step + ": " +
-             convergence_monitor_.stop_reason_text())
-          : ((training_plan_.dry_run() ? "Dry run complete" : "Training complete") +
-             at_step);
-  logger().log(EventId::TrainingEnd, end_message);
   for (const auto &observer : observers_) {
     observer->on_training_end(training_position);
   }

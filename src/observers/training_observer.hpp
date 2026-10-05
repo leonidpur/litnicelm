@@ -23,13 +23,19 @@ struct TrainingPosition {
 struct ContinueTrainingDecision {
   bool decided = false;
   bool continue_training = true;
-  std::string early_stop_message;  // why training stops, when it does
 };
 
 // Losses of one finished epoch.
 struct EpochMetrics {
   float train_loss = 0.0f;  // mean over the epoch's training batches
   std::optional<float> val_loss;  // set when validation ran this epoch
+};
+
+// Outcome of one validation pass.
+struct ValidationResult {
+  double loss = 0.0;       // mean over the validation batches
+  uint64_t batches = 0;
+  uint64_t tokens = 0;     // predicted tokens: batch_size * seq_len per batch
 };
 
 class ITrainingObserver {
