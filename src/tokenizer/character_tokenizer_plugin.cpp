@@ -7,11 +7,9 @@ CharacterTokenizerPlugin::CharacterTokenizerPlugin(uint32_t vocab_size)
 
 void CharacterTokenizerPlugin::train(const std::string &corpus_path,
                                      const std::string &artifacts_dir,
-                                     uint32_t target_vocab_size,
-                                     ReportSink *sink) {
+                                     uint32_t target_vocab_size) {
   (void)corpus_path;
   (void)target_vocab_size;
-  (void)sink;
   if (!artifacts_dir.empty()) {
     std::filesystem::create_directories(artifacts_dir);
   }

@@ -7,7 +7,6 @@
 struct Config;
 class DeviceBackend;
 class NamedLayout;
-class ReportSink;
 class TensorStore;
 class TensorView;
 struct AdamStateView;
@@ -86,27 +85,22 @@ public:
     (void)lm_head_w;
     (void)d_lm_w;
   }
-  virtual void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols,
-                                     int64_t y_rows, int64_t y_cols,
+  virtual void init_tensors_xy_ready(const TensorView &X, const TensorView &Y,
                                      const TensorView &tok_emb) {
-    (void)x_rows;
-    (void)x_cols;
-    (void)y_rows;
-    (void)y_cols;
+    (void)X;
+    (void)Y;
     (void)tok_emb;
   }
 
   // Training starts at training_position (restored on resume). Information
   // only: weights and position are already decided.
   virtual void on_training_start(const TrainingPosition &training_position,
-                                 uint64_t steps_per_epoch, ReportSink *sink) {
+                                 uint64_t steps_per_epoch) {
     (void)training_position;
     (void)steps_per_epoch;
-    (void)sink;
   }
-  virtual void on_training_end(const TrainingPosition &training_position, ReportSink *sink) {
+  virtual void on_training_end(const TrainingPosition &training_position) {
     (void)training_position;
-    (void)sink;
   }
 
   virtual void on_epoch_start(uint32_t epoch) { (void)epoch; }
@@ -114,14 +108,12 @@ public:
                                                 const EpochMetrics &metrics,
                             TrainingPosition &training_position,
                             DeviceBackend &device_backend,
-                            ReportSink *sink,
                             const ArenaView &data_arena,
                             const AdamStateView &adam_state) {
     (void)epoch;
     (void)metrics;
     (void)training_position;
     (void)device_backend;
-    (void)sink;
     (void)data_arena;
     (void)adam_state;
     return {};
@@ -169,9 +161,6 @@ public:
     (void)epoch;
   }
   virtual void on_checkpoint_save_end(bool ok) { (void)ok; }
-
-  // A formatted console line from a training component.
-  virtual void on_message(const std::string &line) { (void)line; }
 };
 
 inline ITrainingObserver &default_training_observer() {

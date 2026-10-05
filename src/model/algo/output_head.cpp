@@ -23,7 +23,7 @@ void OutputHead::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
 void OutputHead::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
 
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
@@ -43,7 +43,7 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
   const int64_t batch_size = x.dim(0);
   const int64_t seq_len = x.dim(1);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   TensorContracts::validate_logits_bsv(logits, batch_size, seq_len, vocab_size,
                                        "OutputHead", "logits");
 
@@ -80,7 +80,7 @@ void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
                                        vocab_size, "OutputHead", "dlogits");
 

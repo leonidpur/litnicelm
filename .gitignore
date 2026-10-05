@@ -10,6 +10,7 @@
 
 # CMake-generated files
 /build/
+/build-debug/
 out/
 /CMakeFiles/
 /CMakeCache.txt

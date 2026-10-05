@@ -5,7 +5,7 @@
 #include "tensor_contracts.hpp"
 #include "tensor_store.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <report_interface.hpp>
+#include "tensor_probe.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -56,10 +56,10 @@ void LearnedPositionEncoding::backward_input(const TensorView &dx) {
   }
 }
 
-void LearnedPositionEncoding::report_probes(ReportSink &sink) const {
-  sink.report_probe_tensor("embeddings", "pos_embedding", pos_emb_);
+void LearnedPositionEncoding::report_probes() const {
+  TensorProbe::log_tensor("embeddings", "pos_embedding", pos_emb_);
   if (d_pos_.data() != nullptr) {
-    sink.report_probe_tensor("embeddings", "pos_embedding.grad", d_pos_);
+    TensorProbe::log_tensor("embeddings", "pos_embedding.grad", d_pos_);
   }
 }
 

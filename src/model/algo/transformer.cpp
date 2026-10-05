@@ -1,5 +1,6 @@
 #include "transformer.hpp"
 #include "tensor_contracts.hpp"
+#include "tensor_probe.hpp"
 #include "training_diagnostics_controller.hpp"
 #include <utils/assert.hpp>
 
@@ -12,24 +13,16 @@
   REQUIRE_DEBUG((cond),                                                         \
                 [&]() { return std::string("Transformer: ") + std::string(msg); })
 
-static void report_if(ReportSink *sink, ReportEvent event, uint32_t step,
-                      float value, const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TRAINING, event, step, value,
-                          message);
-}
-
 Transformer::Transformer(const Config &cfg,
                          const ModelAlgoFactory &algo,
                          TensorStore &tensor_store,
-                         GradientStore *gradient_store, const Ops &ops,
-                         ReportSink *sink)
+                         GradientStore *gradient_store, const Ops &ops)
     : cfg_(cfg),
       positionEncoding_(algo.create_position_encoding(cfg)),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops),
-      outputHead_(cfg_, tensorStore_, gradientStore_, ops_),
-      sink_(sink) {
+      outputHead_(cfg_, tensorStore_, gradientStore_, ops_) {
   layers_.reserve(cfg_.model.n_layers);
   for (uint32_t i = 0; i < cfg_.model.n_layers; ++i) {
     layers_.emplace_back(static_cast<int>(i), cfg_, tensorStore_,
@@ -59,7 +52,7 @@ void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
 void Transformer::validate_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
@@ -70,7 +63,7 @@ void Transformer::validate_contract() const {
 void Transformer::forward(const TensorView &ids, TensorView &logits,
                           TensorView *last_hidden) {
   observer_->on_forward_start();
-  const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
+  const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
   const TensorContracts::BatchSeqDims dims =
       TensorContracts::validate_ids_bs(ids, max_seq_len, "Transformer");
@@ -91,10 +84,7 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   cache_x0_ = X;
 
   TensorView report_Y = tensorStore_.temp_tr_Y(batch_size, seq_len);
-  observer_->init_tensors_xy_ready(X.dim(0), X.dim(1) * X.dim(2),
-                                   report_Y.dim(0),
-                                   report_Y.dim(1) * report_Y.dim(2),
-                                   tok_emb);
+  observer_->init_tensors_xy_ready(X, report_Y, tok_emb);
 
   for (size_t l = 0; l < layers_.size(); ++l) {
     TensorView Y = tensorStore_.temp_layer_hidden(static_cast<int>(l),
@@ -123,8 +113,8 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   const int64_t seq_len = dims.seq_len;
   const int64_t ids_token_rows = static_cast<int64_t>(ids.numel());
   const int64_t token_rows = static_cast<int64_t>(dlogits.numel() /
-      static_cast<uint64_t>(cfg_.model.target_vocab_size));
-  const int64_t vocab_size = static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<uint64_t>(cfg_.model.vocab_size));
+  const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
   require(ids_token_rows == token_rows,
           "backward ids/dlogits token-row mismatch");
 
@@ -154,10 +144,10 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   diagnostics_->bk_transformer_d_tok(d_tok);
   positionEncoding_->backward_input(d_cur);
 
-  if (probe.embeddings && sink_ != nullptr) {
-    sink_->report_probe_tensor("embeddings", "tok_embedding", tok_emb);
-    sink_->report_probe_tensor("embeddings", "tok_embedding.grad", d_tok);
-    positionEncoding_->report_probes(*sink_);
+  if (probe.embeddings) {
+    TensorProbe::log_tensor("embeddings", "tok_embedding", tok_emb);
+    TensorProbe::log_tensor("embeddings", "tok_embedding.grad", d_tok);
+    positionEncoding_->report_probes();
   }
   observer_->on_backward_end();
 }

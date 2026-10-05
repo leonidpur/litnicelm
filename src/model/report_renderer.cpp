@@ -1,12 +1,12 @@
-#include "training_report_sink.hpp"
+#include "report_renderer.hpp"
 
 #include <config.hpp>
 #include "named_layout.hpp"
+#include "tensor_probe.hpp"
 #include "tensor_store.hpp"
 
-#include <cmath>
 #include <iomanip>
-#include <limits>
+#include <iostream>
 #include <sstream>
 
 namespace {
@@ -16,19 +16,6 @@ double bytes_to_mib(uint64_t bytes) {
 
 double bytes_to_gib(uint64_t bytes) {
   return static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0);
-}
-
-std::string format_shape(const Shape &shape) {
-  std::ostringstream oss;
-  oss << "[";
-  for (size_t i = 0; i < shape.rank(); ++i) {
-    if (i != 0) {
-      oss << ",";
-    }
-    oss << shape.dim(i);
-  }
-  oss << "]";
-  return oss.str();
 }
 
 const char *layout_type(const TensorView &t) {
@@ -106,7 +93,7 @@ std::string tensor_metadata_row(const std::string &name, const TensorView &tv,
                                 const std::string &purpose) {
   std::ostringstream addr;
   addr << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(tv.data());
-  const std::string shape = format_shape(tv.shape_nd());
+  const std::string shape = TensorProbe::format_shape(tv.shape_nd());
   const std::string stride = tv.rank() >= 2
                                  ? std::to_string(tv.stride_bytes(tv.rank() - 2)) +
                                        "/" +
@@ -127,266 +114,15 @@ std::string tensor_metadata_row(const std::string &name, const TensorView &tv,
   return line.str();
 }
 
-double l2_norm_f32_cpu(const TensorView &t) {
-  if (t.device() != Device::CPU || t.dtype() != DType::F32 ||
-      !t.is_contiguous_row_major()) {
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  const float *p = reinterpret_cast<const float *>(t.data());
-  const int64_t n = static_cast<int64_t>(t.numel());
-  double sum_sq = 0.0;
-  for (int64_t i = 0; i < n; ++i) {
-    const double v = static_cast<double>(p[i]);
-    sum_sq += v * v;
-  }
-  return std::sqrt(sum_sq);
-}
-
-bool all_finite_f32_cpu(const TensorView &t) {
-  if (t.device() != Device::CPU || t.dtype() != DType::F32 ||
-      !t.is_contiguous_row_major()) {
-    return false;
-  }
-  const float *p = reinterpret_cast<const float *>(t.data());
-  const int64_t n = static_cast<int64_t>(t.numel());
-  for (int64_t i = 0; i < n; ++i) {
-    if (!std::isfinite(p[i])) {
-      return false;
-    }
-  }
-  return true;
-}
-
-struct ProbeStats {
-  double mean = 0.0;
-  double stddev = 0.0;
-  double min = 0.0;
-  double max = 0.0;
-  uint32_t hash = 2166136261u;
-};
-
-void hash_bytes(uint32_t &h, const void *ptr, size_t n) {
-  const auto *p = reinterpret_cast<const uint8_t *>(ptr);
-  for (size_t i = 0; i < n; ++i) {
-    h ^= static_cast<uint32_t>(p[i]);
-    h *= 16777619u;
-  }
-}
-
-ProbeStats probe_stats_f32(const TensorView &t) {
-  if (t.device() != Device::CPU || t.dtype() != DType::F32) {
-    return {};
-  }
-  ProbeStats s;
-  const int64_t R = t.shape().dim(0);
-  const int64_t C = t.shape().dim(1);
-  double sum = 0.0;
-  double sum_sq = 0.0;
-  bool init = false;
-  for (int64_t r = 0; r < R; ++r) {
-    for (int64_t c = 0; c < C; ++c) {
-      const float v = t.at_f32(r, c);
-      hash_bytes(s.hash, &v, sizeof(float));
-      const double x = static_cast<double>(v);
-      if (!init) {
-        s.min = s.max = x;
-        init = true;
-      } else {
-        if (x < s.min) s.min = x;
-        if (x > s.max) s.max = x;
-      }
-      sum += x;
-      sum_sq += x * x;
-    }
-  }
-  const double n = static_cast<double>(R * C);
-  if (n > 0.0) {
-    s.mean = sum / n;
-    double var = (sum_sq / n) - (s.mean * s.mean);
-    if (var < 0.0) {
-      var = 0.0;
-    }
-    s.stddev = std::sqrt(var);
-  }
-  return s;
-}
 } // namespace
 
-TrainingReportSink::TrainingReportSink(const LoggingConfig &logging)
-    : console_(logging) {}
+ReportRenderer::ReportRenderer(std::ostream &out) : out_(out) {}
 
-void TrainingReportSink::report(ReportEvent event, const std::string &message) {
-  console_.report(event, message);
-}
+ReportRenderer::ReportRenderer() : out_(std::cout) {}
 
-void TrainingReportSink::report_probe_tensor(const std::string &group,
-                                             const std::string &name,
-                                             const TensorView &tensor) {
-  if (tensor.device() != Device::CPU || tensor.dtype() != DType::F32) {
-    return;
-  }
-  const ProbeStats s = probe_stats_f32(tensor);
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][STEP_COMPLETE] step=0 val=0.000000 [probe] "
-      << group << "." << name
-      << " shape=" << format_shape(tensor.shape_nd())
-      << std::fixed << std::setprecision(6)
-      << " mean=" << s.mean
-      << " std=" << s.stddev
-      << " min=" << s.min
-      << " max=" << s.max
-      << " hash=0x" << std::hex << s.hash << std::dec;
-  report(ReportEvent::STEP_COMPLETE, oss.str());
-}
+void ReportRenderer::print(const std::string &text) { out_ << text << "\n"; }
 
-void TrainingReportSink::report_probe_loss(const TensorView &loss_scalar,
-                                           const TensorView &logits,
-                                           const TensorView &targets) {
-  if (loss_scalar.device() != Device::CPU || loss_scalar.dtype() != DType::F32 ||
-      logits.device() != Device::CPU || logits.dtype() != DType::F32) {
-    return;
-  }
-  const ProbeStats logits_stats = probe_stats_f32(logits);
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][STEP_COMPLETE] step=0 val=0.000000 [probe] loss"
-      << " scalar=" << std::fixed << std::setprecision(6) << loss_scalar.at_f32(0, 0)
-      << " logits_shape=" << format_shape(logits.shape_nd())
-      << " logits_mean=" << logits_stats.mean
-      << " logits_std=" << logits_stats.stddev
-      << " logits_min=" << logits_stats.min
-      << " logits_max=" << logits_stats.max
-      << " logits_hash=0x" << std::hex << logits_stats.hash << std::dec
-      << " targets_shape=" << format_shape(targets.shape_nd());
-  report(ReportEvent::STEP_COMPLETE, oss.str());
-}
-
-void TrainingReportSink::init_tensors_X_Y(int64_t x_rows, int64_t x_cols,
-                                          int64_t y_rows, int64_t y_cols,
-                                          const TensorView &tok_emb) {
-  if (init_tensors_report_count_ >= init_tensors_report_limit_) {
-    return;
-  }
-  init_tensors_report_count_ += 1;
-
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][START] init_tensors_X_Y: X=[" << x_rows << "x" << x_cols
-      << "], Y=[" << y_rows << "x" << y_cols << "]";
-  report(ReportEvent::START, oss.str());
-
-  if (tok_emb.device() != Device::CPU || tok_emb.dtype() != DType::F32) {
-    report(ReportEvent::PROGRESS,
-           "[TrainingReportSink][PROGRESS] init_tensors_X_Y: tok_emb preview "
-           "requires CPU F32.");
-    return;
-  }
-  /*
-  const int64_t tok_limit = std::min<int64_t>(50, tok_emb.shape().r);
-  report(ReportEvent::PROGRESS,
-         "[TrainingReportSink][PROGRESS] tok_emb first " + std::to_string(tok_limit) +
-             " positions (v[0..3]):");
-  for (int64_t i = 0; i < tok_limit; ++i) {
-    std::ostringstream row;
-    row << "  tok_emb[" << i << "] = [";
-    const int64_t take = std::min<int64_t>(4, tok_emb.shape().c);
-    for (int64_t j = 0; j < take; ++j) {
-      if (j != 0) {
-        row << ", ";
-      }
-      row << tok_emb.at_f32(i, j);
-    }
-    if (tok_emb.shape().c > take) {
-      row << ", ...";
-    }
-    row << "]";
-    report(ReportEvent::PROGRESS, row.str());
-  }
-    */
-}
-
-void TrainingReportSink::report_training_start(const Config &cfg) {
-  std::ostringstream oss;
-  oss << "Training hyperparams: "
-      << "n_layers=" << cfg.model.n_layers
-      << ", n_heads=" << cfg.model.n_heads
-      << ", d_model=" << cfg.model.d_model
-      << ", d_ff=" << cfg.model.d_ff
-      << ", vocab_size(actual)=" << cfg.model.target_vocab_size
-      << ", lr=" << cfg.training.learning_rate
-      << ", beta1=" << cfg.training.beta1
-      << ", beta2=" << cfg.training.beta2
-      << ", eps=" << cfg.training.eps
-      << ", weight_decay=" << cfg.training.weight_decay
-      << ", grad_clip=" << cfg.training.grad_clip
-      << ", train_epochs=" << cfg.training.num_epochs_train
-      << ", dry_run_epochs=" << cfg.training.num_epochs_dry_run
-      << ", batch_size=" << cfg.training.batch_size
-      << ", train_seq_len=" << cfg.training.train_seq_len
-      << ", window_stride=" << cfg.training.window_stride
-      << ", max_seq_len=" << cfg.model.max_seq_len;
-  report(ReportEvent::START, "[TrainingReportSink][START] " + oss.str());
-}
-
-void TrainingReportSink::report_epoch_complete(uint32_t epoch, float mean_loss) {
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][STEP_COMPLETE] Epoch " << epoch << " mean_loss=" << mean_loss;
-  report(ReportEvent::STEP_COMPLETE, oss.str());
-}
-
-void TrainingReportSink::report_training_end(uint32_t optimizer_steps) {
-  report(ReportEvent::END, "[TrainingReportSink][END] Training complete at global_step=" +
-                               std::to_string(optimizer_steps));
-}
-
-void TrainingReportSink::report_error(const std::string &message) {
-  report(ReportEvent::ERROR, "[TrainingReportSink][ERROR] " + message);
-}
-
-void TrainingReportSink::report_fetch(const TrainingFetchReportData &data) {
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][FETCH] start_index=" << data.start_index
-      << " batch_size=" << data.batch_size
-      << " seq_len=" << data.seq_len
-      << " block_span=" << data.total_tokens << "\n";
-  report(ReportEvent::PROGRESS, oss.str());
-}
-
-void TrainingReportSink::report_batch_step(uint32_t batch_cfg, uint32_t seq_len,
-                                           uint32_t batch_flat_t,
-                                           uint32_t logit_dim_v) {
-  if (batch_step_report_count_ >= batch_step_report_limit_) {
-    return;
-  }
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][BATCH] Batch->Logit: batch_size=" << batch_cfg
-      << " seq_len=" << seq_len
-      << " token_rows=" << batch_flat_t
-      << " vocab_size=" << logit_dim_v << "\n";
-  report(ReportEvent::STEP_COMPLETE, oss.str());
-  batch_step_report_count_ += 1;
-}
-
-void TrainingReportSink::report_optimizer_state(
-    int phase, const std::string &name, const TensorView &param,
-    const TensorView &grad, const TensorView &m, const TensorView &v,
-    uint64_t step, bool use_weight_decay) {
-  std::ostringstream oss;
-  oss << "[TrainingReportSink][PROGRESS] step=" << step
-      << " [OPTDBG] phase=" << phase
-      << " name=" << name
-      << " shape=" << param.shape().dim(0) << "x" << param.shape().dim(1)
-      << " use_wd=" << (use_weight_decay ? 1 : 0)
-      << " grad_norm=" << l2_norm_f32_cpu(grad)
-      << " param_norm=" << l2_norm_f32_cpu(param)
-      << " m_norm=" << l2_norm_f32_cpu(m)
-      << " v_norm=" << l2_norm_f32_cpu(v)
-      << " grad_finite=" << (all_finite_f32_cpu(grad) ? 1 : 0)
-      << " param_finite=" << (all_finite_f32_cpu(param) ? 1 : 0)
-      << " m_finite=" << (all_finite_f32_cpu(m) ? 1 : 0)
-      << " v_finite=" << (all_finite_f32_cpu(v) ? 1 : 0);
-  report(ReportEvent::PROGRESS, oss.str());
-}
-
-void TrainingReportSink::report_init_config(const Config &cfg,
+void ReportRenderer::report_init_config(const Config &cfg,
                                             const NamedLayout &param_layout,
                                             const NamedLayout &temp_layout) {
   verbose_init_enabled_ = cfg.reporting.verbose_init;
@@ -448,10 +184,10 @@ void TrainingReportSink::report_init_config(const Config &cfg,
   oss << "+--------------------------------------+----------------+\n";
   oss << "Adam uses exactly 2x parameter memory because it keeps two moments\n"
          "(m and v) for every trainable weight.\n";
-  report(ReportEvent::START, oss.str());
+  print(oss.str());
 }
 
-void TrainingReportSink::report_init_topology(const NamedLayout &param_layout,
+void ReportRenderer::report_init_topology(const NamedLayout &param_layout,
                                               void *param_base,
                                               uint64_t param_size,
                                               void *grad_base,
@@ -519,12 +255,12 @@ void TrainingReportSink::report_init_topology(const NamedLayout &param_layout,
          "two state tensors per weight (m and v).\n";
   oss << "Contiguity Benefit: One large contiguous arena improves spatial locality\n"
          "and CPU prefetch efficiency versus many scattered allocations.\n";
-  report(ReportEvent::START, oss.str());
+  print(oss.str());
 }
 
-void TrainingReportSink::report_memory_usage(const TrainingMemoryUsage &usage) {
+void ReportRenderer::report_memory_usage(const TrainingMemoryUsage &usage) {
   std::ostringstream oss;
-  oss << "\n[TrainingReportSink][MEMORY]\n";
+  oss << "\n[Memory Usage]\n";
   oss << "+--------------------------+-------------+\n";
   oss << "| Arena                    | Size (MiB)  |\n";
   oss << "+--------------------------+-------------+\n";
@@ -568,10 +304,10 @@ void TrainingReportSink::report_memory_usage(const TrainingMemoryUsage &usage) {
   } else {
     oss << "Device memory: unavailable for this backend.\n";
   }
-  report(ReportEvent::START, oss.str());
+  print(oss.str());
 }
 
-void TrainingReportSink::report_tensor_store_topology(
+void ReportRenderer::report_tensor_store_topology(
     const Config &cfg, const TensorStore &tensor_store) {
   if (!verbose_init_enabled_) {
     return;
@@ -798,7 +534,7 @@ void TrainingReportSink::report_tensor_store_topology(
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 
   for (const auto &line : lines) {
-    report(ReportEvent::PROGRESS, line);
+    print(line);
   }
-  report(ReportEvent::PROGRESS, "");
+  print("");
 }

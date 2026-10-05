@@ -23,7 +23,7 @@ public:
   void apply_to_qk(TensorView &) override {}
   void backward_qk(TensorView &) override {}
 
-  void report_probes(ReportSink &sink) const override;
+  void report_probes() const override;
 
 private:
   const Config &cfg_;
@@ -48,7 +48,7 @@ public:
   void apply_to_qk(TensorView &) override {}
   void backward_qk(TensorView &) override {}
 
-  void report_probes(ReportSink &) const override {}
+  void report_probes() const override {}
 };
 
 // Rotary position embedding (RoPE): rotates each head's Q and K channel pairs
@@ -74,7 +74,7 @@ public:
   void apply_to_qk(TensorView &qkv) override;
   void backward_qk(TensorView &dqkv) override;
 
-  void report_probes(ReportSink &) const override {}
+  void report_probes() const override {}
 
 private:
   void rotate_qk(TensorView &qkv, bool inverse);

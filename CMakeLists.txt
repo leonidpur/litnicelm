@@ -22,6 +22,7 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/backend/*.cpp
     src/observers/*.cpp
     src/training_session_controller_components/*.cpp
+    src/logging/*.cpp
     src/tracking/*.cpp
     src/profiling/*.cpp
     src/config/*.cpp
@@ -50,6 +51,7 @@ target_include_directories(litnice_core PRIVATE
     src/model/memory
     src/observers
     src/training_session_controller_components
+    src/logging
     src/tracking
     src/profiling
     src/config
@@ -102,6 +104,7 @@ target_include_directories(litnicelm PRIVATE
     include
     src/config
     src/utils
+    src/logging
     src/model
     src/model/algo
     src/model/memory
@@ -166,6 +169,7 @@ target_include_directories(litnice_convergence_monitor_test PRIVATE
     src/model/memory
     src/observers
     src/training_session_controller_components
+    src/logging
 )
 target_link_libraries(litnice_convergence_monitor_test PRIVATE litnice_core)
 add_test(NAME convergence_monitor COMMAND litnice_convergence_monitor_test)

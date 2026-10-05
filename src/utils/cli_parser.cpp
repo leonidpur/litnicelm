@@ -1,6 +1,5 @@
 #include "cli_parser.hpp"
 
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -316,9 +315,9 @@ bool CliParser::wants_help(int argc, char **argv) {
          (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h");
 }
 
-void CliParser::print_usage() {
-  std::cout
-      << "Usage:\n"
+std::string CliParser::usage_text() {
+  std::ostringstream oss;
+  oss << "Usage:\n"
       << "  Train (default):\n"
       << "    ./build/litnicelm train --config <config.yaml> [train_seq_len] [batch_size] "
          "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
@@ -350,6 +349,7 @@ void CliParser::print_usage() {
       << "    ./build/litnicelm --tokenize --config <config.yaml>\n"
       << "  Help:\n"
       << "    ./build/litnicelm --help\n";
+  return oss.str();
 }
 
 Command CliParser::parse(int argc, char **argv) {

@@ -1,4 +1,5 @@
 #include "experiment_tracking_sink.hpp"
+#include "logger.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -193,9 +194,9 @@ void ExperimentTrackingSink::emit(const TrackingEventBuilder &event) {
     }
     char err[kErrLen] = {};
     if (sink.api->on_event(sink.instance, &ev, err, kErrLen) != 0) {
-      std::cerr << "[ExperimentTracking][WARN] " << sink.api->name
-                << " sink failed on " << event.name_ << " event and is disabled: "
-                << err << "\n";
+      logger().log(EventId::TrackingSinkDisabled,
+                   std::string(sink.api->name) + " sink failed on " +
+                       event.name_ + " event and is disabled: " + err);
       sink.enabled = false;
     }
   }

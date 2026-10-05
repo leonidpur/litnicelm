@@ -10,13 +10,12 @@
 #include "training_plan.hpp"
 #include "training_observer.hpp"
 
-#include <report_interface.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
-class TrainingReportSink;
+class ReportRenderer;
 class ModelAlgoFactory;
 
 class TrainingSessionController : public ITrainingObserver {
@@ -24,7 +23,7 @@ public:
   // algo must outlive the controller (it lives next to the backend).
   TrainingSessionController(const Config &cfg, const Command &cmd,
                             const ModelAlgoFactory &algo,
-                            TrainingReportSink &training_sink);
+                            ReportRenderer &report_renderer);
 
   uint32_t last_epoch() const;
   std::string early_stop_message() const;
@@ -52,8 +51,8 @@ public:
                         const TensorView &targets) override;
   void probe_output_head_ready(const TensorView &lm_head_w,
                                const TensorView &d_lm_w) override;
-  void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols, int64_t y_rows,
-                             int64_t y_cols, const TensorView &tok_emb) override;
+  void init_tensors_xy_ready(const TensorView &X, const TensorView &Y,
+                             const TensorView &tok_emb) override;
 
   // Resumes from the latest checkpoint or initializes parameters and
   // optimizer state; returns the position training starts from.
@@ -63,14 +62,13 @@ public:
                                         const AdamStateView &adam_state,
                                         uint64_t steps_per_epoch);
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch, ReportSink *sink) override;
-  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
+                         uint64_t steps_per_epoch) override;
+  void on_training_end(const TrainingPosition &training_position) override;
   void on_epoch_start(uint32_t epoch) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,
                                         const EpochMetrics &metrics,
                     TrainingPosition &training_position,
                     DeviceBackend &device_backend,
-                    ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
   void on_batch_start(uint64_t optimizer_steps) override;

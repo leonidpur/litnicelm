@@ -62,7 +62,6 @@ private:
   class ITrainingObserver *load_observer_ = nullptr;
 };
 
-class TrainingReportSink;
 class DeviceBackend;
 
 class DatasetBackend {
@@ -115,7 +114,7 @@ public:
               DeviceBackend &device_backend, const Config &cfg,
               const DatasetSplit &split, DatasetSplit::Side side,
               bool shuffle_blocks = false,
-              TrainingReportSink *report_sink = nullptr,
+              bool report_first_fetch = false,
               class ITrainingObserver *load_observer = nullptr);
   ~TextDataset() override;
   static std::string early_evaluate_input(const Config &cfg, bool report = true);
@@ -152,9 +151,8 @@ private:
   uint64_t cursor_ = 0;
   SourceFormat source_format_ = SourceFormat::TOKEN_U32;
   std::unique_ptr<DatasetBackend> backend_;
-  TrainingReportSink *report_sink_ = nullptr;
-  uint64_t fetch_report_count_ = 0;
-  uint64_t fetch_report_limit_ = 1;
+  bool report_first_fetch_ = false;
+  bool fetch_reported_ = false;
 
   // For simple optional shuffling by sequence windows.
   std::vector<uint64_t> block_starts_;

@@ -1,11 +1,11 @@
 #include "checkpoint_store.hpp"
 
 #include "backend/device_backend.hpp"
+#include "logger.hpp"
 #include "model_algo_factory.hpp"
 
 #include <filesystem>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -92,15 +92,19 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
     std::ostringstream loss;
     loss << std::fixed << std::setprecision(4) << epoch_loss;
     reporters_.on_checkpoint_save_end(true);
-    reporters_.message("[MC&CListener] latest to " + path +
-                       " at epoch=" + std::to_string(epoch) +
-                       ", step=" + std::to_string(optimizer_steps) +
-                       ", loss=" + loss.str());
+    logger().log(EventId::CheckpointSaved,
+                path + " (epoch " + std::to_string(epoch) +
+                    ", step " + std::to_string(optimizer_steps) +
+                    ", train loss " + loss.str() + ")",
+                LogFields()
+                    .str("path", path)
+                    .u64("epoch", epoch)
+                    .u64("step", optimizer_steps)
+                    .f64("loss", epoch_loss));
     return true;
   } catch (const std::exception &e) {
     reporters_.on_checkpoint_save_end(false);
-    std::cerr << "[MC&CListener] CRITICAL: Failed to save checkpoint: " << e.what()
-              << "\n";
+    logger().log(EventId::CheckpointSaveFailed, e.what());
     return false;
   }
 }
@@ -109,10 +113,10 @@ bool CheckpointStore::promote_latest_to_best(float best_loss) const {
   const std::string &latest = latest_path();
   const std::string &best = best_path();
   try {
-    std::ostringstream loss;
-    loss << std::fixed << std::setprecision(4) << best_loss;
+    const LogFields fields = LogFields().str("path", best).f64("loss", best_loss);
     if (latest == best) {
-      reporters_.message("[MC&CListener] best to " + best + ", loss=" + loss.str());
+      logger().log(EventId::BestCheckpointPromoted, "Latest is also best: " + best,
+                  fields);
       return true;
     }
     std::filesystem::path best_fs(best);
@@ -130,11 +134,11 @@ bool CheckpointStore::promote_latest_to_best(float best_loss) const {
             std::filesystem::copy_options::overwrite_existing);
       }
     }
-    reporters_.message("[MC&CListener] best to " + best + ", loss=" + loss.str());
+    logger().log(EventId::BestCheckpointPromoted, "Copied latest → best: " + best,
+                fields);
     return true;
   } catch (const std::exception &e) {
-    std::cerr << "[MC&CListener] Failed to copy best checkpoint: " << e.what()
-              << "\n";
+    logger().log(EventId::BestCheckpointCopyFailed, e.what());
     return false;
   }
 }

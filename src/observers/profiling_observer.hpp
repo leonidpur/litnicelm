@@ -10,8 +10,8 @@ public:
   ProfilingObserver() = default;
 
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch, ReportSink *sink) override;
-  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
+                         uint64_t steps_per_epoch) override;
+  void on_training_end(const TrainingPosition &training_position) override;
   void on_batch_start(uint64_t optimizer_steps) override;
   void on_batch_end(uint64_t optimizer_steps, double loss) override;
   void on_batch_load_start(uint64_t optimizer_steps) override;

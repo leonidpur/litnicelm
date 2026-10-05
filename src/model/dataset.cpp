@@ -1,6 +1,6 @@
 #include "dataset.hpp"
 #include "backend/device_backend.hpp"
-#include "training_report_sink.hpp"
+#include "logger.hpp"
 #include <config.hpp>
 #include <utils/assert.hpp>
 
@@ -167,8 +167,7 @@ DatasetHeader TextDataset::read_header_or_throw(const std::string &path) {
 std::string TextDataset::early_evaluate_input(const Config &cfg, bool report) {
   const std::string selected_input_path = cfg.tokenization.output_binary;
   if (report) {
-    std::cout << "[TextDataset] Dataset file to load: "
-              << selected_input_path << "\n";
+    logger().log(EventId::DatasetFileSelected, selected_input_path);
   }
   if (selected_input_path.empty()) {
     throw std::runtime_error(
@@ -181,7 +180,7 @@ TextDataset::TextDataset(const std::string &dataset_path,
                          TensorStore &tensor_store,
                          DeviceBackend &device_backend, const Config &cfg,
                          const DatasetSplit &split, DatasetSplit::Side side,
-                         bool shuffle_blocks, TrainingReportSink *report_sink,
+                         bool shuffle_blocks, bool report_first_fetch,
                          ITrainingObserver *load_observer)
     : IDataLoader(load_observer),
       tensorStore_(tensor_store),
@@ -193,7 +192,7 @@ TextDataset::TextDataset(const std::string &dataset_path,
       window_stride_(cfg.training.window_stride),
       batch_size_(cfg.training.batch_size),
       shuffle_blocks_(shuffle_blocks),
-      report_sink_(report_sink) {
+      report_first_fetch_(report_first_fetch) {
 
   if (device_ == Device::CPU) {
     backend_ = std::make_unique<DatasetCPU>();
@@ -369,14 +368,13 @@ bool TextDataset::next_impl(TrainBatch &out) {
   }
   block_index_ += batch_size_;
 
-  if (report_sink_ != nullptr && fetch_report_count_ < fetch_report_limit_) {
-    TrainingFetchReportData data{};
-    data.start_index = first_start;
-    data.batch_size = batch_size_;
-    data.seq_len = seq_len_;
-    data.total_tokens = block_span;
-    report_sink_->report_fetch(data);
-    fetch_report_count_ += 1;
+  if (report_first_fetch_ && !fetch_reported_) {
+    fetch_reported_ = true;
+    logger().log(EventId::BatchFetched,
+                 "start_index=" + std::to_string(first_start) +
+                     " batch_size=" + std::to_string(batch_size_) +
+                     " seq_len=" + std::to_string(seq_len_) +
+                     " block_span=" + std::to_string(block_span) + "\n");
   }
 
   backend_->fill_batch(tokens_, block_starts_, first_window_index, batch_size_,

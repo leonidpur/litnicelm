@@ -143,7 +143,9 @@ struct ModelConfig {
   uint32_t n_heads;
   uint32_t d_model;
   uint32_t d_ff;
-  uint32_t target_vocab_size;
+  // The model's vocab size: the loaded tokenizer's actual size, set by
+  // with_tokenizer_vocab_size(). Until then it holds tokenizer.target_vocab_size.
+  uint32_t vocab_size;
   uint32_t max_seq_len;
 };
 

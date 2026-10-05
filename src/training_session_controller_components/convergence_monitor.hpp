@@ -1,7 +1,6 @@
 #pragma once
 
 #include "checkpoint.hpp"
-#include "reporters.hpp"
 #include "training_observer.hpp"
 
 #include <config.hpp>
@@ -22,8 +21,7 @@ struct ConvergenceVerdict {
 // state() / restore().
 class ConvergenceMonitor {
 public:
-  // reporters must outlive the monitor; its messages are reported through it.
-  ConvergenceMonitor(const Config &cfg, const Reporters &reporters);
+  explicit ConvergenceMonitor(const Config &cfg);
 
   ConvergenceVerdict observe(uint32_t epoch, const EpochMetrics &metrics);
 
@@ -56,7 +54,6 @@ private:
   ConvergenceVerdict verdict(bool new_best) const;
 
   const Config &cfg_;
-  const Reporters &reporters_;
   float best_loss_ = 0.0f;
   float last_epoch_loss_ = -1.0f;
   uint32_t best_epoch_ = 0;

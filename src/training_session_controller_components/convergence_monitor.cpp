@@ -1,19 +1,21 @@
 #include "convergence_monitor.hpp"
+#include "logger.hpp"
 
 #include <cmath>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 
 namespace {
-constexpr const char *kAnsiGreen = "\033[32m";
-constexpr const char *kAnsiYellow = "\033[33m";
-constexpr const char *kAnsiReset = "\033[0m";
+
+std::string format_loss(float loss) {
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(4) << loss;
+  return oss.str();
+}
+
 } // namespace
 
-ConvergenceMonitor::ConvergenceMonitor(const Config &cfg,
-                                       const Reporters &reporters)
-    : cfg_(cfg), reporters_(reporters) {}
+ConvergenceMonitor::ConvergenceMonitor(const Config &cfg) : cfg_(cfg) {}
 
 ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
                                                const EpochMetrics &metrics) {
@@ -23,7 +25,7 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
   if (!std::isfinite(mean_loss)) {
     if (cfg_.training.stop_on_nonfinite_loss) {
       request_stop(StopReason::NonFiniteLoss,
-                   "epoch loss became non-finite at epoch " +
+                   "epoch train loss became non-finite at epoch " +
                        std::to_string(epoch));
     }
     return verdict(/*new_best=*/false);
@@ -31,28 +33,32 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
 
   bool new_best = false;
   if (!has_best_ || loss_improved(mean_loss)) {
+    const bool had_best = has_best_;
+    const float previous_best = best_loss_;
     has_best_ = true;
     best_loss_ = mean_loss;
     best_epoch_ = epoch;
     epochs_without_improvement_ = 0;
     new_best = true;
-    // Formatted like std::cout, which this line was written to directly.
     std::ostringstream oss;
-    oss.copyfmt(std::cout);
-    oss << "[MC&CListener] New best loss " << best_loss_ << " at epoch "
-        << best_epoch_ << ". Best checkpoint path: "
-        << cfg_.paths.model_file_best;
-    reporters_.message(oss.str());
+    oss << std::fixed << std::setprecision(4) << "train loss " << best_loss_ << " at epoch " << best_epoch_;
+    if (had_best) {
+      oss << " (previous " << previous_best << ")";
+    }
+    logger().log(EventId::NewBest, oss.str(),
+                LogFields()
+                    .u64("epoch", best_epoch_)
+                    .f64("loss", best_loss_)
+                    .str("path", cfg_.paths.model_file_best));
   } else {
     if (epoch >= cfg_.training.min_epochs) {
       epochs_without_improvement_ += 1;
     }
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(4)
-        << "[MC&CListener] No new best at epoch " << epoch
-        << ": mean_loss=" << mean_loss
-        << ", best=" << best_loss_
-        << ", min_delta=" << cfg_.training.min_delta;
+        << epoch << ": train " << mean_loss
+        << ", best train " << best_loss_
+        << ", min_delta " << cfg_.training.min_delta;
     if (cfg_.training.patience_epochs > 0) {
       if (epoch >= cfg_.training.min_epochs) {
         oss << " | patience " << epochs_without_improvement_ << "/"
@@ -62,14 +68,20 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
             << cfg_.training.min_epochs;
       }
     }
-    reporters_.message(kAnsiYellow + oss.str() + kAnsiReset);
+    logger().log(EventId::NoImprovement, oss.str(),
+                LogFields()
+                    .u64("epoch", epoch)
+                    .f64("loss", mean_loss)
+                    .f64("best_loss", best_loss_)
+                    .u64("epochs_without_improvement",
+                         epochs_without_improvement_));
   }
 
   if (cfg_.training.target_loss >= 0.0f &&
       mean_loss <= cfg_.training.target_loss) {
     request_stop(StopReason::TargetLoss,
                  "target loss reached at epoch " + std::to_string(epoch) +
-                     " (loss=" + std::to_string(mean_loss) + ")");
+                     " (train loss " + format_loss(mean_loss) + ")");
   }
 
   if (cfg_.training.patience_epochs > 0 &&
@@ -78,7 +90,7 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
     request_stop(StopReason::Patience,
                  "no improvement for " +
                      std::to_string(epochs_without_improvement_) +
-                     " epoch(s); best loss=" + std::to_string(best_loss_) +
+                     " epoch(s); best train loss " + format_loss(best_loss_) +
                      " at epoch " + std::to_string(best_epoch_));
   }
   return verdict(new_best);
@@ -140,14 +152,11 @@ void ConvergenceMonitor::clear_persisted_stop_for_resume() {
   stop_reason_ = StopReason::None;
   stop_message_.clear();
   epochs_without_improvement_ = 0;
-  reporters_.message(
-      std::string(kAnsiGreen) +
-      "[MC&CListener] Resumed checkpoint carries a prior early-stop state (" +
-      restored_stop_reason +
-      "). Current run explicitly requested incremental resume, so the "
-      "persisted stop state and no-improvement counter are cleared "
-      "and training will continue." +
-      kAnsiReset);
+  logger().log(EventId::PersistedStopCleared,
+              "(" + restored_stop_reason +
+                  "). Current run explicitly requested incremental resume, so "
+                  "the persisted stop state and no-improvement counter are "
+                  "cleared and training will continue.");
 }
 
 std::string ConvergenceMonitor::stop_reason_text() const {
@@ -160,7 +169,7 @@ std::string ConvergenceMonitor::stop_reason_text() const {
   case StopReason::Patience:
     return "patience exhausted";
   case StopReason::NonFiniteLoss:
-    return "non-finite loss";
+    return "non-finite train loss";
   case StopReason::None:
   default:
     return "none";
@@ -179,5 +188,6 @@ void ConvergenceMonitor::request_stop(StopReason reason,
   stop_requested_ = true;
   stop_reason_ = reason;
   stop_message_ = message;
-  reporters_.message("[MC&CListener] Early stop requested: " + stop_message_);
+  logger().log(EventId::EarlyStopRequested, stop_message_,
+              LogFields().str("reason", stop_message_));
 }

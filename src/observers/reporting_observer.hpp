@@ -4,11 +4,11 @@
 
 #include <types.hpp>
 
-class TrainingReportSink;
+class ReportRenderer;
 
 class ReportingObserver final : public ITrainingObserver {
 public:
-  ReportingObserver(TrainingReportSink &sink,
+  ReportingObserver(ReportRenderer &report_renderer,
                     const RuntimeFlags::ProbeFlags &probe_flags);
 
   void runtime_cfg_ready(const Config &cfg) override;
@@ -28,10 +28,12 @@ public:
                         const TensorView &targets) override;
   void probe_output_head_ready(const TensorView &lm_head_w,
                                const TensorView &d_lm_w) override;
-  void init_tensors_xy_ready(int64_t x_rows, int64_t x_cols, int64_t y_rows,
-                             int64_t y_cols, const TensorView &tok_emb) override;
+  void init_tensors_xy_ready(const TensorView &X, const TensorView &Y,
+                             const TensorView &tok_emb) override;
 
 private:
-  TrainingReportSink &sink_;
+  ReportRenderer &report_renderer_;
   const RuntimeFlags::ProbeFlags &probe_flags_;
+  bool batch_step_reported_ = false;
+  bool init_tensors_reported_ = false;
 };

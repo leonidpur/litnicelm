@@ -1,6 +1,6 @@
 #include "sentencepiece_plugin.hpp"
 
-#include <report_interface.hpp>
+#include "logger.hpp"
 
 #include <filesystem>
 #include <stdexcept>
@@ -25,11 +25,6 @@ std::string vocab_path_for(const std::string &artifacts_dir) {
   return (fs::path(artifacts_dir) / "spm.vocab").string();
 }
 
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TOKENIZER, event, step, value,
-                          message);
-}
 #endif
 } // namespace SentencePiecePluginUtils
 
@@ -46,8 +41,7 @@ SentencePiecePlugin::~SentencePiecePlugin() = default;
 
 void SentencePiecePlugin::train(const std::string &corpus_path,
                                 const std::string &artifacts_dir,
-                                uint32_t target_vocab_size,
-                                ReportSink *sink) {
+                                uint32_t target_vocab_size) {
   if (corpus_path.empty()) {
     throw std::runtime_error("SentencePiecePlugin: corpus_path is required");
   }
@@ -62,8 +56,8 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
 #if LITNICELM_HAVE_SENTENCEPIECE
   fs::create_directories(artifacts_dir);
   const std::string model_prefix = (fs::path(artifacts_dir) / "spm").string();
-  SentencePiecePluginUtils::report_if(
-      sink, ReportEvent::START, 0, 0.0f,
+  logger().log(
+      EventId::SentencePieceTrainingStart,
       "SentencePiece training started: corpus=" + corpus_path +
           ", artifacts=" + artifacts_dir + ", vocab_size=" +
           std::to_string(target_vocab_size));
@@ -80,18 +74,16 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
   if (!status.ok()) {
     const std::string message =
         "SentencePiece training failed: " + status.ToString();
-    SentencePiecePluginUtils::report_if(sink, ReportEvent::ERROR, 0, 0.0f,
-                                        message);
+    logger().log(EventId::TokenizerError, message);
     throw std::runtime_error(message);
   }
 
-  SentencePiecePluginUtils::report_if(
-      sink, ReportEvent::END, 1, 100.0f,
+  logger().log(
+      EventId::TokenizerTrainingEnd,
       "SentencePiece artifacts created: model=" +
           SentencePiecePluginUtils::model_path_for(artifacts_dir) + ", vocab=" +
           SentencePiecePluginUtils::vocab_path_for(artifacts_dir));
 #else
-  (void)sink;
   throw std::runtime_error(
       "SentencePiecePlugin: SentencePiece support is not available in this build");
 #endif

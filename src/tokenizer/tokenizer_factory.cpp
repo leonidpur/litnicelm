@@ -4,6 +4,7 @@
 #include "only_seen_chars_tokenizer_plugin.hpp"
 #include "sentencepiece_plugin.hpp"
 #include "tokenizer_plugin.hpp"
+#include "logger.hpp"
 #include <config.hpp>
 #include "character_tokenizer.hpp"
 
@@ -84,35 +85,33 @@ std::string tokenizer_load_failure_message(const std::string &type,
 } // namespace
 
 std::unique_ptr<TokenizerPlugin> TokenizerFactory::create_plugin(
-    const Config &cfg, ReportSink *sink) {
-  (void)sink;
+    const Config &cfg) {
   std::string type = cfg.tokenizer.type;
   std::transform(type.begin(), type.end(), type.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (type == "bpe" || type == "sentencepiece" || type == "spm") {
-    std::cout << "[TOKENIZER_FACTORY] plugin selection: tokenizer.type="
-              << cfg.tokenizer.type
-              << " resolved_type=" << type
-              << " plugin=SentencePiecePlugin\n";
+    logger().log(EventId::TokenizerPluginSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " plugin=SentencePiecePlugin");
     return std::make_unique<SentencePiecePlugin>();
   }
 
   if (type == "character" || type == "char" || type == "bytes") {
-    std::cout << "[TOKENIZER_FACTORY] plugin selection: tokenizer.type="
-              << cfg.tokenizer.type << " resolved_type=" << type
-              << " plugin=CharacterTokenizerPlugin vocab_size="
-              << cfg.tokenizer.target_vocab_size << "\n";
+    logger().log(EventId::TokenizerPluginSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " plugin=CharacterTokenizerPlugin vocab_size=" +
+                     std::to_string(cfg.tokenizer.target_vocab_size));
     return std::make_unique<CharacterTokenizerPlugin>(
         cfg.tokenizer.target_vocab_size);
   }
 
   if (type == "only_seen_chars" || type == "char_seen" ||
       type == "seen_chars") {
-    std::cout << "[TOKENIZER_FACTORY] plugin selection: tokenizer.type="
-              << cfg.tokenizer.type << " resolved_type=" << type
-              << " plugin=OnlySeenCharsTokenizer vocab_size="
-              << cfg.tokenizer.target_vocab_size << "\n";
+    logger().log(EventId::TokenizerPluginSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " plugin=OnlySeenCharsTokenizer vocab_size=" +
+                     std::to_string(cfg.tokenizer.target_vocab_size));
     return std::make_unique<OnlySeenCharsTokenizerPlugin>(
         cfg.tokenizer.target_vocab_size);
   }
@@ -121,35 +120,32 @@ std::unique_ptr<TokenizerPlugin> TokenizerFactory::create_plugin(
                            cfg.tokenizer.type);
 }
 
-std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg,
-                                                    ReportSink *sink) {
+std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
   std::string type = cfg.tokenizer.type;
   std::transform(type.begin(), type.end(), type.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (type == "character" || type == "char" || type == "bytes") {
-    std::cout << "[TOKENIZER_FACTORY] runtime selection: tokenizer.type="
-              << cfg.tokenizer.type
-              << " resolved_type=" << type
-              << " tokenizer=CharacterTokenizer vocab_size="
-              << cfg.tokenizer.target_vocab_size << "\n";
+    logger().log(EventId::TokenizerRuntimeSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " tokenizer=CharacterTokenizer vocab_size=" +
+                     std::to_string(cfg.tokenizer.target_vocab_size));
     return std::make_unique<CharacterTokenizer>(cfg.tokenizer.target_vocab_size);
   }
 
   if (type == "bpe" || type == "sentencepiece" || type == "spm") {
     const std::string artifacts_dir = resolve_bpe_artifacts_dir(cfg);
-    std::cout << "[TOKENIZER_FACTORY] runtime selection: tokenizer.type="
-              << cfg.tokenizer.type
-              << " resolved_type=" << type
-              << " artifacts_dir=" << artifacts_dir << "\n";
+    logger().log(EventId::TokenizerRuntimeSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " artifacts_dir=" + artifacts_dir);
     if (artifacts_dir.empty()) {
       throw std::runtime_error(
           "TokenizerFactory: tokenizer.bpe_artifacts_dir is required for tokenizer.type=bpe");
     }
 
-    auto tok = create_plugin(cfg, sink);
-    std::cout << "[TOKENIZER_FACTORY] runtime load: plugin=" << tok->name()
-              << " from " << artifacts_dir << "\n";
+    auto tok = create_plugin(cfg);
+    logger().log(EventId::TokenizerLoaded, "plugin=" + std::string(tok->name()) +
+                                               " from " + artifacts_dir);
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(
           tokenizer_load_failure_message(type, artifacts_dir));
@@ -160,17 +156,17 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg,
   if (type == "only_seen_chars" || type == "char_seen" ||
       type == "seen_chars") {
     const std::string artifacts_dir = resolve_bpe_artifacts_dir(cfg);
-    std::cout << "[TOKENIZER_FACTORY] runtime selection: tokenizer.type="
-              << cfg.tokenizer.type << " resolved_type=" << type
-              << " artifacts_dir=" << artifacts_dir << "\n";
+    logger().log(EventId::TokenizerRuntimeSelected,
+                 "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
+                     type + " artifacts_dir=" + artifacts_dir);
     if (artifacts_dir.empty()) {
       throw std::runtime_error(
           "TokenizerFactory: tokenizer.artifacts_dir is required for tokenizer.type=only_seen_chars");
     }
     auto tok = std::make_unique<OnlySeenCharsTokenizerPlugin>(
         cfg.tokenizer.target_vocab_size);
-    std::cout << "[TOKENIZER_FACTORY] runtime load: plugin=" << tok->name()
-              << " from " << artifacts_dir << "\n";
+    logger().log(EventId::TokenizerLoaded, "plugin=" + std::string(tok->name()) +
+                                               " from " + artifacts_dir);
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(
           tokenizer_load_failure_message(type, artifacts_dir));

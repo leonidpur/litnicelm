@@ -1,6 +1,5 @@
 #pragma once
 
-#include <report_interface.hpp>
 
 #include "cli_parser.hpp"
 

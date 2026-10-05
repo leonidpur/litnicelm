@@ -4,7 +4,6 @@
 #include "training_plan.hpp"
 
 #include <config.hpp>
-#include <report_interface.hpp>
 #include <types.hpp>
 
 #include <chrono>
@@ -13,20 +12,19 @@
 
 class EtaObserver final : public ITrainingObserver {
 public:
-  EtaObserver(const Config &cfg, const TrainingPlan &plan, ReportSink *sink,
+  EtaObserver(const Config &cfg, const TrainingPlan &plan,
               uint32_t epoch_report_every);
 
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch, ReportSink *sink) override;
+                         uint64_t steps_per_epoch) override;
   void on_epoch_start(uint32_t epoch) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,
                                         const EpochMetrics &metrics,
                     TrainingPosition &training_position,
                     DeviceBackend &device_backend,
-                    ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
-  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
+  void on_training_end(const TrainingPosition &training_position) override;
 
 private:
   std::string format_duration(int64_t ms) const;
@@ -34,7 +32,6 @@ private:
 
   const Config &cfg_;
   const TrainingPlan plan_;
-  ReportSink *sink_ = nullptr;
   uint32_t epoch_report_every_ = 1;
   std::chrono::steady_clock::time_point start_time_{};
   std::chrono::steady_clock::time_point epoch_start_time_{};

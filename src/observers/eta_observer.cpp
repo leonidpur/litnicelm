@@ -1,37 +1,20 @@
 #include "eta_observer.hpp"
+#include "logger.hpp"
 
 #include <algorithm>
+#include <iomanip>
 #include <sstream>
 
-namespace {
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  if (sink == nullptr) {
-    return;
-  }
-  const char *event_name =
-      event == ReportEvent::STEP_COMPLETE ? "epoch complete"
-                                          : report_utils::event_name(event);
-  sink->report(event, std::string("[EtaObserver][") +
-                          event_name + "] step=" +
-                          std::to_string(step) + " val=" +
-                          std::to_string(value) + " " + message);
-}
-} // namespace
-
-EtaObserver::EtaObserver(const Config &cfg, const TrainingPlan &plan, ReportSink *sink,
+EtaObserver::EtaObserver(const Config &cfg, const TrainingPlan &plan,
                          uint32_t epoch_report_every)
     : cfg_(cfg),
       plan_(plan),
-      sink_(sink),
       epoch_report_every_(std::max<uint32_t>(1, epoch_report_every)) {}
 
 void EtaObserver::on_training_start(const TrainingPosition &training_position,
-                                    uint64_t steps_per_epoch,
-                                    ReportSink *sink) {
+                                    uint64_t steps_per_epoch) {
   (void)training_position;
   (void)steps_per_epoch;
-  (void)sink;
   start_time_ = std::chrono::steady_clock::now();
   epoch_start_time_ = start_time_;
   ms_per_epoch_avg_ = 0;
@@ -46,11 +29,9 @@ ContinueTrainingDecision EtaObserver::on_epoch_end(uint32_t epoch,
                                                    const EpochMetrics &metrics,
                                TrainingPosition &training_position,
                                DeviceBackend &device_backend,
-                               ReportSink *sink,
                                const ArenaView &data_arena,
                                const AdamStateView &adam_state) {
   (void)device_backend;
-  (void)sink;
   (void)data_arena;
   (void)adam_state;
   const auto now = std::chrono::steady_clock::now();
@@ -63,28 +44,28 @@ ContinueTrainingDecision EtaObserver::on_epoch_end(uint32_t epoch,
   ms_per_epoch_avg_ = (epoch > 0) ? (elapsed / epoch) : 0;
   if ((epoch % epoch_report_every_) == 0) {
     std::ostringstream oss;
-    oss << "Epoch " << epoch << " mean_loss=" << metrics.train_loss;
+    oss << std::fixed << std::setprecision(4) << "Epoch " << epoch
+        << " train " << metrics.train_loss;
     if (metrics.val_loss) {
-      oss << " val_loss=" << *metrics.val_loss;
+      oss << " val " << *metrics.val_loss;
     }
     oss << " | Epoch time: " << format_duration(epoch_elapsed)
         << " | Total time: " << format_duration(elapsed)
         << " " << get_eta_report(epoch);
-    report_if(sink_, ReportEvent::STEP_COMPLETE,
-              static_cast<uint32_t>(training_position.optimizer_steps), metrics.train_loss,
-              oss.str());
+    logger().log(EventId::EpochProgress,
+                 "step=" + std::to_string(training_position.optimizer_steps) +
+                     " " + oss.str());
   }
   return {};
 }
 
-void EtaObserver::on_training_end(const TrainingPosition &training_position, ReportSink *sink) {
-  (void)sink;
+void EtaObserver::on_training_end(const TrainingPosition &training_position) {
   if (!plan_.dry_run()) {
     return;
   }
-  report_if(sink_, ReportEvent::END,
-            static_cast<uint32_t>(training_position.optimizer_steps), 0.0f,
-            get_eta_report(training_position.epoch));
+  logger().log(EventId::EtaSummary,
+               "step=" + std::to_string(training_position.optimizer_steps) +
+                   " " + get_eta_report(training_position.epoch));
 }
 
 std::string EtaObserver::format_duration(int64_t ms) const {

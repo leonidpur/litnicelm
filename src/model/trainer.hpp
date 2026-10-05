@@ -10,7 +10,6 @@
 #include "optimizer_adamw.hpp"
 #include "training_session_controller.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <report_interface.hpp>
 #include "tensor_store.hpp"
 #include <types.hpp>
 #include "algo/transformer.hpp"
@@ -18,8 +17,6 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
-
-class Tokenizer;
 
 // Trainer does: load/resume, loop epochs, forward, loss, backward (later),
 // optimizer step, save.
@@ -31,14 +28,12 @@ public:
           uint64_t decay_bytes,
           const AdamStateView &adam_state, DeviceBackend &device_backend,
           TrainingSessionController &session_controller,
-          const RuntimeFlags &runtime_flags,
-          TrainingReportSink *sink = nullptr);
+          const RuntimeFlags &runtime_flags);
 
   // Train for the epoch count selected by TrainingSessionController.
   // val_loader is evaluated every training.validation_every_epochs epochs and
   // after the last epoch, when it has batches.
   void train(IDataLoader &loader, IDataLoader &val_loader);
-  static void import_vocab_size(Config &cfg, const Tokenizer &tokenizer);
   static int train_entry_point(const Config &cfg, const Command &cmd);
 
 private:
@@ -56,7 +51,6 @@ private:
   std::chrono::steady_clock::time_point process_start_time_{};
   std::chrono::steady_clock::time_point last_checkpoint_time_{};
   bool has_last_checkpoint_time_ = false;
-  TrainingReportSink *sink_ = nullptr;
   DeviceBackend &device_backend_;
   TrainingSessionController &session_controller_;
   TrainingDiagnosticsController diagnostics_;

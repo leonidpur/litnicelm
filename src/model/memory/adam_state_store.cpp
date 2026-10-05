@@ -164,7 +164,7 @@ void AdamStateStore::build_state_views(
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t qkv_dim = 3 * model_dim;
 
   LayoutCursor cursor(param_layout.slices(), "parameter");

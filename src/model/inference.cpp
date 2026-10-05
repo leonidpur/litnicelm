@@ -9,6 +9,9 @@
 #include "ops.hpp"
 #include <tokenizer_factory.hpp>
 #include "algo/transformer.hpp"
+#include "logger.hpp"
+#include "program_terminal.hpp"
+#include "runtime_config.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -27,23 +30,15 @@
 namespace {
 void validate_vocab_contract_or_throw(const Config &cfg,
                                       const Tokenizer &tokenizer) {
-  const uint32_t cfg_vocab = cfg.model.target_vocab_size;
   const uint32_t tok_vocab = static_cast<uint32_t>(tokenizer.vocab_size());
   const DatasetHeader header =
       TextDataset::read_header_or_throw(cfg.tokenization.output_binary);
   const uint32_t ds_vocab = header.vocab_size;
-  if (cfg_vocab != tok_vocab || cfg_vocab != ds_vocab || tok_vocab != ds_vocab) {
-    throw std::runtime_error("Mismatched Vocab: Config(" +
-                             std::to_string(cfg_vocab) + ") != File(" +
-                             std::to_string(tok_vocab) + ") != Header(" +
+  if (tok_vocab != ds_vocab) {
+    throw std::runtime_error("Mismatched Vocab: tokenizer(" +
+                             std::to_string(tok_vocab) + ") != dataset header(" +
                              std::to_string(ds_vocab) + ")");
   }
-}
-
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::INFERENCE, event, step, value,
-                          message);
 }
 
 struct InferRuntime {
@@ -55,23 +50,20 @@ struct InferRuntime {
   std::unique_ptr<InferenceMemoryManager> memory_manager;
   const Ops ops;
   std::unique_ptr<Transformer> model;
-  ReportSink *sink = nullptr;
 
-  InferRuntime(const Config &base_cfg, ReportSink *sink_in)
+  explicit InferRuntime(const Config &base_cfg)
       : cfg(base_cfg),
         backend(DeviceBackend::create_instance(cfg)),
-        tokenizer(TokenizerFactory::create(cfg, sink_in)),
+        tokenizer(TokenizerFactory::create(cfg)),
         algo(ModelAlgoConfig::from_config(cfg)),
-        ops(*backend),
-        sink(sink_in) {
-    cfg.model.target_vocab_size =
-        static_cast<uint32_t>(tokenizer->vocab_size());
+        ops(*backend) {
+    cfg = with_tokenizer_vocab_size(cfg, *tokenizer);
     validate_vocab_contract_or_throw(cfg, *tokenizer);
     memory_manager = std::make_unique<InferenceMemoryManager>(cfg, algo,
                                                               *backend);
     model = std::make_unique<Transformer>(cfg, algo,
                                           memory_manager->tensor_store(),
-                                          nullptr, ops, sink_in);
+                                          nullptr, ops);
   }
 };
 
@@ -309,7 +301,7 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
     start << " (prompt_tokens=" << ids.size() << ", model sees the last "
           << max_seq << ")";
   }
-  report_if(rt.sink, ReportEvent::START, 0, 0.0f, start.str());
+  logger().log(EventId::InferenceStart, start.str());
   for (uint32_t step = 0; step < max_new; ++step) {
     TensorView logits = forward_prompt(rt, context_window(ids, max_seq));
     const std::vector<float> row_logits =
@@ -317,16 +309,10 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
     const int32_t next =
         select_next_token_sampled(row_logits, rt.cfg.inference, rng);
     ids.push_back(next);
-    const std::string token =
-        escape_token_for_log(decode_token_safe(*rt.tokenizer, next));
-    report_if(rt.sink, ReportEvent::TOKEN_GEN, step + 1,
-              static_cast<float>(next),
-              std::string(R"(Generated token id=)") + std::to_string(next) +
-                  R"( token=")" + token + R"(")");
   }
 
-  report_if(rt.sink, ReportEvent::END, static_cast<uint32_t>(ids.size()),
-            0.0f, "Inference complete");
+  logger().log(EventId::InferenceEnd, "Inference complete: tokens=" +
+                                          std::to_string(ids.size()));
   return rt.tokenizer->decode(ids);
 }
 
@@ -373,7 +359,7 @@ std::string inspect_distribution(InferRuntime &rt, const std::string &prompt) {
   }
 
   std::ostringstream oss;
-  oss << R"([INFERENCE][INSPECT] Prompt=")" << prompt << R"(")"
+  oss << R"(Prompt=")" << prompt << R"(")"
       << static_cast<char>(10);
   oss << R"(Argmax: id=)" << order.front() << R"( token=")"
       << decode_token_safe(*rt.tokenizer, order.front()) << R"(")"
@@ -395,39 +381,36 @@ std::string inspect_distribution(InferRuntime &rt, const std::string &prompt) {
 }
 } // namespace
 
-int run_infer_mode(const Config &cfg, ReportSink *sink) {
-  InferRuntime rt(cfg, sink);
+int run_infer_mode(const Config &cfg, ProgramTerminal &terminal) {
+  InferRuntime rt(cfg);
   load_weights_or_throw(rt);
-  const std::string out = generate_text(rt, rt.cfg.inference.prompt);
-  report_if(sink, ReportEvent::TOKEN_GEN, 0, 0.0f, out);
+  terminal.generated_text(generate_text(rt, rt.cfg.inference.prompt));
   return 0;
 }
 
-int run_inspect_mode(const Config &cfg, ReportSink *sink) {
-  InferRuntime rt(cfg, sink);
+int run_inspect_mode(const Config &cfg, ProgramTerminal &terminal) {
+  InferRuntime rt(cfg);
   load_weights_or_throw(rt);
-  report_if(sink, ReportEvent::TOKEN_GEN, 0, 0.0f,
-            inspect_distribution(rt, rt.cfg.inference.prompt));
+  terminal.token_distribution(inspect_distribution(rt, rt.cfg.inference.prompt));
   return 0;
 }
 
-int run_inferloop_mode(const Config &cfg, ReportSink *sink) {
-  InferRuntime rt(cfg, sink);
+int run_inferloop_mode(const Config &cfg, ProgramTerminal &terminal) {
+  InferRuntime rt(cfg);
   load_weights_or_throw(rt);
 
-  report_if(sink, ReportEvent::START, 0, 0.0f,
-            "inferloop ready. Type a prompt (or :q to quit).");
+  terminal.loop_ready();
   std::string prompt;
   while (true) {
-    report_if(sink, ReportEvent::PROGRESS, 0, 0.0f, ">");
+    terminal.prompt();
     if (!std::getline(std::cin, prompt)) {
       break;
     }
     if (prompt == ":q" || prompt == "exit" || prompt == "quit") {
       break;
     }
-    report_if(sink, ReportEvent::TOKEN_GEN, 0, 0.0f, generate_text(rt, prompt));
+    terminal.generated_text(generate_text(rt, prompt));
   }
-  report_if(sink, ReportEvent::END, 0, 0.0f, "inferloop ended");
+  terminal.loop_ended();
   return 0;
 }

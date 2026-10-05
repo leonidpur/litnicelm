@@ -1,6 +1,7 @@
 #include "config_mapper.hpp"
 
 #include "string_utils.hpp"
+#include "logger.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -798,7 +799,8 @@ void Config::apply_env_overrides(const std::string &prefix) {
     const std::string full_key = prefix + suffix;
     if (const char *val = std::getenv(full_key.c_str())) {
       field = parse_u32_or_throw(val, full_key);
-      std::cout << "  -> ENV Override: " << full_key << " set to " << field << "\n";
+      logger().log(EventId::EnvOverride,
+                   full_key + " set to " + std::to_string(field));
     }
   };
 
@@ -806,7 +808,9 @@ void Config::apply_env_overrides(const std::string &prefix) {
     const std::string full_key = prefix + suffix;
     if (const char *val = std::getenv(full_key.c_str())) {
       field = parse_f32_or_throw(val, full_key);
-      std::cout << "  -> ENV Override: " << full_key << " set to " << field << "\n";
+      std::ostringstream value;
+      value << field;
+      logger().log(EventId::EnvOverride, full_key + " set to " + value.str());
     }
   };
 
@@ -876,7 +880,7 @@ std::string Config::apply_command_overrides(const Command &cmd) {
   }
 
   std::ostringstream out;
-  out << "[Step 4] CLI overrides applied (" << replaced.size() << " replaced)";
+  out << "[Main: Step 4] CLI overrides applied (" << replaced.size() << " replaced)";
   if (!replaced.empty()) {
     out << ": ";
     for (size_t i = 0; i < replaced.size(); ++i) {

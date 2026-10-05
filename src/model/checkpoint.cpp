@@ -1,5 +1,6 @@
 #include "checkpoint.hpp"
 #include "i_position_encoding.hpp"
+#include "logger.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -154,8 +155,9 @@ bool check_eq_u32(const char *name, T got, T expected, std::string *detail) {
   if (got == expected) {
     return true;
   }
-  std::cerr << "Checkpoint mismatch: " << name << " file=" << got
-            << " config=" << expected << "\n";
+  logger().log(EventId::CheckpointMismatch,
+               std::string(name) + " file=" + std::to_string(got) +
+                   " config=" + std::to_string(expected));
   if (detail != nullptr) {
     if (!detail->empty()) {
       *detail += "; ";
@@ -171,8 +173,8 @@ bool check_eq_str(const char *name, const std::string &got,
   if (got == expected) {
     return true;
   }
-  std::cerr << "Checkpoint mismatch: " << name << " file=" << got
-            << " config=" << expected << "\n";
+  logger().log(EventId::CheckpointMismatch,
+               std::string(name) + " file=" + got + " config=" + expected);
   if (detail != nullptr) {
     if (!detail->empty()) {
       *detail += "; ";
@@ -187,8 +189,9 @@ bool check_eq_u64(const char *name, T got, T expected, std::string *detail) {
   if (got == expected) {
     return true;
   }
-  std::cerr << "Checkpoint mismatch: " << name << " file=" << got
-            << " config=" << expected << "\n";
+  logger().log(EventId::CheckpointMismatch,
+               std::string(name) + " file=" + std::to_string(got) +
+                   " config=" + std::to_string(expected));
   if (detail != nullptr) {
     if (!detail->empty()) {
       *detail += "; ";
@@ -209,8 +212,8 @@ bool staging_f32_all_finite(const void *data, uint64_t bytes, const char *label,
     return true;
   }
   if ((bytes % sizeof(float)) != 0) {
-    std::cerr << "Checkpoint validation failed: " << label
-              << " size is not aligned to float32\n";
+    logger().log(EventId::CheckpointValidationFailed,
+                 std::string(label) + " size is not aligned to float32");
     if (error_detail != nullptr) {
       *error_detail = std::string(label) + " size is not aligned to float32";
     }
@@ -221,8 +224,9 @@ bool staging_f32_all_finite(const void *data, uint64_t bytes, const char *label,
   const uint64_t count = bytes / sizeof(float);
   for (uint64_t i = 0; i < count; ++i) {
     if (!std::isfinite(values[i])) {
-      std::cerr << "Checkpoint validation failed: " << label
-                << " contains non-finite value at float index " << i << "\n";
+      logger().log(EventId::CheckpointValidationFailed,
+                   std::string(label) + " contains non-finite value at float index " +
+                       std::to_string(i));
       if (error_detail != nullptr) {
         *error_detail = std::string(label) +
                         " contains non-finite value at float index " +
@@ -370,8 +374,7 @@ bool verify_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
     const std::string sidecar = fingerprint_sidecar_path(checkpoint_path);
     std::ifstream in(sidecar, std::ios::binary);
     if (!in) {
-      std::cerr << "Checkpoint warning: tokenizer fingerprint sidecar missing: "
-                << sidecar << "\n";
+      logger().log(EventId::CheckpointSidecarMissing, sidecar);
       return true;
     }
     std::string stored;
@@ -412,8 +415,8 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
   CkptHeaderV6 &h = h7.base;
   h.algo_version = kCurrentAlgoVersion;
   if (conf_version.size() >= kConfVersionMax) {
-    std::cerr << "Checkpoint warning: conf.version is too long, truncating to "
-              << (kConfVersionMax - 1) << " chars\n";
+    logger().log(EventId::CheckpointConfVersionTruncated,
+                 std::to_string(kConfVersionMax - 1) + " chars");
   }
   std::snprintf(h.conf_version, sizeof(h.conf_version), "%s",
                 conf_version.c_str());
@@ -421,7 +424,7 @@ bool save_checkpoint(const std::string &path, const ModelConfig &model,
   h.n_heads = model.n_heads;
   h.d_model = model.d_model;
   h.d_ff = model.d_ff;
-  h.vocab_size = model.target_vocab_size;
+  h.vocab_size = model.vocab_size;
   h.max_seq_len = model.max_seq_len;
   h.alignment_bytes = alignment_bytes;
   h.global_step = optimizer_steps;
@@ -484,7 +487,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
   CkptPrefix pfx;
   in.read(reinterpret_cast<char *>(&pfx), sizeof(pfx));
   if (!in || pfx.magic != kCheckpointMagic) {
-    std::cerr << "Checkpoint load failed: invalid magic in " << path << "\n";
+    logger().log(EventId::CheckpointLoadFailed, "invalid magic in " + path);
     if (error_detail != nullptr) {
       *error_detail = "invalid magic number";
     }
@@ -498,8 +501,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     CkptHeaderV1 h{};
     in.read(reinterpret_cast<char *>(&h), sizeof(h));
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v1 header in " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "truncated v1 header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated v1 header";
       }
@@ -511,24 +513,23 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
       return false;
     }
-    std::cerr << "Checkpoint note: v1 header has no memory.alignment_bytes; "
-                 "alignment check skipped.\n";
+    logger().log(EventId::CheckpointLegacyHeader,
+                 "v1 header has no memory.alignment_bytes; alignment check skipped.");
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read parameter arena payload";
@@ -538,7 +539,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read optimizer arena payload";
@@ -555,8 +556,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     CkptHeaderV2 h{};
     in.read(reinterpret_cast<char *>(&h), sizeof(h));
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v2 header in " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "truncated v2 header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated v2 header";
       }
@@ -568,15 +568,14 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("memory.alignment_bytes", h.alignment_bytes, alignment_bytes,
                       &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
@@ -585,7 +584,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read parameter arena payload";
@@ -595,7 +594,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read optimizer arena payload";
@@ -612,21 +611,22 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     CkptHeaderV3 h{};
     in.read(reinterpret_cast<char *>(&h), sizeof(h));
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v3 header in " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "truncated v3 header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated v3 header";
       }
       return false;
     }
     if (h.algo_version != kCurrentAlgoVersion) {
-      std::cerr << "Checkpoint warning: algo_version mismatch file="
-                << h.algo_version << " runtime=" << kCurrentAlgoVersion << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "algo_version mismatch file=" + std::to_string(h.algo_version) +
+                       " runtime=" + std::to_string(kCurrentAlgoVersion));
     }
     const std::string file_conf_version = std::to_string(h.conf_version);
     if (file_conf_version != conf_version) {
-      std::cerr << "Checkpoint warning: conf_version mismatch file="
-                << file_conf_version << " config=" << conf_version << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "conf_version mismatch file=" + file_conf_version +
+                       " config=" + conf_version);
     }
 
     std::string mismatch_detail;
@@ -635,15 +635,14 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("memory.alignment_bytes", h.alignment_bytes, alignment_bytes,
                       &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
@@ -652,7 +651,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read parameter arena payload";
@@ -662,7 +661,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read optimizer arena payload";
@@ -679,21 +678,22 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     CkptHeaderV4 h{};
     in.read(reinterpret_cast<char *>(&h), sizeof(h));
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v4 header in " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "truncated v4 header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated v4 header";
       }
       return false;
     }
     if (h.algo_version != kCurrentAlgoVersion) {
-      std::cerr << "Checkpoint warning: algo_version mismatch file="
-                << h.algo_version << " runtime=" << kCurrentAlgoVersion << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "algo_version mismatch file=" + std::to_string(h.algo_version) +
+                       " runtime=" + std::to_string(kCurrentAlgoVersion));
     }
     const std::string file_conf_version(h.conf_version);
     if (file_conf_version != conf_version) {
-      std::cerr << "Checkpoint warning: conf_version mismatch file="
-                << file_conf_version << " config=" << conf_version << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "conf_version mismatch file=" + file_conf_version +
+                       " config=" + conf_version);
     }
 
     std::string mismatch_detail;
@@ -702,15 +702,14 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("memory.alignment_bytes", h.alignment_bytes, alignment_bytes,
                       &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
@@ -719,7 +718,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read parameter arena payload";
@@ -729,7 +728,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read optimizer arena payload";
@@ -753,8 +752,8 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     const std::string version_label = "v" + std::to_string(pfx.version);
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated " << version_label
-                << " header in " << path << "\n";
+      logger().log(EventId::CheckpointLoadFailed,
+                   "truncated " + version_label + " header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated " + version_label + " header";
       }
@@ -763,13 +762,15 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     h7.position_encoding[kPositionEncodingMax - 1] = '\0';
     const CkptHeaderV6 &h = h7.base;
     if (h.algo_version != kCurrentAlgoVersion) {
-      std::cerr << "Checkpoint warning: algo_version mismatch file="
-                << h.algo_version << " runtime=" << kCurrentAlgoVersion << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "algo_version mismatch file=" + std::to_string(h.algo_version) +
+                       " runtime=" + std::to_string(kCurrentAlgoVersion));
     }
     const std::string file_conf_version(h.conf_version);
     if (file_conf_version != conf_version) {
-      std::cerr << "Checkpoint warning: conf_version mismatch file="
-                << file_conf_version << " config=" << conf_version << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "conf_version mismatch file=" + file_conf_version +
+                       " config=" + conf_version);
     }
 
     std::string mismatch_detail;
@@ -778,7 +779,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("memory.alignment_bytes", h.alignment_bytes, alignment_bytes,
                       &mismatch_detail) && ok;
@@ -787,8 +788,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_str("model_algo.position_encoding", h7.position_encoding,
                       position_encoding.name(), &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
@@ -797,7 +797,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr && error_detail->empty()) {
           *error_detail = "could not read parameter arena payload";
         }
@@ -805,7 +805,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr && error_detail->empty()) {
           *error_detail = "could not read optimizer arena payload";
         }
@@ -823,21 +823,22 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     CkptHeaderV5 h{};
     in.read(reinterpret_cast<char *>(&h), sizeof(h));
     if (!in) {
-      std::cerr << "Checkpoint load failed: truncated v5 header in " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "truncated v5 header in " + path);
       if (error_detail != nullptr) {
         *error_detail = "truncated v5 header";
       }
       return false;
     }
     if (h.algo_version != kCurrentAlgoVersion) {
-      std::cerr << "Checkpoint warning: algo_version mismatch file="
-                << h.algo_version << " runtime=" << kCurrentAlgoVersion << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "algo_version mismatch file=" + std::to_string(h.algo_version) +
+                       " runtime=" + std::to_string(kCurrentAlgoVersion));
     }
     const std::string file_conf_version(h.conf_version);
     if (file_conf_version != conf_version) {
-      std::cerr << "Checkpoint warning: conf_version mismatch file="
-                << file_conf_version << " config=" << conf_version << "\n";
+      logger().log(EventId::CheckpointVersionMismatch,
+                   "conf_version mismatch file=" + file_conf_version +
+                       " config=" + conf_version);
     }
 
     std::string mismatch_detail;
@@ -846,15 +847,14 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     ok = check_eq_u32("model.n_heads", h.n_heads, model.n_heads, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_model", h.d_model, model.d_model, &mismatch_detail) && ok;
     ok = check_eq_u32("model.d_ff", h.d_ff, model.d_ff, &mismatch_detail) && ok;
-    ok = check_eq_u32("model.target_vocab_size", h.vocab_size, model.target_vocab_size, &mismatch_detail) && ok;
+    ok = check_eq_u32("model.vocab_size", h.vocab_size, model.vocab_size, &mismatch_detail) && ok;
     ok = check_eq_u32("model.max_seq_len", h.max_seq_len, model.max_seq_len, &mismatch_detail) && ok;
     ok = check_eq_u64("memory.alignment_bytes", h.alignment_bytes, alignment_bytes,
                       &mismatch_detail) && ok;
     ok = check_eq_u64("data_bytes", h.data_bytes, data_arena.bytes, &mismatch_detail) && ok;
     ok = check_eq_u64("adam_bytes", h.adam_bytes, adam_state.bytes, &mismatch_detail) && ok;
     if (!ok) {
-      std::cerr << "Checkpoint load failed: incompatible checkpoint " << path
-                << "\n";
+      logger().log(EventId::CheckpointLoadFailed, "incompatible checkpoint " + path);
       if (error_detail != nullptr) {
         *error_detail = mismatch_detail;
       }
@@ -863,7 +863,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
 
     if (!read_arena_payload(in, backend, staging_memory, data_arena.base,
                             h.data_bytes, "parameter arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read parameter arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read parameter arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read parameter arena payload";
@@ -873,7 +873,7 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     }
     if (!read_arena_payload(in, backend, staging_memory, adam_state.base,
                             h.adam_bytes, "optimizer arena", error_detail)) {
-        std::cerr << "Checkpoint load failed: could not read optimizer arena\n";
+        logger().log(EventId::CheckpointLoadFailed, "could not read optimizer arena");
         if (error_detail != nullptr) {
           if (error_detail->empty()) {
             *error_detail = "could not read optimizer arena payload";
@@ -886,8 +886,9 @@ bool load_checkpoint(const std::string &path, const ModelConfig &model,
     return true;
   }
 
-  std::cerr << "Checkpoint load failed: unsupported checkpoint version "
-            << pfx.version << " in " << path << "\n";
+  logger().log(EventId::CheckpointLoadFailed,
+               "unsupported checkpoint version " + std::to_string(pfx.version) +
+                   " in " + path);
   if (error_detail != nullptr) {
     *error_detail = "unsupported checkpoint format version " + std::to_string(pfx.version);
   }

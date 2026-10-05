@@ -25,7 +25,7 @@ void add_model_config(TrackingEventBuilder &ev, const ModelConfig &model) {
       .i64("config.model.n_heads", model.n_heads)
       .i64("config.model.d_model", model.d_model)
       .i64("config.model.d_ff", model.d_ff)
-      .i64("config.model.target_vocab_size", model.target_vocab_size);
+      .i64("config.model.vocab_size", model.vocab_size);
 }
 
 void add_training_config(TrackingEventBuilder &ev,
@@ -77,9 +77,7 @@ void TrackingObserver::init_topology_ready(
 }
 
 void TrackingObserver::on_training_start(
-    const TrainingPosition &training_position, uint64_t steps_per_epoch,
-    ReportSink *sink) {
-  (void)sink;
+    const TrainingPosition &training_position, uint64_t steps_per_epoch) {
   training_started_at_ = Clock::now();
   total_epoch_ms_ = 0;
   measured_epochs_ = 0;
@@ -97,7 +95,7 @@ void TrackingObserver::on_training_start(
       .boolean("git_dirty", build_info::kGitDirty)
       .str("backend_library", cfg_.backend.library)
       .str("position_encoding", cfg_.model_algo.position_encoding)
-      .i64("vocab_size", cfg_.model.target_vocab_size)
+      .i64("vocab_size", cfg_.model.vocab_size)
       .i64("param_bytes", static_cast<int64_t>(paramBytes_))
       .i64("steps_per_epoch", static_cast<int64_t>(steps_per_epoch))
       .boolean("resumed", !parentRunId_.empty());
@@ -120,11 +118,9 @@ ContinueTrainingDecision TrackingObserver::on_epoch_end(uint32_t epoch,
                                     const EpochMetrics &metrics,
                                     TrainingPosition &training_position,
                                     DeviceBackend &device_backend,
-                                    ReportSink *sink,
                                     const ArenaView &data_arena,
                                     const AdamStateView &adam_state) {
   (void)device_backend;
-  (void)sink;
   (void)data_arena;
   (void)adam_state;
   int64_t epoch_ms = 0;
@@ -194,9 +190,7 @@ void TrackingObserver::on_checkpoint_load_end(bool ok) {
   tracking_->emit(ev);
 }
 
-void TrackingObserver::on_training_end(const TrainingPosition &training_position,
-                                       ReportSink *sink) {
-  (void)sink;
+void TrackingObserver::on_training_end(const TrainingPosition &training_position) {
   const bool estimate = session_.is_dry_run();
   const int64_t total_ms =
       training_started_ ? elapsed_ms(training_started_at_, Clock::now()) : 0;

@@ -1,6 +1,7 @@
 #include "tokenizer_plugin.hpp"
 #include "tokenizer_utils.hpp"
 #include "corpus_input.hpp"
+#include "logger.hpp"
 
 #include <tokenizer_factory.hpp>
 
@@ -36,22 +37,16 @@ std::string resolve_tokenizer_artifacts_dir(const Config &cfg) {
 std::string resolve_tokenizer_training_corpus(const Config &cfg) {
   return cfg.tokenizer.bpe_corpus_file;
 }
-
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TOKENIZER, event, step, value,
-                          message);
-}
 } // namespace
 
-int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink) {
+int run_tokenizer_training_mode(const std::string &config_path) {
   const Config cfg = Config::load_from_file(config_path);
   const std::string artifacts_dir = resolve_tokenizer_artifacts_dir(cfg);
   if (artifacts_dir.empty()) {
     throw std::runtime_error(
         "run_tokenizer_training_mode: tokenizer.artifacts_dir is required");
   }
-  auto plugin = TokenizerFactory::create_plugin(cfg, sink);
+  auto plugin = TokenizerFactory::create_plugin(cfg);
 
   const std::string training_corpus = resolve_tokenizer_training_corpus(cfg);
   std::vector<std::string> training_files;
@@ -80,11 +75,10 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
       ", target_vocab_size=" + std::to_string(cfg.tokenizer.target_vocab_size) +
       ", artifacts_dir_out=" + artifacts_dir +
       (training_files.empty() ? "" : ", " + CorpusInput::describe_files(training_files));
-  std::cout << "[TOKENIZER_TRAINING] " << create_message << "\n";
-  report_if(sink, ReportEvent::START, 0, 0.0f, create_message);
+  logger().log(EventId::TokenizerTrainingStart, create_message);
   try {
     plugin->train(plugin_training_corpus, artifacts_dir,
-                  cfg.tokenizer.target_vocab_size, sink);
+                  cfg.tokenizer.target_vocab_size);
   } catch (...) {
     if (!temp_training_corpus.empty()) {
       fs::remove(temp_training_corpus);
@@ -110,7 +104,7 @@ int run_tokenizer_training_mode(const std::string &config_path, ReportSink *sink
   return 0;
 }
 
-int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
+int run_tokenization_mode(const std::string &config_path) {
   const Config cfg = Config::load_from_file(config_path);
   const std::string artifacts_dir = resolve_tokenizer_artifacts_dir(cfg);
   if (artifacts_dir.empty()) {
@@ -118,7 +112,7 @@ int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
         "run_tokenization_mode: tokenizer.artifacts_dir is required");
   }
 
-  auto plugin = TokenizerFactory::create_plugin(cfg, sink);
+  auto plugin = TokenizerFactory::create_plugin(cfg);
   if (!plugin->load(artifacts_dir)) {
     throw std::runtime_error(
         "run_tokenization_mode: failed to load tokenizer artifacts from " +
@@ -131,14 +125,14 @@ int run_tokenization_mode(const std::string &config_path, ReportSink *sink) {
       ", output=" + cfg.tokenization.output_binary +
       ", artifacts_dir=" + artifacts_dir +
       ", chunk_size_mb=" + std::to_string(cfg.tokenization.chunk_size_mb);
-  std::cout << "[TOKENIZER] " << tokenize_message << "\n";
-  report_if(sink, ReportEvent::START, 0, 0.0f, tokenize_message);
+  logger().log(EventId::TokenizeStart, tokenize_message);
 
   TokenizerUtils::stream_tokenize(plugin.get(), cfg.tokenization.input_corpus,
                                   cfg.tokenization.output_binary,
                                   cfg.tokenization.chunk_size_mb,
                                   cfg.tokenizer.inter_file_boundary,
-                                  cfg.tokenizer.run_validation, sink);
+                                  cfg.tokenizer.run_validation,
+                                  cfg.logging.report_every_n_steps);
 
   ExperimentTrackingSink tracking(cfg, "tokenization");
   tracking.emit(

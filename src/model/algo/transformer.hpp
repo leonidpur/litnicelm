@@ -7,7 +7,6 @@
 #include "model_algo_factory.hpp"
 #include "output_head.hpp"
 #include "training_observer.hpp"
-#include <report_interface.hpp>
 #include "ops.hpp"
 #include "tensor_store.hpp"
 #include "transformer_layer.hpp"
@@ -40,7 +39,7 @@ public:
   // Creates its attention, FFN and position-encoding objects with algo.
   Transformer(const Config &cfg, const ModelAlgoFactory &algo,
               TensorStore &tensor_store, GradientStore *gradient_store,
-              const Ops &ops, ReportSink *sink = nullptr);
+              const Ops &ops);
   void set_observer(ITrainingObserver *observer);
   void set_diagnostics(TrainingDiagnosticsController *diagnostics);
 
@@ -66,6 +65,5 @@ private:
 
   std::vector<TransformerLayer> layers_;
   TensorView cache_x0_;
-  ReportSink *sink_ = nullptr;
   ITrainingObserver *observer_ = &default_training_observer();
 };

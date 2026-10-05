@@ -4,7 +4,6 @@
 
 class GradientStore;
 class Ops;
-class ReportSink;
 class TensorStore;
 class TrainingDiagnosticsController;
 
@@ -39,5 +38,5 @@ public:
   // w.r.t. the projections, in place.
   virtual void backward_qk(TensorView &dqkv) = 0;
 
-  virtual void report_probes(ReportSink &sink) const = 0;
+  virtual void report_probes() const = 0;
 };

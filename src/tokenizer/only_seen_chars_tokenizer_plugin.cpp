@@ -1,6 +1,6 @@
 #include "only_seen_chars_tokenizer_plugin.hpp"
+#include "logger.hpp"
 
-#include <report_interface.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -160,11 +160,6 @@ std::vector<std::string> parse_vocab_array(const std::string &text) {
   throw std::runtime_error("OnlySeenCharsTokenizer: unterminated vocab array");
 }
 
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TOKENIZER, event, step, value,
-                          message);
-}
 
 void warn_about_suspicious_byte_vocab(const std::vector<std::string> &vocab,
                                       const std::string &context) {
@@ -198,7 +193,7 @@ void warn_about_suspicious_byte_vocab(const std::vector<std::string> &vocab,
   }
 
   std::ostringstream oss;
-  oss << "[OnlySeenCharsTokenizer][WARN] " << context
+  oss << context
       << " byte vocabulary contains non_ascii=" << non_ascii
       << ", c1_controls=" << c1_controls
       << ", carriage_return=" << (has_cr ? "yes" : "no")
@@ -214,7 +209,7 @@ void warn_about_suspicious_byte_vocab(const std::vector<std::string> &vocab,
         << std::setfill('0') << examples[i] << std::dec
         << std::nouppercase << std::setfill(' ');
   }
-  std::cerr << oss.str() << "\n";
+  logger().log(EventId::TokenizerNonAsciiBytes, oss.str());
 }
 } // namespace
 
@@ -224,8 +219,7 @@ OnlySeenCharsTokenizerPlugin::OnlySeenCharsTokenizerPlugin(
 
 void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
                                          const std::string &artifacts_dir,
-                                         uint32_t target_vocab_size,
-                                         ReportSink *sink) {
+                                         uint32_t target_vocab_size) {
   if (corpus_path.empty()) {
     throw std::runtime_error(
         "OnlySeenCharsTokenizer: tokenizer.training_corpus is required");
@@ -293,8 +287,8 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
   out << "\n  }\n";
   out << "}\n";
 
-  report_if(sink, ReportEvent::END, static_cast<uint32_t>(vocab_.size()), 100.0f,
-            "OnlySeenCharsTokenizer trained: chars=" +
+  logger().log(EventId::TokenizerTrainingEnd,
+               "OnlySeenCharsTokenizer trained: chars=" +
                 std::to_string(vocab_.size()) +
                 ", artifact=" + artifact_path(artifacts_dir).string());
 }
@@ -309,7 +303,7 @@ bool OnlySeenCharsTokenizerPlugin::load(const std::string &artifacts_dir) {
   vocab_ = parse_vocab_array(ss.str());
   if (vocab_size_limit_ != 0 && vocab_.size() > vocab_size_limit_) {
     throw std::runtime_error(
-        "OnlySeenCharsTokenizer: artifact vocab exceeds model.target_vocab_size");
+        "OnlySeenCharsTokenizer: artifact vocab exceeds tokenizer.target_vocab_size");
   }
   rebuild_index_();
   warn_about_suspicious_byte_vocab(vocab_, "loaded artifact");

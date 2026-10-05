@@ -29,20 +29,19 @@ public:
                            uint64_t adam_size, void *temp_base,
                            uint64_t temp_size) override;
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch, ReportSink *sink) override;
+                         uint64_t steps_per_epoch) override;
   void on_epoch_start(uint32_t epoch) override;
   void on_train_step_end(uint64_t optimizer_steps, double loss) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,
                                         const EpochMetrics &metrics,
                     TrainingPosition &training_position,
                     DeviceBackend &device_backend,
-                    ReportSink *sink,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
   void on_checkpoint_save_start(uint64_t optimizer_steps, uint32_t epoch) override;
   void on_checkpoint_save_end(bool ok) override;
   void on_checkpoint_load_end(bool ok) override;
-  void on_training_end(const TrainingPosition &training_position, ReportSink *sink) override;
+  void on_training_end(const TrainingPosition &training_position) override;
 
 private:
   using Clock = std::chrono::steady_clock;

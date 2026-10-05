@@ -1,21 +1,20 @@
 #include "profiling_observer.hpp"
-
-#include <iostream>
+#include "logger.hpp"
 
 void ProfilingObserver::on_training_start(
-    const TrainingPosition &training_position, uint64_t steps_per_epoch,
-    ReportSink *sink) {
+    const TrainingPosition &training_position, uint64_t steps_per_epoch) {
   (void)training_position;
   (void)steps_per_epoch;
-  (void)sink;
   profiling_.reset();
 }
 
-void ProfilingObserver::on_training_end(const TrainingPosition &training_position,
-                                        ReportSink *sink) {
+void ProfilingObserver::on_training_end(const TrainingPosition &training_position) {
   (void)training_position;
-  (void)sink;
-  std::cout << profiling_.summary();
+  std::string summary = profiling_.summary();
+  if (!summary.empty() && summary.back() == '\n') {
+    summary.pop_back();
+  }
+  logger().log(EventId::ProfilingSummary, summary);
 }
 
 void ProfilingObserver::on_batch_start(uint64_t optimizer_steps) {

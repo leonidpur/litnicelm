@@ -11,7 +11,7 @@ public:
   explicit CharacterTokenizerPlugin(uint32_t vocab_size);
 
   void train(const std::string &corpus_path, const std::string &artifacts_dir,
-             uint32_t target_vocab_size, ReportSink *sink) override;
+             uint32_t target_vocab_size) override;
   bool load(const std::string &artifacts_dir) override;
 
   std::vector<int32_t> encode(const std::string &text) const override;

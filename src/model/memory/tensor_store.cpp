@@ -303,7 +303,7 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t qkv_dim = 3 * model_dim;
 
   LayoutCursor cursor(param_layout.slices(), "parameter");
@@ -373,7 +373,7 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
   const int64_t qkv_dim = 3 * model_dim;
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t head_count = static_cast<int64_t>(cfg_.model.n_heads);
   const int64_t head_dim =
       static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads);
@@ -546,7 +546,7 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
   const int64_t qkv_dim = 3 * model_dim;
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
   const int64_t vocab_size =
-      static_cast<int64_t>(cfg_.model.target_vocab_size);
+      static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t max_seq_len =
       static_cast<int64_t>(cfg_.model.max_seq_len);
   const int64_t head_count = static_cast<int64_t>(cfg_.model.n_heads);
@@ -800,7 +800,7 @@ TensorView TensorStore::TempTensorSubStore::temp_infer_logits(int64_t rows) cons
   require(infer_logits_.rank() == 3 && infer_logits_.dim(0) == 1 &&
               rows >= 0 && rows <= infer_logits_.dim(1) &&
               infer_logits_.dim(2) ==
-                  static_cast<int64_t>(cfg_.model.target_vocab_size),
+                  static_cast<int64_t>(cfg_.model.vocab_size),
           "temp_infer_logits shape mismatch");
   return infer_logits_.slice(1, 0, rows);
 }
@@ -812,17 +812,17 @@ TensorView TensorStore::TempTensorSubStore::temp_tr_logits(int64_t rows) const {
                                    Shape{static_cast<int64_t>(
                                              tr_logits_.numel() /
                                              static_cast<uint64_t>(
-                                                 cfg_.model.target_vocab_size)),
+                                                 cfg_.model.vocab_size)),
                                          static_cast<int64_t>(
-                                             cfg_.model.target_vocab_size)}),
-                        {rows, static_cast<int64_t>(cfg_.model.target_vocab_size)});
+                                             cfg_.model.vocab_size)}),
+                        {rows, static_cast<int64_t>(cfg_.model.vocab_size)});
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_tr_logits(int64_t batch_size,
                                          int64_t seq_len) const {
   return prefix_batch_seq(tr_logits_, batch_size, seq_len,
                           "temp_tr_logits",
-                          static_cast<int64_t>(cfg_.model.target_vocab_size));
+                          static_cast<int64_t>(cfg_.model.vocab_size));
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_tr_loss() const { return tr_loss_; }

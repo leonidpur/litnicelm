@@ -37,14 +37,14 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
     throw std::runtime_error("build_param_layout: alignment_bytes must be > 0");
   }
   if (cfg.model.n_layers == 0 || cfg.model.d_model == 0 ||
-      cfg.model.d_ff == 0 || cfg.model.target_vocab_size == 0 ||
+      cfg.model.d_ff == 0 || cfg.model.vocab_size == 0 ||
       cfg.model.max_seq_len == 0) {
     throw std::runtime_error("build_param_layout: model dimensions must be > 0");
   }
 
   std::vector<ParamSliceSpec> specs;
   append_param_spec(specs, "tok_embedding",
-                    NamedLayout::tensor_bytes(cfg.model.target_vocab_size,
+                    NamedLayout::tensor_bytes(cfg.model.vocab_size,
                                               cfg.model.d_model, DType::F32,
                                               "tok_embedding"),
                     true);
@@ -125,7 +125,7 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
                     false);
   append_param_spec(specs, "lm_head_w",
                     NamedLayout::tensor_bytes(cfg.model.d_model,
-                                              cfg.model.target_vocab_size,
+                                              cfg.model.vocab_size,
                                               DType::F32, "lm_head_w"),
                     true);
 
@@ -165,7 +165,7 @@ NamedLayout NamedLayout::build_training_temp_layout(
   if (cfg.training.batch_size == 0 || cfg.training.train_seq_len == 0 ||
       cfg.model.n_layers == 0 || cfg.model.n_heads == 0 ||
       cfg.model.d_model == 0 || cfg.model.d_ff == 0 ||
-      cfg.model.target_vocab_size == 0 || cfg.model.max_seq_len == 0) {
+      cfg.model.vocab_size == 0 || cfg.model.max_seq_len == 0) {
     throw std::runtime_error("build_temp_layout: training/model dimensions must be > 0");
   }
   if ((cfg.model.d_model % cfg.model.n_heads) != 0) {
@@ -178,7 +178,7 @@ NamedLayout NamedLayout::build_training_temp_layout(
   const uint64_t T = training_tokens;
   const uint64_t D = cfg.model.d_model;
   const uint64_t F = cfg.model.d_ff;
-  const uint64_t V = cfg.model.target_vocab_size;
+  const uint64_t V = cfg.model.vocab_size;
   const uint64_t S = cfg.model.max_seq_len;
   const uint64_t train_seq = cfg.training.train_seq_len;
   const uint64_t dh = D / cfg.model.n_heads;
@@ -341,7 +341,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(
   }
   if (cfg.model.n_layers == 0 || cfg.model.n_heads == 0 ||
       cfg.model.d_model == 0 || cfg.model.d_ff == 0 ||
-      cfg.model.target_vocab_size == 0 || cfg.model.max_seq_len == 0) {
+      cfg.model.vocab_size == 0 || cfg.model.max_seq_len == 0) {
     throw std::runtime_error(
         "build_inference_temp_layout: model dimensions must be > 0");
   }
@@ -352,7 +352,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(
 
   const uint64_t D = cfg.model.d_model;
   const uint64_t F = cfg.model.d_ff;
-  const uint64_t V = cfg.model.target_vocab_size;
+  const uint64_t V = cfg.model.vocab_size;
   const uint64_t S = cfg.model.max_seq_len;
   const uint64_t H = cfg.model.n_heads;
   const uint64_t dh = D / H;

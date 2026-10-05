@@ -5,13 +5,12 @@
 #include <cstdint>
 #include <string>
 
-class ReportSink;
-
 namespace TokenizerUtils {
 
 void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
                      const std::string &output_path, uint32_t chunk_size_mb,
                      const std::string &inter_file_boundary,
-                     bool validate_decode_identity, ReportSink *sink);
+                     bool validate_decode_identity,
+                     int32_t progress_every_chunks);
 
 } // namespace TokenizerUtils

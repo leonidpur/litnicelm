@@ -2,7 +2,7 @@
 // min_epochs, non-finite loss, new-best flags, and state save/restore.
 
 #include "convergence_monitor.hpp"
-#include "reporters.hpp"
+#include "logger.hpp"
 
 #include <config.hpp>
 
@@ -10,6 +10,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -24,28 +25,37 @@ void check(bool ok, const std::string &what) {
   }
 }
 
-class MessageCapture final : public ITrainingObserver {
-public:
-  void on_message(const std::string &line) override { lines.push_back(line); }
-  std::vector<std::string> lines;
-};
-
+// Installs a logger that sends every event type to one stream, read back
+// as lines.
 struct Fixture {
   Config cfg{};
-  std::vector<std::unique_ptr<ITrainingObserver>> observers;
-  MessageCapture *capture = nullptr;
-  Reporters reporters{observers};
+  std::ostringstream log;
+  Logger logger;
+  ScopedLogger installed{logger};
 
   Fixture() {
-    auto c = std::make_unique<MessageCapture>();
-    capture = c.get();
-    observers.push_back(std::move(c));
+    ILogDestination &out =
+        logger.add_destination(std::make_unique<StreamDestination>(log));
+    for (EventType type : {EventType::Info, EventType::Warning,
+                           EventType::Error, EventType::Probe,
+                           EventType::History}) {
+      logger.route(type, out);
+    }
     cfg.training.target_loss = -1.0f;
     cfg.training.min_delta = 0.0f;
     cfg.training.patience_epochs = 0;
     cfg.training.min_epochs = 0;
     cfg.training.stop_on_nonfinite_loss = true;
     cfg.paths.model_file_best = "best.ckpt";
+  }
+
+  std::vector<std::string> lines() const {
+    std::vector<std::string> result;
+    std::istringstream in(log.str());
+    for (std::string line; std::getline(in, line);) {
+      result.push_back(line);
+    }
+    return result;
   }
 };
 
@@ -89,18 +99,18 @@ int main() {
   {
     Fixture f;
     f.cfg.training.target_loss = 0.1f;
-    ConvergenceMonitor m(f.cfg, f.reporters);
+    ConvergenceMonitor m(f.cfg);
     check(run(m, {0.5f, 0.2f, 0.09f, 0.05f}) == 3, "target loss stops at the first epoch at or below it");
     check(m.stop_reason_text().rfind("target loss reached at epoch 3", 0) == 0,
           "target stop message: " + m.stop_reason_text());
-    check(contains(f.capture->lines, "Early stop requested: target loss reached"),
+    check(contains(f.lines(), "Early stop requested: target loss reached"),
           "stop is reported as a message");
   }
   {
     Fixture f;
     f.cfg.training.min_delta = 0.01f;
     f.cfg.training.patience_epochs = 2;
-    ConvergenceMonitor m(f.cfg, f.reporters);
+    ConvergenceMonitor m(f.cfg);
     std::vector<bool> best;
     // 0.995 and 0.99 each gain at most 0.01 over the best, not more.
     check(run(m, {1.0f, 0.995f, 0.99f, 0.5f}, &best) == 3,
@@ -112,37 +122,37 @@ int main() {
     Fixture f;
     f.cfg.training.patience_epochs = 1;
     f.cfg.training.min_epochs = 3;
-    ConvergenceMonitor m(f.cfg, f.reporters);
+    ConvergenceMonitor m(f.cfg);
     check(run(m, {1.0f, 1.0f, 1.0f, 1.0f}) == 3,
           "patience counts only from min_epochs");
   }
   {
     Fixture f;
-    ConvergenceMonitor m(f.cfg, f.reporters);
+    ConvergenceMonitor m(f.cfg);
     std::vector<bool> best;
     check(run(m, {1.0f, 0.8f, 0.9f, 0.7f}, &best) == 0, "no stop rules: never stops");
     check(best == std::vector<bool>({true, true, false, true}), "new_best on each improvement");
   }
   {
     Fixture f;
-    ConvergenceMonitor m(f.cfg, f.reporters);
+    ConvergenceMonitor m(f.cfg);
     const float nan = std::numeric_limits<float>::quiet_NaN();
     check(run(m, {1.0f, nan}) == 2, "non-finite loss stops when stop_on_nonfinite_loss");
     check(m.best_loss() == 1.0f && std::isnan(m.last_epoch_loss()),
           "non-finite loss leaves best unchanged, records last loss");
     Fixture g;
     g.cfg.training.stop_on_nonfinite_loss = false;
-    ConvergenceMonitor n(g.cfg, g.reporters);
+    ConvergenceMonitor n(g.cfg);
     check(run(n, {1.0f, nan, 0.5f}) == 0, "non-finite loss continues when not configured to stop");
   }
   {
     Fixture f;
     f.cfg.training.min_delta = 0.01f;
     f.cfg.training.patience_epochs = 2;
-    ConvergenceMonitor a(f.cfg, f.reporters);
+    ConvergenceMonitor a(f.cfg);
     run(a, {1.0f, 0.999f, 0.998f});  // stops at epoch 3
     const CheckpointConvergenceState saved = a.state();
-    ConvergenceMonitor b(f.cfg, f.reporters);
+    ConvergenceMonitor b(f.cfg);
     b.restore(saved);
     const CheckpointConvergenceState again = b.state();
     check(again.best_loss == saved.best_loss && again.best_epoch == saved.best_epoch &&
@@ -153,7 +163,7 @@ int main() {
     check(b.should_stop(), "restored state keeps the stop");
     b.clear_persisted_stop_for_resume();
     check(!b.should_stop() && b.best_epoch() == 1, "clearing a persisted stop keeps the best");
-    check(contains(f.capture->lines, "Resumed checkpoint carries a prior early-stop state"),
+    check(contains(f.lines(), "Resumed checkpoint carries a prior early-stop state"),
           "clearing is reported as a message");
   }
 

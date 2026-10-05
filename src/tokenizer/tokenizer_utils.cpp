@@ -1,7 +1,6 @@
 #include "tokenizer_utils.hpp"
 #include "corpus_input.hpp"
-
-#include <report_interface.hpp>
+#include "logger.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -17,12 +16,6 @@ namespace {
 constexpr uint32_t kDatasetMagic = 0x4C4E4750u; // "LNGP"
 constexpr uint32_t kDatasetVersion = 1u;
 constexpr uint32_t kDefaultChunkSizeMb = 64u;
-
-void report_if(ReportSink *sink, ReportEvent event, uint32_t step, float value,
-               const std::string &message) {
-  report_utils::report_if(sink, ReportPhase::TOKENIZER, event, step, value,
-                          message);
-}
 } // namespace
 
 namespace TokenizerUtils {
@@ -30,7 +23,8 @@ namespace TokenizerUtils {
 void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
                      const std::string &output_path, uint32_t chunk_size_mb,
                      const std::string &inter_file_boundary,
-                     bool validate_decode_identity, ReportSink *sink) {
+                     bool validate_decode_identity,
+                     int32_t progress_every_chunks) {
   if (plugin == nullptr) {
     throw std::runtime_error("TokenizerUtils::stream_tokenize: plugin is null");
   }
@@ -76,8 +70,8 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
 
   uint64_t total_tokens = 0;
   uint32_t chunk_index = 0;
-  report_if(sink, ReportEvent::START, 0, 0.0f,
-            "Streaming tokenization started: input=" + input_path +
+  logger().log(EventId::TokenizeStreamStart,
+               "Streaming tokenization started: input=" + input_path +
                 ", output=" + output_path + ", chunk_size_mb=" +
                 std::to_string(effective_chunk_mb) + ", " +
                 CorpusInput::describe_files(input_files));
@@ -115,10 +109,14 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
 
     total_tokens += static_cast<uint64_t>(tokens.size());
     ++chunk_index;
-    report_if(sink, ReportEvent::PROGRESS, chunk_index, 0.0f,
-              "Tokenized chunk " + std::to_string(chunk_index) +
-                  ": bytes=" + std::to_string(bytes_read) +
-                  ", tokens=" + std::to_string(tokens.size()));
+    if (progress_every_chunks <= 1 ||
+        chunk_index % static_cast<uint32_t>(progress_every_chunks) == 0) {
+      logger().log(EventId::TokenizeProgress,
+                   "Tokenized chunk " +
+                       std::to_string(chunk_index) +
+                       ": bytes=" + std::to_string(bytes_read) +
+                       ", tokens=" + std::to_string(tokens.size()));
+    }
   });
 
   if (!out) {
@@ -127,8 +125,8 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
         output_path);
   }
 
-  report_if(sink, ReportEvent::END, chunk_index, 100.0f,
-            "Streaming tokenization complete: chunks=" +
+  logger().log(EventId::TokenizeEnd,
+               "Streaming tokenization complete: chunks=" +
                 std::to_string(chunk_index) + ", tokens=" +
                 std::to_string(total_tokens));
 }
