@@ -8,10 +8,11 @@ OptimizerAdamW::OptimizerAdamW(DeviceBackend &backend) : backend_(&backend) {
   }
 }
 
-void OptimizerAdamW::step(const TrainingConfig &tc, TensorView &params,
-                          const TensorView &grads, TensorView &m, TensorView &v,
-                          uint64_t step, bool apply_weight_decay) const {
-  backend_->adamw_step(params, grads, m, v, step, tc.learning_rate, tc.beta1,
+void OptimizerAdamW::step(const TrainingConfig &tc, float learning_rate,
+                          TensorView &params, const TensorView &grads,
+                          TensorView &m, TensorView &v, uint64_t step,
+                          bool apply_weight_decay) const {
+  backend_->adamw_step(params, grads, m, v, step, learning_rate, tc.beta1,
                        tc.beta2, tc.weight_decay, apply_weight_decay);
 }
 

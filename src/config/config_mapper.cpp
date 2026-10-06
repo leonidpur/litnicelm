@@ -469,6 +469,27 @@ bool map_training_fields(const std::string &key, const std::string &value, Confi
     }
     return true;
   }
+  if (key == "training.lr_schedule") {
+    if (value != "constant" && value != "cosine") {
+      throw std::runtime_error(
+          "Config::load_from_file: training.lr_schedule must be \"constant\" "
+          "or \"cosine\", got \"" + value + "\"");
+    }
+    cfg.training.lr_schedule = value;
+    return true;
+  }
+  if (key == "training.warmup_steps") {
+    cfg.training.warmup_steps = parse_u64_or_throw(value, key);
+    return true;
+  }
+  if (key == "training.min_lr_ratio") {
+    cfg.training.min_lr_ratio = parse_f32_or_throw(value, key);
+    if (!(cfg.training.min_lr_ratio >= 0.0f && cfg.training.min_lr_ratio <= 1.0f)) {
+      throw std::runtime_error(
+          "Config::load_from_file: training.min_lr_ratio must be in [0, 1]");
+    }
+    return true;
+  }
   if (key == "training.stop_on_nonfinite_loss") {
     cfg.training.stop_on_nonfinite_loss = parse_bool_or_throw(value, key);
     return true;

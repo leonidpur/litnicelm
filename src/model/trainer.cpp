@@ -100,7 +100,7 @@ void Trainer::clip_gradients() {
   ops_.mul_scalar(grad_view, scale, grad_view);
 }
 
-void Trainer::apply_decay_zone_gradients(uint64_t step) {
+void Trainer::apply_decay_zone_gradients(uint64_t step, float learning_rate) {
   if (decay_bytes_ == 0) {
     return;
   }
@@ -113,10 +113,11 @@ void Trainer::apply_decay_zone_gradients(uint64_t step) {
       ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
                 adam_state_.bytes / 2, adam_state_.device},
       0, decay_bytes_);
-  opt_.step(cfg_.training, params, grads, m, v, step, true);
+  opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, true);
 }
 
-void Trainer::apply_no_decay_zone_gradients(uint64_t step) {
+void Trainer::apply_no_decay_zone_gradients(uint64_t step,
+                                            float learning_rate) {
   const uint64_t no_decay_bytes = data_arena_.bytes - decay_bytes_;
   if (no_decay_bytes == 0) {
     return;
@@ -130,7 +131,7 @@ void Trainer::apply_no_decay_zone_gradients(uint64_t step) {
       ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
                 adam_state_.bytes / 2, adam_state_.device},
       decay_bytes_, no_decay_bytes);
-  opt_.step(cfg_.training, params, grads, m, v, step, false);
+  opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, false);
 }
 
 double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &training_position) {
@@ -169,14 +170,16 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &train
   zero_gradients();
   transformer_.backward(batch.ids, logits, runtime_flags_.probe);
   const uint64_t step = training_position.optimizer_steps + 1;
+  const float learning_rate =
+      session_controller_.learning_rate(training_position.optimizer_steps);
   try {
     clip_gradients();
   } catch (const std::runtime_error &err) {
     diagnostics_.handle_nonfinite_grad_norm(
         batch, logits, err, [this]() { zero_gradients(); });
   }
-  apply_decay_zone_gradients(step);
-  apply_no_decay_zone_gradients(step);
+  apply_decay_zone_gradients(step, learning_rate);
+  apply_no_decay_zone_gradients(step, learning_rate);
 
   session_controller_.on_train_step_end(training_position.optimizer_steps, loss);
 
@@ -209,7 +212,8 @@ void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
       session_controller_.restore_or_initialize(
           tensorStore_, device_backend_, data_arena_, adam_state_,
           training_dataset.steps_per_epoch());
-  // Notification: pure information for the reporting observers.
+  // Fixes the run's plan (incl. the learning-rate schedule) and notifies the
+  // reporting observers.
   session_controller_.on_training_start(training_position,
                                         training_dataset.steps_per_epoch());
 

@@ -66,6 +66,8 @@ enum class EventId : uint16_t {
   ResumeFailed,
   ResumeSucceeded,
   TrainingStart,        // also: tracking run start
+  LrSchedule,
+  LrWarmupTooLong,
   EpochStart,           // now: observers on_epoch_start (no text)
   EpochProgress,
   ValidationComplete,
@@ -171,6 +173,8 @@ inline constexpr EventDef kEventCatalog[] = {
     {EventId::ResumeFailed, "resume_failed", EventType::Error, "[TrainingSessionController] Error during resume:"},
     {EventId::ResumeSucceeded, "resume_succeeded", EventType::History, "  -> Success. Resumed at Step"},
     {EventId::TrainingStart, "training_start", EventType::Info, "[TrainingSessionController]", kAnsiCyan},
+    {EventId::LrSchedule, "lr_schedule", EventType::Info, "[LearningRateSchedule]"},
+    {EventId::LrWarmupTooLong, "lr_warmup_too_long", EventType::Warning, "[LearningRateSchedule] Warmup longer than the run:"},
     {EventId::EpochStart, "epoch_start", EventType::Info, "[Epoch start]"},
     {EventId::EpochProgress, "epoch_progress", EventType::Info, "[EtaObserver][Epoch complete]"},
     {EventId::ValidationComplete, "validation_complete", EventType::History, "[TrainingSessionController] Validation", kAnsiCyan},

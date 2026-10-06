@@ -174,6 +174,17 @@ target_include_directories(litnice_convergence_monitor_test PRIVATE
 target_link_libraries(litnice_convergence_monitor_test PRIVATE litnice_core)
 add_test(NAME convergence_monitor COMMAND litnice_convergence_monitor_test)
 
+# Learning-rate schedule: constant, cosine warmup and decay.
+add_executable(litnice_learning_rate_schedule_test tests/learning_rate_schedule_test.cpp)
+target_include_directories(litnice_learning_rate_schedule_test PRIVATE
+    include
+    src/config
+    src/training_session_controller_components
+    src/logging
+)
+target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
+add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)
+
 # Experiment-tracking plugin loading, against fake tracking plugins.
 foreach(variant fake fake2 fake_bad_abi)
   add_library(litnice_tracking_${variant} SHARED tests/fake_tracking_plugin.cpp)

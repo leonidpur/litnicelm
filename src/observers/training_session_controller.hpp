@@ -6,6 +6,7 @@
 #include "checkpoint_policy.hpp"
 #include "checkpoint_store.hpp"
 #include "convergence_monitor.hpp"
+#include "learning_rate_schedule.hpp"
 #include "reporters.hpp"
 #include "training_plan.hpp"
 #include "training_observer.hpp"
@@ -13,6 +14,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class ReportRenderer;
@@ -33,6 +35,9 @@ public:
   // Validation runs every training.validation_every_epochs and on the last
   // epoch, when the validation split has batches.
   bool validation_due(uint32_t epoch, uint64_t val_steps_per_epoch) const;
+  // Rate for the optimizer step after optimizer_steps completed steps; the
+  // schedule is built in on_training_start, which must come first.
+  float learning_rate(uint64_t optimizer_steps) const;
   // Reports one validation pass against the epoch's training loss.
   void on_evaluate_end(uint32_t epoch, const ValidationResult &result,
                        float train_loss) const;
@@ -119,4 +124,6 @@ private:
   ConvergenceMonitor convergence_monitor_;
   CheckpointStore checkpoint_store_;
   CheckpointPolicy checkpoint_policy_;
+  // The run's plan for the rate; built once the step count is known.
+  std::optional<LearningRateSchedule> lr_schedule_;
 };

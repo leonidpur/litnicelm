@@ -58,8 +58,8 @@ private:
   void zero_gradients();
   double compute_global_grad_norm() const;
   void clip_gradients();
-  void apply_decay_zone_gradients(uint64_t step);
-  void apply_no_decay_zone_gradients(uint64_t step);
+  void apply_decay_zone_gradients(uint64_t step, float learning_rate);
+  void apply_no_decay_zone_gradients(uint64_t step, float learning_rate);
   double train_one_batch(const TrainBatch &batch, TrainingPosition &training_position);
   // Mean loss over val_loader's batches: forward pass only, parameters and
   // optimizer state untouched.

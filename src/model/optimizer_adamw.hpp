@@ -6,8 +6,9 @@ class OptimizerAdamW {
 public:
   explicit OptimizerAdamW(DeviceBackend &backend);
 
-  void step(const TrainingConfig &tc, TensorView &params, const TensorView &grads,
-            TensorView &m, TensorView &v, uint64_t step,
+  // learning_rate: this step's rate (from the schedule); tc gives the rest.
+  void step(const TrainingConfig &tc, float learning_rate, TensorView &params,
+            const TensorView &grads, TensorView &m, TensorView &v, uint64_t step,
             bool apply_weight_decay) const;
   void step(uint64_t step, float learning_rate, float beta1, float beta2,
             float weight_decay, float grad_clip) const;

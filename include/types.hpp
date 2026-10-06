@@ -84,6 +84,12 @@ struct TrainingConfig {
   uint64_t validation_chunk_tokens = 16384;
   // Validate after every N-th epoch and after the last one.
   uint32_t validation_every_epochs = 1;
+  // Learning-rate schedule: "constant", or "cosine" (linear warmup over
+  // warmup_steps, then cosine decay to learning_rate * min_lr_ratio at the
+  // last planned step).
+  std::string lr_schedule = "constant";
+  uint64_t warmup_steps = 0;
+  float min_lr_ratio = 0.1f;
   DiagnosticsConfig diagnostics;
 };
 

@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -152,6 +153,14 @@ void TrainingSessionController::on_evaluate_end(uint32_t epoch,
                    .u64("tokens", result.tokens));
 }
 
+float TrainingSessionController::learning_rate(uint64_t optimizer_steps) const {
+  if (!lr_schedule_) {
+    throw std::logic_error(
+        "TrainingSessionController::learning_rate called before on_training_start");
+  }
+  return lr_schedule_->at(optimizer_steps);
+}
+
 std::string TrainingSessionController::early_stop_message() const {
   return convergence_monitor_.stop_reason_text();
 }
@@ -219,6 +228,9 @@ bool TrainingSessionController::resume_from_latest(
 
 void TrainingSessionController::on_training_start(
     const TrainingPosition &training_position, uint64_t steps_per_epoch) {
+  // The plan is complete once the step count is known.
+  lr_schedule_.emplace(cfg_.training,
+                       steps_per_epoch * static_cast<uint64_t>(training_plan_.last_epoch));
   // With no epochs left, nothing_to_do() explains the run instead.
   if (has_epochs_left(training_position)) {
     const uint32_t first_epoch = training_position.epoch + 1;
@@ -236,6 +248,7 @@ void TrainingSessionController::on_training_start(
           << " epochs)";
     }
     logger().log(EventId::TrainingStart, oss.str());
+    lr_schedule_->report();
   }
   for (const auto &observer : observers_) {
     observer->on_training_start(training_position, steps_per_epoch);
