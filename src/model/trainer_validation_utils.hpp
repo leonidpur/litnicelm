@@ -13,5 +13,8 @@ namespace TrainerValidationUtils {
 void validate_config_tokenizer_and_dataset(const Config &cfg,
                                            const Tokenizer &tokenizer);
 void print_dataset_stats(const Config &cfg, const TextDataset &loader);
+// Throws when a validation split is configured but holds no full batch:
+// best and patience are judged on val loss, so validation must run.
+void validate_validation_split(const Config &cfg, const TextDataset &val_loader);
 
 } // namespace TrainerValidationUtils

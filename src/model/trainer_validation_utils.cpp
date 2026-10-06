@@ -90,4 +90,14 @@ void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
                    std::to_string(cfg.model.vocab_size) + ")\n");
 }
 
+void validate_validation_split(const Config &cfg, const TextDataset &val_loader) {
+  if (cfg.training.validation_fraction > 0.0f &&
+      val_loader.steps_per_epoch() == 0) {
+    throw std::runtime_error(
+        "validation split holds no full batch of " +
+        std::to_string(cfg.training.batch_size) +
+        "; raise training.validation_fraction or lower training.batch_size");
+  }
+}
+
 } // namespace TrainerValidationUtils
