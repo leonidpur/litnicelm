@@ -157,7 +157,7 @@ inline constexpr EventDef kEventCatalog[] = {
 
     {EventId::DatasetFileSelected, "dataset_file_selected", EventType::Info, "[TextDataset] Dataset file to load:"},
     {EventId::DatasetStats, "dataset_stats", EventType::History, "\n[Dataset Stats]"},
-    {EventId::VocabCheckPassed, "vocab_check_passed", EventType::Info, "  -> Vocab Check:      Passed"},
+    {EventId::VocabCheckPassed, "vocab_check_passed", EventType::Info, "  -> Vocab Check:       Passed"},
     {EventId::BatchFetched, "batch_fetched", EventType::Probe, "[TextDataset][Fetch]"},
 
     {EventId::VocabSizeImported, "vocab_size_imported", EventType::Info, "[RuntimeConfig] model.vocab_size set to"},

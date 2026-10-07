@@ -51,28 +51,28 @@ void validate_config_tokenizer_and_dataset(const Config &cfg,
 
 void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
   const uint64_t total_tokens = loader.num_tokens();
-  const uint32_t tokens_per_step =
+  const uint32_t tokens_per_batch =
       cfg.training.batch_size * cfg.training.train_seq_len;
 
-  if (tokens_per_step == 0) {
+  if (tokens_per_batch == 0) {
     return;
   }
-  const uint64_t total_steps = loader.steps_per_epoch();
+  const uint64_t batches_per_epoch = loader.batches_per_epoch();
   const double data_mb =
       (total_tokens * sizeof(uint32_t)) / (1024.0 * 1024.0);
 
   std::ostringstream stats;
   stats << "\n"
-        << "  -> Source File:      " << cfg.tokenization.output_binary
+        << "  -> Source File:       " << cfg.tokenization.output_binary
         << "\n"
-        << "  -> Total Tokens:     " << total_tokens << " (" << std::fixed
+        << "  -> Total Tokens:      " << total_tokens << " (" << std::fixed
         << std::setprecision(2) << data_mb << " MB)\n"
-        << "  -> Step Geometry:    " << cfg.training.batch_size
+        << "  -> Batch Geometry:    " << cfg.training.batch_size
         << " (batch) x " << cfg.training.train_seq_len << " (seq_len)"
         << " stride=" << cfg.training.window_stride << "\n"
-        << "  -> Steps per Epoch:  " << total_steps << "\n"
-        << "  -> Total Iterations: "
-        << (total_steps * cfg.training.num_epochs_train) << " (over "
+        << "  -> Batches per Epoch: " << batches_per_epoch << "\n"
+        << "  -> Total Batches:     "
+        << (batches_per_epoch * cfg.training.num_epochs_train) << " (over "
         << cfg.training.num_epochs_train << " epochs)";
   logger().log(EventId::DatasetStats, stats.str());
 
@@ -92,7 +92,7 @@ void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
 
 void validate_validation_split(const Config &cfg, const TextDataset &val_loader) {
   if (cfg.training.validation_fraction > 0.0f &&
-      val_loader.steps_per_epoch() == 0) {
+      val_loader.batches_per_epoch() == 0) {
     throw std::runtime_error(
         "validation split holds no full batch of " +
         std::to_string(cfg.training.batch_size) +

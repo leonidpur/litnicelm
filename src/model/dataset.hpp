@@ -53,7 +53,7 @@ public:
     }
     return has_batch;
   }
-  virtual uint64_t steps_per_epoch() const = 0;
+  virtual uint64_t batches_per_epoch() const = 0;
 
 protected:
   virtual bool next_impl(TrainBatch &out) = 0;
@@ -122,7 +122,7 @@ public:
 
   void reset_epoch() override;
   bool next_impl(TrainBatch &out) override;
-  uint64_t steps_per_epoch() const override {
+  uint64_t batches_per_epoch() const override {
     return batch_size_ == 0 ? 0 : block_starts_.size() / batch_size_;
   }
 

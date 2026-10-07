@@ -34,7 +34,7 @@ public:
   void nothing_to_do(const TrainingPosition &training_position) const;
   // Validation runs every training.validation_every_epochs and on the last
   // epoch, when the validation split has batches.
-  bool validation_due(uint32_t epoch, uint64_t val_steps_per_epoch) const;
+  bool validation_due(uint32_t epoch, uint64_t val_batches) const;
   // Rate for the optimizer step after optimizer_steps completed steps; the
   // schedule is built in on_training_start, which must come first.
   float learning_rate(uint64_t optimizer_steps) const;

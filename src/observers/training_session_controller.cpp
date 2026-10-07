@@ -129,10 +129,10 @@ void TrainingSessionController::init_tensors_xy_ready(const TensorView &X,
 }
 
 bool TrainingSessionController::validation_due(uint32_t epoch,
-                                               uint64_t val_steps_per_epoch) const {
+                                               uint64_t val_batches) const {
   const bool epoch_due = epoch % cfg_.training.validation_every_epochs == 0 ||
                          epoch == training_plan_.last_epoch;
-  return epoch_due && val_steps_per_epoch > 0;
+  return epoch_due && val_batches > 0;
 }
 
 void TrainingSessionController::on_evaluate_end(uint32_t epoch,
