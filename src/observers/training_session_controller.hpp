@@ -35,6 +35,12 @@ public:
   // Validation runs every training.validation_every_epochs and on the last
   // epoch, when the validation split has batches.
   bool validation_due(uint32_t epoch, uint64_t val_batches) const;
+  // Optimizer steps in an epoch: one per training.batches_per_step batches;
+  // the epoch's last batch closes a partial step.
+  uint64_t steps_per_epoch(uint64_t batches_per_epoch) const;
+  // Whether batch batch_idx (0-based in the epoch) starts / ends a step.
+  bool step_starts_at(uint64_t batch_idx) const;
+  bool step_ends_at(uint64_t batch_idx, uint64_t batches_per_epoch) const;
   // Rate for the optimizer step after optimizer_steps completed steps; the
   // schedule is built in on_training_start, which must come first.
   float learning_rate(uint64_t optimizer_steps) const;
@@ -75,9 +81,9 @@ public:
                                         DeviceBackend &device_backend,
                                         const ArenaView &data_arena,
                                         const AdamStateView &adam_state,
-                                        uint64_t steps_per_epoch);
+                                        uint64_t batches_per_epoch);
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch) override;
+                         uint64_t batches_per_epoch) override;
   void on_training_end(const TrainingPosition &training_position) override;
   void on_epoch_start(uint32_t epoch) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,
@@ -86,10 +92,10 @@ public:
                     DeviceBackend &device_backend,
                     const ArenaView &data_arena,
                     const AdamStateView &adam_state) override;
-  void on_batch_start(uint64_t optimizer_steps) override;
-  void on_batch_end(uint64_t optimizer_steps, double loss) override;
-  void on_batch_load_start(uint64_t optimizer_steps) override;
-  void on_batch_load_end(uint64_t optimizer_steps, bool has_batch) override;
+  void on_batch_start(uint64_t batch_idx) override;
+  void on_batch_end(uint64_t batch_idx, double loss) override;
+  void on_batch_load_start(uint64_t batch_idx) override;
+  void on_batch_load_end(uint64_t batch_idx, bool has_batch) override;
   void on_train_step_start(uint64_t optimizer_steps) override;
   void on_train_step_end(uint64_t optimizer_steps, double loss) override;
   void on_forward_start() override;

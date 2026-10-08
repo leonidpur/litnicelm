@@ -43,13 +43,14 @@ public:
       : load_observer_(load_observer) {}
   virtual ~IDataLoader() = default;
   virtual void reset_epoch() = 0;
-  bool next(TrainBatch &out, uint64_t optimizer_steps = 0) {
+  // batch_idx: the batch's index in the epoch, for the load observer.
+  bool next(TrainBatch &out, uint64_t batch_idx = 0) {
     if (load_observer_ != nullptr) {
-      load_observer_->on_batch_load_start(optimizer_steps);
+      load_observer_->on_batch_load_start(batch_idx);
     }
     const bool has_batch = next_impl(out);
     if (load_observer_ != nullptr) {
-      load_observer_->on_batch_load_end(optimizer_steps, has_batch);
+      load_observer_->on_batch_load_end(batch_idx, has_batch);
     }
     return has_batch;
   }

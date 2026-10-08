@@ -135,6 +135,21 @@ bool TrainingSessionController::validation_due(uint32_t epoch,
   return epoch_due && val_batches > 0;
 }
 
+uint64_t TrainingSessionController::steps_per_epoch(uint64_t batches_per_epoch) const {
+  const uint64_t per_step = cfg_.training.batches_per_step;
+  return (batches_per_epoch + per_step - 1) / per_step;
+}
+
+bool TrainingSessionController::step_starts_at(uint64_t batch_idx) const {
+  return batch_idx % cfg_.training.batches_per_step == 0;
+}
+
+bool TrainingSessionController::step_ends_at(uint64_t batch_idx,
+                                             uint64_t batches_per_epoch) const {
+  return (batch_idx + 1) % cfg_.training.batches_per_step == 0 ||
+         batch_idx + 1 == batches_per_epoch;
+}
+
 void TrainingSessionController::on_evaluate_end(uint32_t epoch,
                                                 const ValidationResult &result,
                                                 float train_loss) const {
@@ -168,13 +183,13 @@ std::string TrainingSessionController::early_stop_message() const {
 TrainingPosition TrainingSessionController::restore_or_initialize(
     TensorStore &tensor_store, DeviceBackend &device_backend,
     const ArenaView &data_arena, const AdamStateView &adam_state,
-    uint64_t steps_per_epoch) {
+    uint64_t batches_per_epoch) {
   // Before resuming, which restores the saved convergence state.
   convergence_monitor_.reset();
   TrainingPosition training_position{};
   const bool resumed = resume_from_latest(training_position, device_backend,
                                           data_arena, adam_state,
-                                          steps_per_epoch);
+                                          steps_per_epoch(batches_per_epoch));
   if (!resumed) {
     tensor_store.initialize_parameters_deterministic(device_backend);
     training_position.optimizer_steps = 0;
@@ -227,10 +242,11 @@ bool TrainingSessionController::resume_from_latest(
 }
 
 void TrainingSessionController::on_training_start(
-    const TrainingPosition &training_position, uint64_t steps_per_epoch) {
-  // The plan is complete once the step count is known.
+    const TrainingPosition &training_position, uint64_t batches_per_epoch) {
+  // The plan is complete once the epoch size is known.
   lr_schedule_.emplace(cfg_.training,
-                       steps_per_epoch * static_cast<uint64_t>(training_plan_.last_epoch));
+                       steps_per_epoch(batches_per_epoch) *
+                           static_cast<uint64_t>(training_plan_.last_epoch));
   // With no epochs left, nothing_to_do() explains the run instead.
   if (has_epochs_left(training_position)) {
     const uint32_t first_epoch = training_position.epoch + 1;
@@ -243,6 +259,9 @@ void TrainingSessionController::on_training_start(
       oss << "epochs " << first_epoch << "-" << last_epoch;
     }
     oss << ", starting at step " << training_position.optimizer_steps;
+    if (cfg_.training.batches_per_step > 1) {
+      oss << " (" << cfg_.training.batches_per_step << " batches per step)";
+    }
     if (training_plan_.dry_run()) {
       oss << " (real training: " << cfg_.training.num_epochs_train
           << " epochs)";
@@ -251,7 +270,7 @@ void TrainingSessionController::on_training_start(
     lr_schedule_->report();
   }
   for (const auto &observer : observers_) {
-    observer->on_training_start(training_position, steps_per_epoch);
+    observer->on_training_start(training_position, batches_per_epoch);
   }
 }
 
@@ -334,28 +353,28 @@ void TrainingSessionController::on_training_end(const TrainingPosition &training
   }
 }
 
-void TrainingSessionController::on_batch_start(uint64_t optimizer_steps) {
+void TrainingSessionController::on_batch_start(uint64_t batch_idx) {
   for (const auto &observer : observers_) {
-    observer->on_batch_start(optimizer_steps);
+    observer->on_batch_start(batch_idx);
   }
 }
 
-void TrainingSessionController::on_batch_end(uint64_t optimizer_steps, double loss) {
+void TrainingSessionController::on_batch_end(uint64_t batch_idx, double loss) {
   for (const auto &observer : observers_) {
-    observer->on_batch_end(optimizer_steps, loss);
+    observer->on_batch_end(batch_idx, loss);
   }
 }
 
-void TrainingSessionController::on_batch_load_start(uint64_t optimizer_steps) {
+void TrainingSessionController::on_batch_load_start(uint64_t batch_idx) {
   for (const auto &observer : observers_) {
-    observer->on_batch_load_start(optimizer_steps);
+    observer->on_batch_load_start(batch_idx);
   }
 }
 
-void TrainingSessionController::on_batch_load_end(uint64_t optimizer_steps,
+void TrainingSessionController::on_batch_load_end(uint64_t batch_idx,
                                                   bool has_batch) {
   for (const auto &observer : observers_) {
-    observer->on_batch_load_end(optimizer_steps, has_batch);
+    observer->on_batch_load_end(batch_idx, has_batch);
   }
 }
 

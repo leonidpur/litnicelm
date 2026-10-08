@@ -16,7 +16,7 @@ public:
               uint32_t epoch_report_every);
 
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch) override;
+                         uint64_t batches_per_epoch) override;
   void on_epoch_start(uint32_t epoch) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,
                                         const EpochMetrics &metrics,

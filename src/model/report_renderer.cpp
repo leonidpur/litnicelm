@@ -270,6 +270,11 @@ void ReportRenderer::report_memory_usage(const TrainingMemoryUsage &usage) {
   oss << "| Gradients                | " << std::fixed
       << std::setprecision(2) << std::setw(11)
       << bytes_to_mib(usage.grad_bytes) << " |\n";
+  if (usage.grad_sum_bytes > 0) {
+    oss << "| Gradient accumulator     | " << std::fixed
+        << std::setprecision(2) << std::setw(11)
+        << bytes_to_mib(usage.grad_sum_bytes) << " |\n";
+  }
   oss << "| Adam optimizer           | " << std::fixed
       << std::setprecision(2) << std::setw(11)
       << bytes_to_mib(usage.adam_bytes) << " |\n";

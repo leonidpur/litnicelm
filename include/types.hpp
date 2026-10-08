@@ -90,6 +90,8 @@ struct TrainingConfig {
   std::string lr_schedule = "constant";
   uint64_t warmup_steps = 0;
   float min_lr_ratio = 0.1f;
+  // Batches whose mean gradient makes one optimizer step (1: one per batch).
+  uint32_t batches_per_step = 1;
   DiagnosticsConfig diagnostics;
 };
 

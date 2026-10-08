@@ -40,6 +40,7 @@ TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
 Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
                  OptimizerAdamW &opt, Transformer &transformer,
                  const ArenaView &data_arena, const ArenaView &grad_arena,
+                 const ArenaView &grad_sum_arena,
                  GradientStore &gradient_store, uint64_t decay_bytes,
                  const AdamStateView &adam_state,
                  DeviceBackend &device_backend,
@@ -59,7 +60,9 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
       device_backend_(device_backend),
       session_controller_(session_controller),
       diagnostics_(tensor_store, ops, transformer_, gradient_store,
-                   device_backend, runtime_flags_, cfg) {
+                   device_backend, runtime_flags_, cfg),
+      accumulator_(ops, cfg.training.batches_per_step,
+                   gradient_store.full_gradient_view(), grad_sum_arena) {
   if (decay_bytes_ > data_arena_.bytes || decay_bytes_ > grad_arena_.bytes ||
       decay_bytes_ > (adam_state_.bytes / 2)) {
     throw std::runtime_error("Trainer: decay zone exceeds arena bounds");
@@ -134,8 +137,24 @@ void Trainer::apply_no_decay_zone_gradients(uint64_t step,
   opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, false);
 }
 
-double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &training_position) {
-  session_controller_.on_train_step_start(training_position.optimizer_steps);
+double Trainer::train_one_batch(const TrainBatch &batch, BatchInEpoch in_epoch,
+                                TrainingPosition &training_position) {
+  const bool first_of_step = session_controller_.step_starts_at(in_epoch.index);
+  if (first_of_step) {
+    session_controller_.on_train_step_start(training_position.optimizer_steps);
+  }
+  const double loss = forward_backward(batch);
+  accumulator_.add_batch(first_of_step, loss);
+  if (session_controller_.step_ends_at(in_epoch.index, in_epoch.count)) {
+    const double step_loss = accumulator_.finish_step();
+    apply_optimizer_step(batch, training_position);
+    session_controller_.on_train_step_end(training_position.optimizer_steps, step_loss);
+    training_position.optimizer_steps += 1;
+  }
+  return loss;
+}
+
+double Trainer::forward_backward(const TrainBatch &batch) {
   const int64_t token_rows = batch.token_count();
   const int64_t batch_size = batch.batch_size();
   const int64_t seq_len = batch.seq_len();
@@ -164,26 +183,29 @@ double Trainer::train_one_batch(const TrainBatch &batch, TrainingPosition &train
     loss = ops_.read_scalar_f32(loss_scalar);
   }
   if (!std::isfinite(loss)) {
-    throw std::runtime_error("Trainer::train_one_batch produced non-finite loss");
+    throw std::runtime_error("Trainer::forward_backward produced non-finite loss");
   }
 
   zero_gradients();
   transformer_.backward(batch.ids, logits, runtime_flags_.probe);
+  return loss;
+}
+
+void Trainer::apply_optimizer_step(const TrainBatch &batch,
+                                   const TrainingPosition &training_position) {
   const uint64_t step = training_position.optimizer_steps + 1;
   const float learning_rate =
       session_controller_.learning_rate(training_position.optimizer_steps);
   try {
     clip_gradients();
   } catch (const std::runtime_error &err) {
+    TensorView logits =
+        tensorStore_.temp_tr_logits(batch.batch_size(), batch.seq_len());
     diagnostics_.handle_nonfinite_grad_norm(
         batch, logits, err, [this]() { zero_gradients(); });
   }
   apply_decay_zone_gradients(step, learning_rate);
   apply_no_decay_zone_gradients(step, learning_rate);
-
-  session_controller_.on_train_step_end(training_position.optimizer_steps, loss);
-
-  return loss;
 }
 
 ValidationResult Trainer::evaluate(IDataLoader &val_dataset) {
@@ -208,15 +230,14 @@ ValidationResult Trainer::evaluate(IDataLoader &val_dataset) {
 }
 
 void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
-  // One optimizer step per batch.
-  const uint64_t steps_per_epoch = training_dataset.batches_per_epoch();
+  const uint64_t batches_per_epoch = training_dataset.batches_per_epoch();
   TrainingPosition training_position =
       session_controller_.restore_or_initialize(
           tensorStore_, device_backend_, data_arena_, adam_state_,
-          steps_per_epoch);
+          batches_per_epoch);
   // Fixes the run's plan (incl. the learning-rate schedule) and notifies the
   // reporting observers.
-  session_controller_.on_training_start(training_position, steps_per_epoch);
+  session_controller_.on_training_start(training_position, batches_per_epoch);
 
   // The controller decides when training ends: plan complete or early stop.
   if (!session_controller_.has_epochs_left(training_position)) {
@@ -231,17 +252,17 @@ void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
       const uint64_t batches_this_epoch = training_dataset.batches_per_epoch();
       for (uint64_t batch_idx = 0; batch_idx < batches_this_epoch; ++batch_idx) {
         //prepare batch and notify observers
-        session_controller_.on_batch_start(training_position.optimizer_steps);
-        const bool has_batch = training_dataset.next(batch, training_position.optimizer_steps);
+        session_controller_.on_batch_start(batch_idx);
+        const bool has_batch = training_dataset.next(batch, batch_idx);
         if (!has_batch) {
-          session_controller_.on_batch_end(training_position.optimizer_steps, 0.0);
+          session_controller_.on_batch_end(batch_idx, 0.0);
           break;
         }
-        //execute forward, backward, and optimizer step
-        const double loss = train_one_batch(batch, training_position);
-        session_controller_.on_batch_end(training_position.optimizer_steps, loss);
+        //train on the batch
+        const double loss =
+            train_one_batch(batch, {batch_idx, batches_this_epoch}, training_position);
+        session_controller_.on_batch_end(batch_idx, loss);
         train_loss.add(loss);
-        training_position.optimizer_steps += 1;
       }
       //consolidate epoch metrics
       EpochMetrics metrics;
@@ -313,6 +334,7 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   Trainer trainer(runtime_cfg, memory_manager.tensor_store(), ops, opt, transformer,
                   memory_manager.data_arena(),
                   memory_manager.grad_arena(),
+                  memory_manager.grad_sum_arena(),
                   memory_manager.gradient_store(),
                   memory_manager.param_layout().decay_bytes(),
                   memory_manager.adam_state(), *backend, session_controller,

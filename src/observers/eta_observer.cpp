@@ -11,9 +11,9 @@ EtaObserver::EtaObserver(const Config &cfg, const TrainingPlan &plan,
       epoch_report_every_(std::max<uint32_t>(1, epoch_report_every)) {}
 
 void EtaObserver::on_training_start(const TrainingPosition &training_position,
-                                    uint64_t steps_per_epoch) {
+                                    uint64_t batches_per_epoch) {
   (void)training_position;
-  (void)steps_per_epoch;
+  (void)batches_per_epoch;
   start_time_ = std::chrono::steady_clock::now();
   epoch_start_time_ = start_time_;
   ms_per_epoch_avg_ = 0;

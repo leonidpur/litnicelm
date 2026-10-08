@@ -179,6 +179,7 @@ std::string config_to_yaml(const Config &cfg) {
     << "  lr_schedule: " << quoted(t.lr_schedule) << "\n"
     << "  warmup_steps: " << t.warmup_steps << "\n"
     << "  min_lr_ratio: " << float_text(t.min_lr_ratio) << "\n"
+    << "  batches_per_step: " << t.batches_per_step << "\n"
     << "  diagnostics:\n";
 #define LITNICE_DUMP_DIAGNOSTIC(name) \
   y << "    " #name ": " << boolean(t.diagnostics.name) << "\n";

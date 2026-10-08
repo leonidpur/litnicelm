@@ -29,6 +29,8 @@ public:
 
   const ArenaView &data_arena() const;
   const ArenaView &grad_arena() const;
+  // Gradient sum over a step's batches; empty (bytes 0) at one batch per step.
+  const ArenaView &grad_sum_arena() const;
   const AdamStateView &adam_state() const;
   const TrainingMemoryUsage &memory_usage() const;
 
@@ -46,10 +48,12 @@ private:
   NamedLayout temp_layout_;
   std::unique_ptr<Arena> param_arena_;
   std::unique_ptr<Arena> grad_arena_;
+  std::unique_ptr<Arena> grad_sum_arena_;
   std::unique_ptr<Arena> adam_arena_;
   std::unique_ptr<Arena> temp_arena_;
   ArenaView data_view_{};
   ArenaView grad_view_{};
+  ArenaView grad_sum_view_{};
   AdamStateView adam_view_{};
   TrainingMemoryUsage memory_usage_{};
   std::unique_ptr<TensorStore> tensor_store_;

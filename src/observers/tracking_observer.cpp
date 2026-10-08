@@ -77,7 +77,7 @@ void TrackingObserver::init_topology_ready(
 }
 
 void TrackingObserver::on_training_start(
-    const TrainingPosition &training_position, uint64_t steps_per_epoch) {
+    const TrainingPosition &training_position, uint64_t batches_per_epoch) {
   training_started_at_ = Clock::now();
   total_epoch_ms_ = 0;
   measured_epochs_ = 0;
@@ -97,7 +97,9 @@ void TrackingObserver::on_training_start(
       .str("position_encoding", cfg_.model_algo.position_encoding)
       .i64("vocab_size", cfg_.model.vocab_size)
       .i64("param_bytes", static_cast<int64_t>(paramBytes_))
-      .i64("steps_per_epoch", static_cast<int64_t>(steps_per_epoch))
+      .i64("batches_per_epoch", static_cast<int64_t>(batches_per_epoch))
+      .i64("steps_per_epoch",
+           static_cast<int64_t>(session_.steps_per_epoch(batches_per_epoch)))
       .boolean("resumed", !parentRunId_.empty());
   if (!parentRunId_.empty()) {
     ev.str("parent_run_id", parentRunId_);

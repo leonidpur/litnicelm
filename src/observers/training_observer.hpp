@@ -101,9 +101,9 @@ public:
   // Training starts at training_position (restored on resume). Information
   // only: weights and position are already decided.
   virtual void on_training_start(const TrainingPosition &training_position,
-                                 uint64_t steps_per_epoch) {
+                                 uint64_t batches_per_epoch) {
     (void)training_position;
-    (void)steps_per_epoch;
+    (void)batches_per_epoch;
   }
   virtual void on_training_end(const TrainingPosition &training_position) {
     (void)training_position;
@@ -125,14 +125,15 @@ public:
     return {};
   }
 
-  virtual void on_batch_start(uint64_t optimizer_steps) { (void)optimizer_steps; }
-  virtual void on_batch_end(uint64_t optimizer_steps, double loss) {
-    (void)optimizer_steps;
+  // batch_idx: the batch's 0-based index in its epoch.
+  virtual void on_batch_start(uint64_t batch_idx) { (void)batch_idx; }
+  virtual void on_batch_end(uint64_t batch_idx, double loss) {
+    (void)batch_idx;
     (void)loss;
   }
-  virtual void on_batch_load_start(uint64_t optimizer_steps) { (void)optimizer_steps; }
-  virtual void on_batch_load_end(uint64_t optimizer_steps, bool has_batch) {
-    (void)optimizer_steps;
+  virtual void on_batch_load_start(uint64_t batch_idx) { (void)batch_idx; }
+  virtual void on_batch_load_end(uint64_t batch_idx, bool has_batch) {
+    (void)batch_idx;
     (void)has_batch;
   }
   virtual void on_train_step_start(uint64_t optimizer_steps) { (void)optimizer_steps; }

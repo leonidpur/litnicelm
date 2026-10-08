@@ -490,6 +490,14 @@ bool map_training_fields(const std::string &key, const std::string &value, Confi
     }
     return true;
   }
+  if (key == "training.batches_per_step") {
+    cfg.training.batches_per_step = parse_u32_or_throw(value, key);
+    if (cfg.training.batches_per_step == 0) {
+      throw std::runtime_error(
+          "Config::load_from_file: training.batches_per_step must be > 0");
+    }
+    return true;
+  }
   if (key == "training.stop_on_nonfinite_loss") {
     cfg.training.stop_on_nonfinite_loss = parse_bool_or_throw(value, key);
     return true;

@@ -24,6 +24,10 @@ TrainingMemoryManager::TrainingMemoryManager(
                                          cfg_.memory.alignment_bytes);
   grad_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
                                         cfg_.memory.alignment_bytes);
+  if (cfg_.training.batches_per_step > 1) {
+    grad_sum_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
+                                              cfg_.memory.alignment_bytes);
+  }
   adam_arena_ = std::make_unique<Arena>(backend_, device, param_bytes * 2,
                                         cfg_.memory.alignment_bytes);
   temp_arena_ = std::make_unique<Arena>(backend_, device, temp_bytes,
@@ -33,15 +37,21 @@ TrainingMemoryManager::TrainingMemoryManager(
                          device};
   grad_view_ = ArenaView{grad_arena_->ptr(), grad_arena_->size_bytes(),
                          device};
+  if (grad_sum_arena_) {
+    grad_sum_view_ = ArenaView{grad_sum_arena_->ptr(),
+                               grad_sum_arena_->size_bytes(), device};
+  }
   adam_view_ = AdamStateView{adam_arena_->ptr(), adam_arena_->size_bytes(),
                              device};
   memory_usage_.param_bytes = data_view_.bytes;
   memory_usage_.grad_bytes = grad_view_.bytes;
+  memory_usage_.grad_sum_bytes = grad_sum_view_.bytes;
   memory_usage_.adam_bytes = adam_view_.bytes;
   memory_usage_.temp_bytes = temp_arena_->size_bytes();
   memory_usage_.total_managed_bytes =
       memory_usage_.param_bytes + memory_usage_.grad_bytes +
-      memory_usage_.adam_bytes + memory_usage_.temp_bytes;
+      memory_usage_.grad_sum_bytes + memory_usage_.adam_bytes +
+      memory_usage_.temp_bytes;
   memory_usage_.device_after_alloc = backend_.memory_info();
   session_controller.init_topology_ready(param_layout_, data_view_.base,
                                          data_view_.bytes, grad_view_.base,
@@ -72,6 +82,10 @@ const NamedLayout &TrainingMemoryManager::temp_layout() const {
 const ArenaView &TrainingMemoryManager::data_arena() const { return data_view_; }
 
 const ArenaView &TrainingMemoryManager::grad_arena() const { return grad_view_; }
+
+const ArenaView &TrainingMemoryManager::grad_sum_arena() const {
+  return grad_sum_view_;
+}
 
 const AdamStateView &TrainingMemoryManager::adam_state() const {
   return adam_view_;

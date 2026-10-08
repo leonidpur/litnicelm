@@ -29,7 +29,7 @@ public:
                            uint64_t adam_size, void *temp_base,
                            uint64_t temp_size) override;
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch) override;
+                         uint64_t batches_per_epoch) override;
   void on_epoch_start(uint32_t epoch) override;
   void on_train_step_end(uint64_t optimizer_steps, double loss) override;
   ContinueTrainingDecision on_epoch_end(uint32_t epoch,

@@ -10,6 +10,7 @@
 #include "optimizer_adamw.hpp"
 #include "training_session_controller.hpp"
 #include "training_diagnostics_controller.hpp"
+#include "gradient_accumulator.hpp"
 #include "tensor_store.hpp"
 #include <types.hpp>
 #include "algo/transformer.hpp"
@@ -24,8 +25,8 @@ class Trainer {
 public:
   Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
           OptimizerAdamW &opt, Transformer &transformer, const ArenaView &data_arena,
-          const ArenaView &grad_arena, GradientStore &gradient_store,
-          uint64_t decay_bytes,
+          const ArenaView &grad_arena, const ArenaView &grad_sum_arena,
+          GradientStore &gradient_store, uint64_t decay_bytes,
           const AdamStateView &adam_state, DeviceBackend &device_backend,
           TrainingSessionController &session_controller,
           const RuntimeFlags &runtime_flags);
@@ -54,13 +55,29 @@ private:
   DeviceBackend &device_backend_;
   TrainingSessionController &session_controller_;
   TrainingDiagnosticsController diagnostics_;
+  GradientAccumulator accumulator_;
 
   void zero_gradients();
   double compute_global_grad_norm() const;
   void clip_gradients();
   void apply_decay_zone_gradients(uint64_t step, float learning_rate);
   void apply_no_decay_zone_gradients(uint64_t step, float learning_rate);
-  double train_one_batch(const TrainBatch &batch, TrainingPosition &training_position);
+  // Where a batch sits in its epoch.
+  struct BatchInEpoch {
+    uint64_t index = 0;  // 0-based
+    uint64_t count = 0;  // batches in the epoch
+  };
+  // Forward and backward of one batch; on the last batch of a step, the
+  // optimizer step (which advances training_position). Returns the loss.
+  double train_one_batch(const TrainBatch &batch, BatchInEpoch in_epoch,
+                         TrainingPosition &training_position);
+  // Forward, loss and backward; leaves the batch's gradients in the
+  // gradient arena and returns the loss.
+  double forward_backward(const TrainBatch &batch);
+  // Clips and applies the gradients in the gradient arena.
+  // batch: the step's last batch, for non-finite-norm diagnostics.
+  void apply_optimizer_step(const TrainBatch &batch,
+                            const TrainingPosition &training_position);
   // Mean loss over val_loader's batches: forward pass only, parameters and
   // optimizer state untouched.
   ValidationResult evaluate(IDataLoader &val_loader);

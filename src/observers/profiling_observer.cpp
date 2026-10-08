@@ -2,9 +2,9 @@
 #include "logger.hpp"
 
 void ProfilingObserver::on_training_start(
-    const TrainingPosition &training_position, uint64_t steps_per_epoch) {
+    const TrainingPosition &training_position, uint64_t batches_per_epoch) {
   (void)training_position;
-  (void)steps_per_epoch;
+  (void)batches_per_epoch;
   profiling_.reset();
 }
 
@@ -17,24 +17,24 @@ void ProfilingObserver::on_training_end(const TrainingPosition &training_positio
   logger().log(EventId::ProfilingSummary, summary);
 }
 
-void ProfilingObserver::on_batch_start(uint64_t optimizer_steps) {
-  (void)optimizer_steps;
+void ProfilingObserver::on_batch_start(uint64_t batch_idx) {
+  (void)batch_idx;
   profiling_.enter(Stage::BATCH_STEP);
 }
 
-void ProfilingObserver::on_batch_end(uint64_t optimizer_steps, double loss) {
-  (void)optimizer_steps;
+void ProfilingObserver::on_batch_end(uint64_t batch_idx, double loss) {
+  (void)batch_idx;
   (void)loss;
   profiling_.leave();
 }
 
-void ProfilingObserver::on_batch_load_start(uint64_t optimizer_steps) {
-  (void)optimizer_steps;
+void ProfilingObserver::on_batch_load_start(uint64_t batch_idx) {
+  (void)batch_idx;
   profiling_.enter(Stage::BATCH_LOAD);
 }
 
-void ProfilingObserver::on_batch_load_end(uint64_t optimizer_steps, bool has_batch) {
-  (void)optimizer_steps;
+void ProfilingObserver::on_batch_load_end(uint64_t batch_idx, bool has_batch) {
+  (void)batch_idx;
   (void)has_batch;
   profiling_.leave();
 }

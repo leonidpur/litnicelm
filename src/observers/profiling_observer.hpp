@@ -10,12 +10,12 @@ public:
   ProfilingObserver() = default;
 
   void on_training_start(const TrainingPosition &training_position,
-                         uint64_t steps_per_epoch) override;
+                         uint64_t batches_per_epoch) override;
   void on_training_end(const TrainingPosition &training_position) override;
-  void on_batch_start(uint64_t optimizer_steps) override;
-  void on_batch_end(uint64_t optimizer_steps, double loss) override;
-  void on_batch_load_start(uint64_t optimizer_steps) override;
-  void on_batch_load_end(uint64_t optimizer_steps, bool has_batch) override;
+  void on_batch_start(uint64_t batch_idx) override;
+  void on_batch_end(uint64_t batch_idx, double loss) override;
+  void on_batch_load_start(uint64_t batch_idx) override;
+  void on_batch_load_end(uint64_t batch_idx, bool has_batch) override;
   void on_train_step_start(uint64_t optimizer_steps) override;
   void on_train_step_end(uint64_t optimizer_steps, double loss) override;
   void on_forward_start() override;
