@@ -292,19 +292,19 @@ void AdamStateStore::register_state(const TensorView &param,
 
 TensorView AdamStateStore::make_param_view_f32(const LayoutSlice &s,
                                                  Shape shape) const {
-  const uint64_t expected = nbytes(shape, DType::F32);
+  const uint64_t expected = nbytes(shape, s.dtype);
   require(expected == s.bytes,
           "shape bytes mismatch for " + s.name + ": expected " +
               std::to_string(expected) + " got " + std::to_string(s.bytes));
   require(s.offset + s.bytes <= params_bytes_, "slice out of bounds: " + s.name);
   require(s.offset + s.bytes <= param_bytes_,
           "slice exceeds parameter layout: " + s.name);
-  require((s.offset % alignof(float)) == 0,
-          "slice offset not float-aligned: " + s.name);
-  require((s.bytes % sizeof(float)) == 0,
-          "slice bytes not multiple of float: " + s.name);
+  require((s.offset % dtype_size(s.dtype)) == 0,
+          "slice offset not aligned to its element size: " + s.name);
+  require((s.bytes % dtype_size(s.dtype)) == 0,
+          "slice bytes not a multiple of its element size: " + s.name);
   void *ptr = params_base_ + s.offset;
-  return TensorView(device_, DType::F32, ptr, shape);
+  return TensorView(device_, s.dtype, ptr, shape);
 }
 
 TensorView AdamStateStore::make_state_view_f32(const LayoutSlice &s, Shape shape,

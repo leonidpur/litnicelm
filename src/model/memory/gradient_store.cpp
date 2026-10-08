@@ -53,16 +53,17 @@ GradientStore::GradientStore(const Config &cfg,
       grad_bytes_(grad_arena.bytes),
       device_(grad_arena.device),
       full_gradient_view_(
-          grad_arena.device, DType::F32, grad_arena.base,
-          Shape{static_cast<int64_t>(param_layout.total_bytes() / sizeof(float)),
+          grad_arena.device, param_layout.uniform_dtype(), grad_arena.base,
+          Shape{static_cast<int64_t>(param_layout.total_bytes() /
+                                     dtype_size(param_layout.uniform_dtype())),
                 1}) {
   require(params_base_ != nullptr, "params_base is null");
   require(params_bytes_ > 0, "params_bytes must be > 0");
   require(grad_base_ != nullptr, "grad_arena.base is null");
   require(grad_bytes_ >= param_layout.total_bytes(),
           "grad arena must cover parameter layout bytes");
-  require((param_layout.total_bytes() % sizeof(float)) == 0,
-          "param layout bytes must be a multiple of sizeof(float)");
+  require((param_layout.total_bytes() % dtype_size(param_layout.uniform_dtype())) == 0,
+          "param layout bytes must be a multiple of the element size");
   build_gradient_views(param_layout, algo);
 }
 

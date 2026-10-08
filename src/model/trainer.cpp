@@ -23,17 +23,18 @@
 
 namespace {
 TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
-                               uint64_t zone_bytes) {
-  if ((offset_bytes % sizeof(float)) != 0 || (zone_bytes % sizeof(float)) != 0) {
-    throw std::runtime_error("make_flat_zone_view: non-float-aligned zone");
+                               uint64_t zone_bytes, DType dtype) {
+  const uint64_t elem = dtype_size(dtype);
+  if ((offset_bytes % elem) != 0 || (zone_bytes % elem) != 0) {
+    throw std::runtime_error("make_flat_zone_view: zone not aligned to the element size");
   }
   if (offset_bytes + zone_bytes > arena.bytes) {
     throw std::runtime_error("make_flat_zone_view: zone out of bounds");
   }
   uint8_t *base = reinterpret_cast<uint8_t *>(arena.base);
   void *ptr = base + offset_bytes;
-  const int64_t elems = static_cast<int64_t>(zone_bytes / sizeof(float));
-  return TensorView(arena.device, DType::F32, ptr, Shape{1, elems});
+  const int64_t elems = static_cast<int64_t>(zone_bytes / elem);
+  return TensorView(arena.device, dtype, ptr, Shape{1, elems});
 }
 } // namespace
 
@@ -104,36 +105,40 @@ void Trainer::clip_gradients() {
 }
 
 void Trainer::apply_decay_zone_gradients(uint64_t step, float learning_rate) {
+  // Parameters, gradients and Adam state share the parameter layout's dtype.
+  const DType zone_dtype = gradientStore_.full_gradient_view().dtype();
   if (decay_bytes_ == 0) {
     return;
   }
-  TensorView params = make_flat_zone_view(data_arena_, 0, decay_bytes_);
-  TensorView grads = make_flat_zone_view(grad_arena_, 0, decay_bytes_);
+  TensorView params = make_flat_zone_view(data_arena_, 0, decay_bytes_, zone_dtype);
+  TensorView grads = make_flat_zone_view(grad_arena_, 0, decay_bytes_, zone_dtype);
   TensorView m = make_flat_zone_view(
       ArenaView{adam_state_.base, adam_state_.bytes / 2, adam_state_.device}, 0,
-      decay_bytes_);
+      decay_bytes_, zone_dtype);
   TensorView v = make_flat_zone_view(
       ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
                 adam_state_.bytes / 2, adam_state_.device},
-      0, decay_bytes_);
+      0, decay_bytes_, zone_dtype);
   opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, true);
 }
 
 void Trainer::apply_no_decay_zone_gradients(uint64_t step,
                                             float learning_rate) {
+  // Parameters, gradients and Adam state share the parameter layout's dtype.
+  const DType zone_dtype = gradientStore_.full_gradient_view().dtype();
   const uint64_t no_decay_bytes = data_arena_.bytes - decay_bytes_;
   if (no_decay_bytes == 0) {
     return;
   }
-  TensorView params = make_flat_zone_view(data_arena_, decay_bytes_, no_decay_bytes);
-  TensorView grads = make_flat_zone_view(grad_arena_, decay_bytes_, no_decay_bytes);
+  TensorView params = make_flat_zone_view(data_arena_, decay_bytes_, no_decay_bytes, zone_dtype);
+  TensorView grads = make_flat_zone_view(grad_arena_, decay_bytes_, no_decay_bytes, zone_dtype);
   TensorView m = make_flat_zone_view(
       ArenaView{adam_state_.base, adam_state_.bytes / 2, adam_state_.device},
-      decay_bytes_, no_decay_bytes);
+      decay_bytes_, no_decay_bytes, zone_dtype);
   TensorView v = make_flat_zone_view(
       ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
                 adam_state_.bytes / 2, adam_state_.device},
-      decay_bytes_, no_decay_bytes);
+      decay_bytes_, no_decay_bytes, zone_dtype);
   opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, false);
 }
 

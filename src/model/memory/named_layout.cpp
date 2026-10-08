@@ -29,6 +29,20 @@ void append_param_spec(std::vector<ParamSliceSpec> &out, const std::string &name
 }
 }
 
+DType NamedLayout::uniform_dtype() const {
+  if (slices_.empty()) {
+    throw std::runtime_error("NamedLayout::uniform_dtype: empty layout");
+  }
+  const DType dtype = slices_.front().dtype;
+  for (const LayoutSlice &s : slices_) {
+    if (s.dtype != dtype) {
+      throw std::runtime_error("NamedLayout::uniform_dtype: mixed dtypes (" +
+                               slices_.front().name + " vs " + s.name + ")");
+    }
+  }
+  return dtype;
+}
+
 NamedLayout NamedLayout::build_param_layout(const Config &cfg,
                                             const ModelAlgoFactory &algo) {
   NamedLayout layout;

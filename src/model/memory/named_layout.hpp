@@ -32,6 +32,9 @@ public:
   const std::vector<LayoutSlice> &slices() const { return slices_; }
   uint64_t total_bytes() const { return total_bytes_; }
   uint64_t decay_bytes() const { return decay_bytes_; }
+  // The dtype every slice shares; throws if the layout is empty or mixed.
+  // For views spanning the whole layout (flat gradient and optimizer zones).
+  DType uniform_dtype() const;
 
   static uint64_t align_up(uint64_t v, uint64_t a) {
     if (a == 0) {
