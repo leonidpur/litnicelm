@@ -6,6 +6,7 @@
 #include "tensor.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -33,10 +34,22 @@ public:
     StatePair ffn_b2;
   };
 
+  // optimizer_layout: the parameter shapes in the optimizer-state dtype;
+  // the AdamW arena holds m, then v, each laid out by it.
   AdamStateStore(const Config &cfg, const ModelAlgoFactory &algo,
                  const NamedLayout &param_layout,
-                   void *params_base, uint64_t params_bytes,
-                   const AdamStateView &adam_state);
+                 const NamedLayout &optimizer_layout,
+                 void *params_base, uint64_t params_bytes,
+                 const AdamStateView &adam_state);
+
+  // Bytes of the AdamW arena: m and v, each laid out by optimizer_layout.
+  static uint64_t arena_bytes(const NamedLayout &optimizer_layout) {
+    return optimizer_layout.total_bytes() * 2;
+  }
+
+  // m or v of one decay zone as a flat view; empty if the zone is.
+  std::optional<TensorView> m_zone_view(DecayZone zone) const;
+  std::optional<TensorView> v_zone_view(DecayZone zone) const;
 
   const StatePair &state_for_param(const TensorView &param) const;
 
@@ -67,6 +80,10 @@ private:
   uint64_t adam_bytes_ = 0;
   uint64_t param_bytes_ = 0;
   Device device_ = Device::CPU;
+  NamedLayout optimizer_layout_;
+  std::unordered_map<std::string, LayoutSlice> state_slice_by_name_;
+  // Byte offset of v in the AdamW arena (m starts at 0).
+  uint64_t v_offset_ = 0;
 
   StatePair tok_embedding_;
   StatePair pos_embedding_;
@@ -80,10 +97,12 @@ private:
   void build_state_views(const NamedLayout &param_layout,
                          const ModelAlgoFactory &algo);
   void register_state(const TensorView &param, const StatePair &state);
-  TensorView make_param_view_f32(const LayoutSlice &s, Shape shape) const;
-  TensorView make_state_view_f32(const LayoutSlice &s, Shape shape,
-                                 uint64_t state_base_offset) const;
-  StatePair make_state_pair_f32(const LayoutSlice &s, Shape shape,
-                                bool apply_weight_decay) const;
+  TensorView make_param_view(const LayoutSlice &s, Shape shape) const;
+  // The m or v view (at state_base_offset) of the parameter in slice s,
+  // looked up by name in the optimizer layout.
+  TensorView make_state_view(const LayoutSlice &s, Shape shape,
+                             uint64_t state_base_offset) const;
+  StatePair make_state_pair(const LayoutSlice &s, Shape shape,
+                            bool apply_weight_decay) const;
   std::string lname(int layer, const char *suffix) const;
 };

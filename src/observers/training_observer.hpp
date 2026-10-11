@@ -7,6 +7,7 @@
 struct Config;
 class DeviceBackend;
 class NamedLayout;
+struct TrainingLayouts;
 class TensorStore;
 class TensorView;
 struct AdamStateView;
@@ -43,11 +44,9 @@ public:
   virtual ~ITrainingObserver() = default;
 
   virtual void runtime_cfg_ready(const Config &cfg) { (void)cfg; }
-  virtual void init_config_ready(const Config &cfg, const NamedLayout &param_layout,
-                                 const NamedLayout &temp_layout) {
+  virtual void init_config_ready(const Config &cfg, const TrainingLayouts &layouts) {
     (void)cfg;
-    (void)param_layout;
-    (void)temp_layout;
+    (void)layouts;
   }
   virtual void init_topology_ready(const NamedLayout &param_layout, void *param_base,
                                    uint64_t param_size, void *grad_base,

@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -88,6 +89,9 @@ public:
                 const NamedLayout &temp_layout, void *temp_base,
                 uint64_t temp_bytes, TempLayoutKind temp_kind);
   ~TensorStore();
+
+  // Parameters of one decay zone as a flat view; empty if the zone is.
+  std::optional<TensorView> param_zone_view(DecayZone zone) const;
 
   const TensorView &tok_embedding() const;
   const TensorView &pos_embedding() const;
@@ -249,6 +253,7 @@ private:
   uint8_t *base_ = nullptr;
   uint64_t bytes_ = 0;
   Device device_ = Device::CPU;
+  NamedLayout param_layout_;
   TensorView tok_embedding_;
   TensorView pos_embedding_;
   TensorView lnf_gamma_;
@@ -260,8 +265,8 @@ private:
   void check_layer(int layer) const;
   void build_param_views(const NamedLayout &param_layout);
 
-  TensorView make_view_f32(const LayoutSlice &s, Shape shape) const;
-  TensorView make_subview_f32(const TensorView &view, int64_t col_offset,
+  TensorView make_view(const LayoutSlice &s, Shape shape) const;
+  TensorView make_subview(const TensorView &view, int64_t col_offset,
                               Shape sub_shape) const;
 
   std::string lname(int layer, const char *suffix) const;

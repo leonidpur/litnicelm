@@ -12,8 +12,7 @@ public:
                     const RuntimeFlags::ProbeFlags &probe_flags);
 
   void runtime_cfg_ready(const Config &cfg) override;
-  void init_config_ready(const Config &cfg, const NamedLayout &param_layout,
-                         const NamedLayout &temp_layout) override;
+  void init_config_ready(const Config &cfg, const TrainingLayouts &layouts) override;
   void init_topology_ready(const NamedLayout &param_layout, void *param_base,
                            uint64_t param_size, void *grad_base,
                            uint64_t grad_size, void *adam_base,

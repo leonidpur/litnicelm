@@ -4,6 +4,7 @@
 #include "arena.hpp"
 #include "checkpoint.hpp"
 #include "gradient_store.hpp"
+#include "precision_policy.hpp"
 #include "memory_resource_info.hpp"
 #include "named_layout.hpp"
 #include "tensor_store.hpp"
@@ -24,6 +25,7 @@ public:
                         DeviceBackend &backend,
                         TrainingSessionController &session_controller);
 
+  const PrecisionPolicy &precision() const { return precision_; }
   const NamedLayout &param_layout() const;
   const NamedLayout &temp_layout() const;
 
@@ -44,7 +46,12 @@ public:
 private:
   const Config &cfg_;
   DeviceBackend &backend_;
+  const PrecisionPolicy precision_;
   NamedLayout param_layout_;
+  // Parameter-shaped layouts of the gradients and of each AdamW state (m, v),
+  // in their own dtypes.
+  NamedLayout grad_layout_;
+  NamedLayout optimizer_layout_;
   NamedLayout temp_layout_;
   std::unique_ptr<Arena> param_arena_;
   std::unique_ptr<Arena> grad_arena_;

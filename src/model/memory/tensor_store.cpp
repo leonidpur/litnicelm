@@ -253,7 +253,7 @@ TensorStore::TensorStore(const Config &cfg,
                              TempLayoutKind temp_kind)
     : cfg_(cfg), algo_(algo),
       base_(reinterpret_cast<uint8_t *>(params_base)),
-      bytes_(params_bytes), device_(device) {
+      bytes_(params_bytes), device_(device), param_layout_(param_layout) {
   require(base_ != nullptr, "params_base is null");
   require(bytes_ > 0, "params_bytes must be > 0");
   require(param_layout.total_bytes() <= bytes_,
@@ -307,56 +307,56 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
   const int64_t qkv_dim = 3 * model_dim;
 
   LayoutCursor cursor(param_layout.slices(), "parameter");
-  tok_embedding_ = make_view_f32(cursor.next("tok_embedding"),
+  tok_embedding_ = make_view(cursor.next("tok_embedding"),
                                  {vocab_size, model_dim});
   if (algo_.create_position_encoding(cfg_)->needs_position_table()) {
-    pos_embedding_ = make_view_f32(
+    pos_embedding_ = make_view(
         cursor.next("pos_embedding"),
         {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim});
   }
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
     LayerParamViews views;
     views.ln1_gamma =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ln1_gamma")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ln1_gamma")),
                       {1, model_dim});
     views.ln1_beta =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ln1_beta")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ln1_beta")),
                       {1, model_dim});
     views.attn_qkv_w =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "attn_qkv_w")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "attn_qkv_w")),
                       {model_dim, qkv_dim});
     views.attn_qkv_b =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "attn_qkv_b")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "attn_qkv_b")),
                       {1, qkv_dim});
     views.attn_out_w =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "attn_out_w")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "attn_out_w")),
                       {model_dim, model_dim});
     views.attn_out_b =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "attn_out_b")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "attn_out_b")),
                       {1, model_dim});
     views.ln2_gamma =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ln2_gamma")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ln2_gamma")),
                       {1, model_dim});
     views.ln2_beta =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ln2_beta")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ln2_beta")),
                       {1, model_dim});
     views.ffn_w1 =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ffn_w1")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ffn_w1")),
                       {model_dim, ffn_dim});
     views.ffn_b1 =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ffn_b1")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ffn_b1")),
                       {1, ffn_dim});
     views.ffn_w2 =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ffn_w2")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ffn_w2")),
                       {ffn_dim, model_dim});
     views.ffn_b2 =
-        make_view_f32(cursor.next(lname(static_cast<int>(layer), "ffn_b2")),
+        make_view(cursor.next(lname(static_cast<int>(layer), "ffn_b2")),
                       {1, model_dim});
     layer_param_views_.push_back(views);
   }
-  lnf_gamma_ = make_view_f32(cursor.next("lnf_gamma"), {1, model_dim});
-  lnf_beta_ = make_view_f32(cursor.next("lnf_beta"), {1, model_dim});
-  lm_head_w_ = make_view_f32(cursor.next("lm_head_w"), {model_dim, vocab_size});
+  lnf_gamma_ = make_view(cursor.next("lnf_gamma"), {1, model_dim});
+  lnf_beta_ = make_view(cursor.next("lnf_beta"), {1, model_dim});
+  lm_head_w_ = make_view(cursor.next("lm_head_w"), {model_dim, vocab_size});
   cursor.finish();
 }
 
@@ -620,7 +620,11 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
   cursor.finish();
 }
 
-TensorView TensorStore::make_view_f32(const LayoutSlice &s,
+std::optional<TensorView> TensorStore::param_zone_view(DecayZone zone) const {
+  return param_layout_.zone_view(base_, device_, zone);
+}
+
+TensorView TensorStore::make_view(const LayoutSlice &s,
                                         Shape shape) const {
   const uint64_t expected = nbytes(shape, s.dtype);
   require(expected == s.bytes,
@@ -635,15 +639,14 @@ TensorView TensorStore::make_view_f32(const LayoutSlice &s,
   return TensorView(device_, s.dtype, ptr, shape);
 }
 
-TensorView TensorStore::make_subview_f32(const TensorView &view,
+TensorView TensorStore::make_subview(const TensorView &view,
                                            int64_t col_offset,
                                            Shape sub_shape) const {
-  require(view.dtype() == DType::F32, "subview source must be f32");
   require(sub_shape.dim(0) == view.shape().dim(0),
-          "subview must keep full row count for f32 split");
-  require(col_offset >= 0, "negative col_offset for f32 split");
+          "subview must keep the full row count");
+  require(col_offset >= 0, "negative col_offset for subview");
   require(col_offset + sub_shape.dim(1) <= view.shape().dim(1),
-          "subview exceeds column bounds for f32 split");
+          "subview exceeds column bounds");
   return view.subcols(col_offset, sub_shape.dim(1));
 }
 
@@ -1810,42 +1813,42 @@ TensorView TensorStore::layer_attn_out_b(int layer) const {
 TensorView TensorStore::layer_attn_wq(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           0, {D, D});
 }
 
 TensorView TensorStore::layer_attn_wk(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           D, {D, D});
 }
 
 TensorView TensorStore::layer_attn_wv(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_w,
                           2 * D, {D, D});
 }
 
 TensorView TensorStore::layer_attn_bq(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           0, {1, D});
 }
 
 TensorView TensorStore::layer_attn_bk(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           D, {1, D});
 }
 
 TensorView TensorStore::layer_attn_bv(int layer) const {
   check_layer(layer);
   const int64_t D = static_cast<int64_t>(cfg_.model.d_model);
-  return make_subview_f32(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
+  return make_subview(layer_param_views_[static_cast<size_t>(layer)].attn_qkv_b,
                           2 * D, {1, D});
 }
 

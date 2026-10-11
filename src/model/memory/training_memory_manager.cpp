@@ -11,24 +11,34 @@ TrainingMemoryManager::TrainingMemoryManager(
                                              TrainingSessionController &session_controller)
     : cfg_(cfg),
       backend_(backend),
-      param_layout_(NamedLayout::build_param_layout(cfg, algo)),
-      temp_layout_(NamedLayout::build_training_temp_layout(cfg, algo)) {
-  session_controller.init_config_ready(cfg_, param_layout_, temp_layout_);
+      precision_(PrecisionPolicy::from_config(cfg)),
+      param_layout_(NamedLayout::build_param_layout(
+          cfg, algo, precision_.dtype(TensorRole::Parameter))),
+      grad_layout_(NamedLayout::build_param_layout(
+          cfg, algo, precision_.dtype(TensorRole::Gradient))),
+      optimizer_layout_(NamedLayout::build_param_layout(
+          cfg, algo, precision_.dtype(TensorRole::OptimizerState))),
+      temp_layout_(NamedLayout::build_training_temp_layout(
+          cfg, algo, precision_.dtype(TensorRole::Activation))) {
+  session_controller.init_config_ready(
+      cfg_, TrainingLayouts{param_layout_, grad_layout_, optimizer_layout_, temp_layout_});
 
   const uint64_t param_bytes = param_layout_.total_bytes();
+  const uint64_t grad_bytes = grad_layout_.total_bytes();
+  const uint64_t adam_bytes = AdamStateStore::arena_bytes(optimizer_layout_);
   const uint64_t temp_bytes = temp_layout_.total_bytes();
   const Device device = backend_.device();
 
   memory_usage_.device_before_alloc = backend_.memory_info();
   param_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
                                          cfg_.memory.alignment_bytes);
-  grad_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
+  grad_arena_ = std::make_unique<Arena>(backend_, device, grad_bytes,
                                         cfg_.memory.alignment_bytes);
   if (cfg_.training.batches_per_step > 1) {
-    grad_sum_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
+    grad_sum_arena_ = std::make_unique<Arena>(backend_, device, grad_bytes,
                                               cfg_.memory.alignment_bytes);
   }
-  adam_arena_ = std::make_unique<Arena>(backend_, device, param_bytes * 2,
+  adam_arena_ = std::make_unique<Arena>(backend_, device, adam_bytes,
                                         cfg_.memory.alignment_bytes);
   temp_arena_ = std::make_unique<Arena>(backend_, device, temp_bytes,
                                         cfg_.memory.alignment_bytes);
@@ -66,9 +76,11 @@ TrainingMemoryManager::TrainingMemoryManager(
       TensorStore::TempLayoutKind::Training);
   session_controller.tensor_store_topology_ready(cfg_, *tensor_store_);
   gradient_store_ = std::make_unique<GradientStore>(
-      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, grad_view_);
+      cfg_, algo, param_layout_, grad_layout_, data_view_.base, data_view_.bytes,
+      grad_view_);
   adam_state_store_ = std::make_unique<AdamStateStore>(
-      cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, adam_view_);
+      cfg_, algo, param_layout_, optimizer_layout_, data_view_.base,
+      data_view_.bytes, adam_view_);
 }
 
 const NamedLayout &TrainingMemoryManager::param_layout() const {

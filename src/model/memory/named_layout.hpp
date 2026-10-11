@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,16 +19,35 @@ struct LayoutSlice {
   DType dtype = DType::F32;
 };
 
+class NamedLayout;
+
+// The layouts of a training run, one per tensor role.
+struct TrainingLayouts {
+  const NamedLayout &param;
+  const NamedLayout &grad;
+  const NamedLayout &optimizer;  // one AdamW state (m or v)
+  const NamedLayout &temp;
+};
+
+// The two contiguous parts of a parameter-shaped layout: slices that get
+// weight decay first, then those that do not.
+enum class DecayZone : uint8_t { Decay, NoDecay };
+
 class NamedLayout {
 public:
+  // The parameter shapes with elements of `dtype`; also used for tensors
+  // that mirror the parameters (gradients, optimizer state).
   static NamedLayout build_param_layout(const Config &cfg,
-                                        const ModelAlgoFactory &algo);
+                                        const ModelAlgoFactory &algo, DType dtype);
+  // Temporaries; `dtype` is the activation dtype (token ids stay I32).
   static NamedLayout build_training_temp_layout(const Config &cfg,
-                                                const ModelAlgoFactory &algo);
+                                                const ModelAlgoFactory &algo,
+                                                DType dtype);
   static NamedLayout build_inference_temp_layout(const Config &cfg,
-                                                 const ModelAlgoFactory &algo);
+                                                 const ModelAlgoFactory &algo,
+                                                 DType dtype);
   static NamedLayout build_temp_layout(const Config &cfg,
-                                       const ModelAlgoFactory &algo);
+                                       const ModelAlgoFactory &algo, DType dtype);
 
   const std::vector<LayoutSlice> &slices() const { return slices_; }
   uint64_t total_bytes() const { return total_bytes_; }
@@ -35,6 +55,10 @@ public:
   // The dtype every slice shares; throws if the layout is empty or mixed.
   // For views spanning the whole layout (flat gradient and optimizer zones).
   DType uniform_dtype() const;
+  // A flat view of one decay zone of an arena laid out by this layout;
+  // empty when the zone holds no slices.
+  std::optional<TensorView> zone_view(void *base, Device device,
+                                      DecayZone zone) const;
 
   static uint64_t align_up(uint64_t v, uint64_t a) {
     if (a == 0) {

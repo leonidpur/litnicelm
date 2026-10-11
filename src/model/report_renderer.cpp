@@ -1,4 +1,6 @@
 #include "report_renderer.hpp"
+#include "memory/adam_state_store.hpp"
+#include "memory/named_layout.hpp"
 
 #include <config.hpp>
 #include "named_layout.hpp"
@@ -123,8 +125,9 @@ ReportRenderer::ReportRenderer() : out_(std::cout) {}
 void ReportRenderer::print(const std::string &text) { out_ << text << "\n"; }
 
 void ReportRenderer::report_init_config(const Config &cfg,
-                                            const NamedLayout &param_layout,
-                                            const NamedLayout &temp_layout) {
+                                        const TrainingLayouts &layouts) {
+  const NamedLayout &param_layout = layouts.param;
+  const NamedLayout &temp_layout = layouts.temp;
   verbose_init_enabled_ = cfg.reporting.verbose_init;
   alignment_bytes_ = cfg.memory.alignment_bytes;
   if (!verbose_init_enabled_) {
@@ -140,13 +143,13 @@ void ReportRenderer::report_init_config(const Config &cfg,
     used_temp_bytes += slice.bytes;
   }
   const uint64_t total_param_bytes = param_layout.total_bytes();
-  const uint64_t total_grad_bytes = total_param_bytes;
+  const uint64_t total_grad_bytes = layouts.grad.total_bytes();
   const uint64_t total_temp_bytes = temp_layout.total_bytes();
   const uint64_t param_waste_bytes =
       (total_param_bytes >= used_param_bytes) ? (total_param_bytes - used_param_bytes) : 0;
   const uint64_t temp_waste_bytes =
       (total_temp_bytes >= used_temp_bytes) ? (total_temp_bytes - used_temp_bytes) : 0;
-  const uint64_t total_adam_bytes = total_param_bytes * 2;
+  const uint64_t total_adam_bytes = AdamStateStore::arena_bytes(layouts.optimizer);
   const size_t param_slice_count = param_layout.slices().size();
   const size_t temp_slice_count = temp_layout.slices().size();
 
@@ -182,8 +185,8 @@ void ReportRenderer::report_init_config(const Config &cfg,
   oss << "| Alignment Bytes                      | " << std::setw(14)
       << alignment_bytes_ << " |\n";
   oss << "+--------------------------------------+----------------+\n";
-  oss << "Adam uses exactly 2x parameter memory because it keeps two moments\n"
-         "(m and v) for every trainable weight.\n";
+  oss << "Adam keeps two moments (m and v) for every trainable weight, each in\n"
+         "the optimizer-state dtype.\n";
   print(oss.str());
 }
 
@@ -251,8 +254,8 @@ void ReportRenderer::report_init_topology(const NamedLayout &param_layout,
       << " bytes, param slices mapped=" << param_layout.slices().size() << "\n\n";
   oss << "Pointer Arithmetic: TensorStore treats arena base pointers as anchors and\n"
          "adds each LayoutSlice offset to address every tensor block directly.\n";
-  oss << "Adam Overhead: Optimizer memory is 2x parameter memory because Adam keeps\n"
-         "two state tensors per weight (m and v).\n";
+  oss << "Adam Overhead: Adam keeps two state tensors per weight (m and v), each\n"
+         "in the optimizer-state dtype.\n";
   oss << "Contiguity Benefit: One large contiguous arena improves spatial locality\n"
          "and CPU prefetch efficiency versus many scattered allocations.\n";
   print(oss.str());

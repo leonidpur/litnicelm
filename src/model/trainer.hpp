@@ -25,9 +25,9 @@ class Trainer {
 public:
   Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
           OptimizerAdamW &opt, Transformer &transformer, const ArenaView &data_arena,
-          const ArenaView &grad_arena, const ArenaView &grad_sum_arena,
-          GradientStore &gradient_store, uint64_t decay_bytes,
-          const AdamStateView &adam_state, DeviceBackend &device_backend,
+          const ArenaView &grad_sum_arena, GradientStore &gradient_store,
+          AdamStateStore &adam_state_store, const AdamStateView &adam_state,
+          DeviceBackend &device_backend,
           TrainingSessionController &session_controller,
           const RuntimeFlags &runtime_flags);
 
@@ -44,9 +44,8 @@ private:
   OptimizerAdamW &opt_;
   Transformer &transformer_;
   ArenaView data_arena_;
-  ArenaView grad_arena_;
   GradientStore &gradientStore_;
-  uint64_t decay_bytes_ = 0;
+  AdamStateStore &adamStateStore_;
   AdamStateView adam_state_;
   RuntimeFlags runtime_flags_{};
   std::chrono::steady_clock::time_point process_start_time_{};
@@ -60,8 +59,9 @@ private:
   void zero_gradients();
   double compute_global_grad_norm() const;
   void clip_gradients();
-  void apply_decay_zone_gradients(uint64_t step, float learning_rate);
-  void apply_no_decay_zone_gradients(uint64_t step, float learning_rate);
+  // AdamW on one decay zone: parameters, gradients, m and v come from their
+  // stores as flat views of that zone.
+  void apply_zone_gradients(DecayZone zone, uint64_t step, float learning_rate);
   // Where a batch sits in its epoch.
   struct BatchInEpoch {
     uint64_t index = 0;  // 0-based

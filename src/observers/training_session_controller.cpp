@@ -59,10 +59,9 @@ void TrainingSessionController::runtime_cfg_ready(const Config &cfg) {
 }
 
 void TrainingSessionController::init_config_ready(const Config &cfg,
-                                                  const NamedLayout &param_layout,
-                                                  const NamedLayout &temp_layout) {
+                                                  const TrainingLayouts &layouts) {
   for (const auto &observer : observers_) {
-    observer->init_config_ready(cfg, param_layout, temp_layout);
+    observer->init_config_ready(cfg, layouts);
   }
 }
 

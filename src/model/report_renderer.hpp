@@ -9,6 +9,7 @@
 
 struct Config;
 class NamedLayout;
+struct TrainingLayouts;
 class TensorStore;
 
 // Draws the training setup tables (config, memory topology, memory usage,
@@ -18,8 +19,7 @@ public:
   explicit ReportRenderer(std::ostream &out);
   ReportRenderer();  // prints to std::cout
 
-  void report_init_config(const Config &cfg, const NamedLayout &param_layout,
-                          const NamedLayout &temp_layout);
+  void report_init_config(const Config &cfg, const TrainingLayouts &layouts);
   void report_init_topology(const NamedLayout &param_layout, void *param_base,
                             uint64_t param_size, void *grad_base,
                             uint64_t grad_size, void *adam_base,

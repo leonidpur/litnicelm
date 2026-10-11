@@ -36,9 +36,8 @@ void ReportingObserver::runtime_cfg_ready(const Config &cfg) {
 }
 
 void ReportingObserver::init_config_ready(const Config &cfg,
-                                          const NamedLayout &param_layout,
-                                          const NamedLayout &temp_layout) {
-  report_renderer_.report_init_config(cfg, param_layout, temp_layout);
+                                          const TrainingLayouts &layouts) {
+  report_renderer_.report_init_config(cfg, layouts);
 }
 
 void ReportingObserver::init_topology_ready(const NamedLayout &param_layout,

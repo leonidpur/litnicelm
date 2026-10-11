@@ -9,7 +9,7 @@
 namespace {
 void push_slice(std::vector<LayoutSlice> &out, uint64_t alignment,
                 const std::string &name, uint64_t bytes, uint64_t &cursor,
-                DType dtype = DType::F32) {
+                DType dtype) {
   cursor = NamedLayout::align_up(cursor, alignment);
   out.push_back(LayoutSlice{name, cursor, bytes, dtype});
   cursor += bytes;
@@ -18,13 +18,12 @@ void push_slice(std::vector<LayoutSlice> &out, uint64_t alignment,
 struct ParamSliceSpec {
   std::string name;
   uint64_t bytes = 0;
-  DType dtype = DType::F32;
+  DType dtype;
   bool apply_weight_decay = true;
 };
 
 void append_param_spec(std::vector<ParamSliceSpec> &out, const std::string &name,
-                       uint64_t bytes, bool apply_weight_decay,
-                       DType dtype = DType::F32) {
+                       uint64_t bytes, bool apply_weight_decay, DType dtype) {
   out.push_back(ParamSliceSpec{name, bytes, dtype, apply_weight_decay});
 }
 }
@@ -43,8 +42,26 @@ DType NamedLayout::uniform_dtype() const {
   return dtype;
 }
 
+std::optional<TensorView> NamedLayout::zone_view(void *base, Device device,
+                                                 DecayZone zone) const {
+  const uint64_t offset = zone == DecayZone::Decay ? 0 : decay_bytes_;
+  const uint64_t bytes =
+      zone == DecayZone::Decay ? decay_bytes_ : total_bytes_ - decay_bytes_;
+  if (bytes == 0) {
+    return std::nullopt;
+  }
+  const DType dtype = uniform_dtype();
+  const uint64_t elem = dtype_size(dtype);
+  if ((offset % elem) != 0 || (bytes % elem) != 0) {
+    throw std::runtime_error("NamedLayout::zone_view: zone not aligned to the element size");
+  }
+  return TensorView(device, dtype, reinterpret_cast<uint8_t *>(base) + offset,
+                    Shape{1, static_cast<int64_t>(bytes / elem)});
+}
+
 NamedLayout NamedLayout::build_param_layout(const Config &cfg,
-                                            const ModelAlgoFactory &algo) {
+                                            const ModelAlgoFactory &algo,
+                                            DType dtype) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -59,89 +76,89 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
   std::vector<ParamSliceSpec> specs;
   append_param_spec(specs, "tok_embedding",
                     NamedLayout::tensor_bytes(cfg.model.vocab_size,
-                                              cfg.model.d_model, DType::F32,
+                                              cfg.model.d_model, dtype,
                                               "tok_embedding"),
-                    true);
+                    true, dtype);
   if (algo.create_position_encoding(cfg)->needs_position_table()) {
     append_param_spec(specs, "pos_embedding",
                       NamedLayout::tensor_bytes(cfg.model.max_seq_len,
-                                                cfg.model.d_model, DType::F32,
+                                                cfg.model.d_model, dtype,
                                                 "pos_embedding"),
-                      true);
+                      true, dtype);
   }
 
   for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "layer" + std::to_string(l) + ".";
 
     append_param_spec(specs, p + "ln1_gamma",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                                 "ln1_gamma"),
-                      false);
+                      false, dtype);
     append_param_spec(specs, p + "ln1_beta",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                                 "ln1_beta"),
-                      false);
+                      false, dtype);
 
     append_param_spec(specs, p + "attn_qkv_w",
                       NamedLayout::tensor_bytes(cfg.model.d_model,
                                                 3 * cfg.model.d_model,
-                                                DType::F32, "attn_qkv_w"),
-                      true);
+                                                dtype, "attn_qkv_w"),
+                      true, dtype);
     append_param_spec(specs, p + "attn_qkv_b",
                       NamedLayout::tensor_bytes(1, 3 * cfg.model.d_model,
-                                                DType::F32, "attn_qkv_b"),
-                      false);
+                                                dtype, "attn_qkv_b"),
+                      false, dtype);
 
     append_param_spec(specs, p + "attn_out_w",
                       NamedLayout::tensor_bytes(cfg.model.d_model,
-                                                cfg.model.d_model, DType::F32,
+                                                cfg.model.d_model, dtype,
                                                 "attn_out_w"),
-                      true);
+                      true, dtype);
     append_param_spec(specs, p + "attn_out_b",
                       NamedLayout::tensor_bytes(1, cfg.model.d_model,
-                                                DType::F32, "attn_out_b"),
-                      false);
+                                                dtype, "attn_out_b"),
+                      false, dtype);
 
     append_param_spec(specs, p + "ln2_gamma",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                                 "ln2_gamma"),
-                      false);
+                      false, dtype);
     append_param_spec(specs, p + "ln2_beta",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                                 "ln2_beta"),
-                      false);
+                      false, dtype);
 
     append_param_spec(specs, p + "ffn_w1",
                       NamedLayout::tensor_bytes(cfg.model.d_model, cfg.model.d_ff,
-                                                DType::F32, "ffn_w1"),
-                      true);
+                                                dtype, "ffn_w1"),
+                      true, dtype);
     append_param_spec(specs, p + "ffn_b1",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_ff, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_ff, dtype,
                                                 "ffn_b1"),
-                      false);
+                      false, dtype);
     append_param_spec(specs, p + "ffn_w2",
                       NamedLayout::tensor_bytes(cfg.model.d_ff, cfg.model.d_model,
-                                                DType::F32, "ffn_w2"),
-                      true);
+                                                dtype, "ffn_w2"),
+                      true, dtype);
     append_param_spec(specs, p + "ffn_b2",
-                      NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                      NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                                 "ffn_b2"),
-                      false);
+                      false, dtype);
   }
 
   append_param_spec(specs, "lnf_gamma",
-                    NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                    NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                               "lnf_gamma"),
-                    false);
+                    false, dtype);
   append_param_spec(specs, "lnf_beta",
-                    NamedLayout::tensor_bytes(1, cfg.model.d_model, DType::F32,
+                    NamedLayout::tensor_bytes(1, cfg.model.d_model, dtype,
                                               "lnf_beta"),
-                    false);
+                    false, dtype);
   append_param_spec(specs, "lm_head_w",
                     NamedLayout::tensor_bytes(cfg.model.d_model,
                                               cfg.model.vocab_size,
-                                              DType::F32, "lm_head_w"),
-                    true);
+                                              dtype, "lm_head_w"),
+                    true, dtype);
 
   uint64_t decay_cursor = 0;
   for (const auto &spec : specs) {
@@ -170,7 +187,7 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
 }
 
 NamedLayout NamedLayout::build_training_temp_layout(
-    const Config &cfg, const ModelAlgoFactory &algo) {
+    const Config &cfg, const ModelAlgoFactory &algo, DType dtype) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -207,138 +224,138 @@ NamedLayout NamedLayout::build_training_temp_layout(
              DType::I32);
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.logits",
-             NamedLayout::tensor_bytes(T, V, DType::F32, "tr.logits"), cursor);
+             NamedLayout::tensor_bytes(T, V, dtype, "tr.logits"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.loss",
-             NamedLayout::tensor_bytes(1, 1, DType::F32, "tr.loss"), cursor);
+             NamedLayout::tensor_bytes(1, 1, dtype, "tr.loss"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.X",
-             NamedLayout::tensor_bytes(T, D, DType::F32, "tr.X"), cursor);
+             NamedLayout::tensor_bytes(T, D, dtype, "tr.X"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.Y",
-             NamedLayout::tensor_bytes(T, D, DType::F32, "tr.Y"), cursor);
+             NamedLayout::tensor_bytes(T, D, dtype, "tr.Y"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.Xn",
-             NamedLayout::tensor_bytes(T, D, DType::F32, "tr.Xn"), cursor);
+             NamedLayout::tensor_bytes(T, D, dtype, "tr.Xn"), cursor, dtype);
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.XnT",
-             NamedLayout::tensor_bytes(D, T, DType::F32, "bw.XnT"), cursor);
+             NamedLayout::tensor_bytes(D, T, dtype, "bw.XnT"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.lm_wT",
-             NamedLayout::tensor_bytes(V, D, DType::F32, "bw.lm_wT"), cursor);
+             NamedLayout::tensor_bytes(V, D, dtype, "bw.lm_wT"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.d_xn",
-             NamedLayout::tensor_bytes(T, D, DType::F32, "bw.d_xn"), cursor);
+             NamedLayout::tensor_bytes(T, D, dtype, "bw.d_xn"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.d_xlast",
-             NamedLayout::tensor_bytes(T, D, DType::F32, "bw.d_xlast"), cursor);
+             NamedLayout::tensor_bytes(T, D, dtype, "bw.d_xlast"), cursor, dtype);
 
   for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "layer" + std::to_string(l) + ".";
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ln1",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.ln1"), cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.ln1"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "bw.d_prev",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "bw.d_prev"), cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "bw.d_prev"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn_out",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.attn_out"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.attn_out"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "resid1",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.resid1"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.resid1"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ln2",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.ln2"), cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.ln2"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn_out",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.ffn_out"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.ffn_out"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "hidden",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.hidden"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.hidden"),
+               cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.qkv",
-               NamedLayout::tensor_bytes(T, 3 * D, DType::F32, "attn.qkv"),
-               cursor);
+               NamedLayout::tensor_bytes(T, 3 * D, dtype, "attn.qkv"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.context",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "attn.context"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "attn.context"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.scores",
-               NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.scores"),
-               cursor);
+               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.scores"),
+               cursor, dtype);
     if (algo.attention_needs_weights_buffer()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
-                 NamedLayout::tensor_bytes(T, train_seq, DType::F32,
+                 NamedLayout::tensor_bytes(T, train_seq, dtype,
                                            "attn.weights"),
-                 cursor);
+                 cursor, dtype);
     }
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights_cache",
-               NamedLayout::tensor_bytes(cfg.model.n_heads * T, train_seq, DType::F32,
+               NamedLayout::tensor_bytes(cfg.model.n_heads * T, train_seq, dtype,
                                          "attn.weights_cache"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.head",
-               NamedLayout::tensor_bytes(T, dh, DType::F32, "attn.head"), cursor);
+               NamedLayout::tensor_bytes(T, dh, dtype, "attn.head"), cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
-               NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.h"), cursor);
+               NamedLayout::tensor_bytes(T, F, dtype, "ffn.h"), cursor, dtype);
     if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.a",
-                 NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.a"), cursor);
+                 NamedLayout::tensor_bytes(T, F, dtype, "ffn.a"), cursor, dtype);
     }
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "dln2",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.dln2"), cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.dln2"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "dy_ln2",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.dy_ln2"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.dy_ln2"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "dy_total",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.dy_total"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.dy_total"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "dln1",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.dln1"), cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.dln1"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "dx_ln1",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "layer.dx_ln1"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "layer.dx_ln1"),
+               cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.contextT",
-               NamedLayout::tensor_bytes(D, T, DType::F32, "attn.contextT"),
-               cursor);
+               NamedLayout::tensor_bytes(D, T, dtype, "attn.contextT"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.WoT",
-               NamedLayout::tensor_bytes(D, D, DType::F32, "attn.WoT"), cursor);
+               NamedLayout::tensor_bytes(D, D, dtype, "attn.WoT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dcontext",
-               NamedLayout::tensor_bytes(T, D, DType::F32, "attn.dcontext"),
-               cursor);
+               NamedLayout::tensor_bytes(T, D, dtype, "attn.dcontext"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dqkv",
-               NamedLayout::tensor_bytes(T, 3 * D, DType::F32, "attn.dqkv"),
-               cursor);
+               NamedLayout::tensor_bytes(T, 3 * D, dtype, "attn.dqkv"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.KhT",
-               NamedLayout::tensor_bytes(dh, T, DType::F32, "attn.KhT"), cursor);
+               NamedLayout::tensor_bytes(dh, T, dtype, "attn.KhT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.VhT",
-               NamedLayout::tensor_bytes(dh, T, DType::F32, "attn.VhT"), cursor);
+               NamedLayout::tensor_bytes(dh, T, dtype, "attn.VhT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dweights",
-               NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.dweights"),
-               cursor);
+               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dweights"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weightsT",
-               NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.weightsT"),
-               cursor);
+               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.weightsT"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dscores",
-               NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.dscores"),
-               cursor);
+               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dscores"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dscoresT",
-               NamedLayout::tensor_bytes(T, train_seq, DType::F32, "attn.dscoresT"),
-               cursor);
+               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dscoresT"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.WqkvT",
-               NamedLayout::tensor_bytes(3 * D, D, DType::F32, "attn.WqkvT"),
-               cursor);
+               NamedLayout::tensor_bytes(3 * D, D, dtype, "attn.WqkvT"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.xT",
-               NamedLayout::tensor_bytes(D, T, DType::F32, "attn.xT"), cursor);
+               NamedLayout::tensor_bytes(D, T, dtype, "attn.xT"), cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.aT",
-               NamedLayout::tensor_bytes(F, T, DType::F32, "ffn.aT"), cursor);
+               NamedLayout::tensor_bytes(F, T, dtype, "ffn.aT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.W2T",
-               NamedLayout::tensor_bytes(D, F, DType::F32, "ffn.W2T"), cursor);
+               NamedLayout::tensor_bytes(D, F, dtype, "ffn.W2T"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.da",
-               NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.da"), cursor);
+               NamedLayout::tensor_bytes(T, F, dtype, "ffn.da"), cursor, dtype);
     if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.dh",
-                 NamedLayout::tensor_bytes(T, F, DType::F32, "ffn.dh"),
-                 cursor);
+                 NamedLayout::tensor_bytes(T, F, dtype, "ffn.dh"),
+                 cursor, dtype);
     }
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.xT",
-               NamedLayout::tensor_bytes(D, T, DType::F32, "ffn.xT"), cursor);
+               NamedLayout::tensor_bytes(D, T, dtype, "ffn.xT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.W1T",
-               NamedLayout::tensor_bytes(F, D, DType::F32, "ffn.W1T"), cursor);
+               NamedLayout::tensor_bytes(F, D, dtype, "ffn.W1T"), cursor, dtype);
   }
 
   layout.total_bytes_ = NamedLayout::align_up(cursor, cfg.memory.alignment_bytes);
@@ -347,7 +364,7 @@ NamedLayout NamedLayout::build_training_temp_layout(
 
 
 NamedLayout NamedLayout::build_inference_temp_layout(
-    const Config &cfg, const ModelAlgoFactory &algo) {
+    const Config &cfg, const ModelAlgoFactory &algo, DType dtype) {
   NamedLayout layout;
 
   if (cfg.memory.alignment_bytes == 0) {
@@ -377,76 +394,76 @@ NamedLayout NamedLayout::build_inference_temp_layout(
              NamedLayout::tensor_bytes(S, 1, DType::I32, "infer.ids"), cursor,
              DType::I32);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.logits",
-             NamedLayout::tensor_bytes(S, V, DType::F32, "infer.logits"),
-             cursor);
+             NamedLayout::tensor_bytes(S, V, dtype, "infer.logits"),
+             cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.X",
-             NamedLayout::tensor_bytes(S, D, DType::F32, "infer.X"), cursor);
+             NamedLayout::tensor_bytes(S, D, dtype, "infer.X"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.Y",
-             NamedLayout::tensor_bytes(S, D, DType::F32, "infer.Y"), cursor);
+             NamedLayout::tensor_bytes(S, D, dtype, "infer.Y"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.Xn",
-             NamedLayout::tensor_bytes(S, D, DType::F32, "infer.Xn"), cursor);
+             NamedLayout::tensor_bytes(S, D, dtype, "infer.Xn"), cursor, dtype);
 
   for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "infer.layer" + std::to_string(l) + ".";
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ln1",
-               NamedLayout::tensor_bytes(S, D, DType::F32, "infer.layer.ln1"),
-               cursor);
+               NamedLayout::tensor_bytes(S, D, dtype, "infer.layer.ln1"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn_out",
-               NamedLayout::tensor_bytes(S, D, DType::F32,
+               NamedLayout::tensor_bytes(S, D, dtype,
                                          "infer.layer.attn_out"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "resid1",
-               NamedLayout::tensor_bytes(S, D, DType::F32,
+               NamedLayout::tensor_bytes(S, D, dtype,
                                          "infer.layer.resid1"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ln2",
-               NamedLayout::tensor_bytes(S, D, DType::F32, "infer.layer.ln2"),
-               cursor);
+               NamedLayout::tensor_bytes(S, D, dtype, "infer.layer.ln2"),
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn_out",
-               NamedLayout::tensor_bytes(S, D, DType::F32,
+               NamedLayout::tensor_bytes(S, D, dtype,
                                          "infer.layer.ffn_out"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "hidden",
-               NamedLayout::tensor_bytes(S, D, DType::F32,
+               NamedLayout::tensor_bytes(S, D, dtype,
                                          "infer.layer.hidden"),
-               cursor);
+               cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.qkv",
-               NamedLayout::tensor_bytes(S, 3 * D, DType::F32,
+               NamedLayout::tensor_bytes(S, 3 * D, dtype,
                                          "infer.attn.qkv"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.context",
-               NamedLayout::tensor_bytes(S, D, DType::F32,
+               NamedLayout::tensor_bytes(S, D, dtype,
                                          "infer.attn.context"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.scores",
-               NamedLayout::tensor_bytes(S, S, DType::F32,
+               NamedLayout::tensor_bytes(S, S, dtype,
                                          "infer.attn.scores"),
-               cursor);
+               cursor, dtype);
     if (algo.attention_needs_weights_buffer()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
-                 NamedLayout::tensor_bytes(S, S, DType::F32,
+                 NamedLayout::tensor_bytes(S, S, dtype,
                                            "infer.attn.weights"),
-                 cursor);
+                 cursor, dtype);
     }
     push_slice(layout.slices_, cfg.memory.alignment_bytes,
                p + "attn.weights_cache",
-               NamedLayout::tensor_bytes(H * S, S, DType::F32,
+               NamedLayout::tensor_bytes(H * S, S, dtype,
                                          "infer.attn.weights_cache"),
-               cursor);
+               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.head",
-               NamedLayout::tensor_bytes(S, dh, DType::F32,
+               NamedLayout::tensor_bytes(S, dh, dtype,
                                          "infer.attn.head"),
-               cursor);
+               cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
-               NamedLayout::tensor_bytes(S, F, DType::F32, "infer.ffn.h"),
-               cursor);
+               NamedLayout::tensor_bytes(S, F, dtype, "infer.ffn.h"),
+               cursor, dtype);
     if (algo.ffn_needs_activation_buffers()) {
       push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.a",
-                 NamedLayout::tensor_bytes(S, F, DType::F32, "infer.ffn.a"),
-                 cursor);
+                 NamedLayout::tensor_bytes(S, F, dtype, "infer.ffn.a"),
+                 cursor, dtype);
     }
   }
 
@@ -455,6 +472,7 @@ NamedLayout NamedLayout::build_inference_temp_layout(
 }
 
 NamedLayout NamedLayout::build_temp_layout(const Config &cfg,
-                                           const ModelAlgoFactory &algo) {
-  return build_training_temp_layout(cfg, algo);
+                                           const ModelAlgoFactory &algo,
+                                           DType dtype) {
+  return build_training_temp_layout(cfg, algo, dtype);
 }

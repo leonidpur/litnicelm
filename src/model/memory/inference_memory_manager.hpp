@@ -3,6 +3,7 @@
 #include "arena.hpp"
 #include "checkpoint.hpp"
 #include "named_layout.hpp"
+#include "precision_policy.hpp"
 #include "tensor_store.hpp"
 
 #include <config.hpp>
@@ -33,6 +34,7 @@ public:
 private:
   const Config &cfg_;
   DeviceBackend &backend_;
+  const PrecisionPolicy precision_;
   NamedLayout param_layout_;
   NamedLayout temp_layout_;
   std::unique_ptr<Arena> param_arena_;

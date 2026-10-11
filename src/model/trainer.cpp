@@ -17,32 +17,16 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <sstream>
 #include <string>
 
-namespace {
-TensorView make_flat_zone_view(const ArenaView &arena, uint64_t offset_bytes,
-                               uint64_t zone_bytes, DType dtype) {
-  const uint64_t elem = dtype_size(dtype);
-  if ((offset_bytes % elem) != 0 || (zone_bytes % elem) != 0) {
-    throw std::runtime_error("make_flat_zone_view: zone not aligned to the element size");
-  }
-  if (offset_bytes + zone_bytes > arena.bytes) {
-    throw std::runtime_error("make_flat_zone_view: zone out of bounds");
-  }
-  uint8_t *base = reinterpret_cast<uint8_t *>(arena.base);
-  void *ptr = base + offset_bytes;
-  const int64_t elems = static_cast<int64_t>(zone_bytes / elem);
-  return TensorView(arena.device, dtype, ptr, Shape{1, elems});
-}
-} // namespace
 
 Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
                  OptimizerAdamW &opt, Transformer &transformer,
-                 const ArenaView &data_arena, const ArenaView &grad_arena,
-                 const ArenaView &grad_sum_arena,
-                 GradientStore &gradient_store, uint64_t decay_bytes,
+                 const ArenaView &data_arena, const ArenaView &grad_sum_arena,
+                 GradientStore &gradient_store, AdamStateStore &adam_state_store,
                  const AdamStateView &adam_state,
                  DeviceBackend &device_backend,
                  TrainingSessionController &session_controller,
@@ -53,9 +37,8 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
       opt_(opt),
       transformer_(transformer),
       data_arena_(data_arena),
-      grad_arena_(grad_arena),
       gradientStore_(gradient_store),
-      decay_bytes_(decay_bytes),
+      adamStateStore_(adam_state_store),
       adam_state_(adam_state),
       runtime_flags_(runtime_flags),
       device_backend_(device_backend),
@@ -64,10 +47,6 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
                    device_backend, runtime_flags_, cfg),
       accumulator_(ops, cfg.training.batches_per_step,
                    gradient_store.full_gradient_view(), grad_sum_arena) {
-  if (decay_bytes_ > data_arena_.bytes || decay_bytes_ > grad_arena_.bytes ||
-      decay_bytes_ > (adam_state_.bytes / 2)) {
-    throw std::runtime_error("Trainer: decay zone exceeds arena bounds");
-  }
   runtime_flags_.epoch_report_every =
       (runtime_flags_.epoch_report_every == 0)
           ? cfg_.logging.epoch_report_every
@@ -104,42 +83,20 @@ void Trainer::clip_gradients() {
   ops_.mul_scalar(grad_view, scale, grad_view);
 }
 
-void Trainer::apply_decay_zone_gradients(uint64_t step, float learning_rate) {
-  // Parameters, gradients and Adam state share the parameter layout's dtype.
-  const DType zone_dtype = gradientStore_.full_gradient_view().dtype();
-  if (decay_bytes_ == 0) {
+void Trainer::apply_zone_gradients(DecayZone zone, uint64_t step,
+                                   float learning_rate) {
+  std::optional<TensorView> params = tensorStore_.param_zone_view(zone);
+  if (!params) {
     return;
   }
-  TensorView params = make_flat_zone_view(data_arena_, 0, decay_bytes_, zone_dtype);
-  TensorView grads = make_flat_zone_view(grad_arena_, 0, decay_bytes_, zone_dtype);
-  TensorView m = make_flat_zone_view(
-      ArenaView{adam_state_.base, adam_state_.bytes / 2, adam_state_.device}, 0,
-      decay_bytes_, zone_dtype);
-  TensorView v = make_flat_zone_view(
-      ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
-                adam_state_.bytes / 2, adam_state_.device},
-      0, decay_bytes_, zone_dtype);
-  opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, true);
-}
-
-void Trainer::apply_no_decay_zone_gradients(uint64_t step,
-                                            float learning_rate) {
-  // Parameters, gradients and Adam state share the parameter layout's dtype.
-  const DType zone_dtype = gradientStore_.full_gradient_view().dtype();
-  const uint64_t no_decay_bytes = data_arena_.bytes - decay_bytes_;
-  if (no_decay_bytes == 0) {
-    return;
+  std::optional<TensorView> grads = gradientStore_.zone_view(zone);
+  std::optional<TensorView> m = adamStateStore_.m_zone_view(zone);
+  std::optional<TensorView> v = adamStateStore_.v_zone_view(zone);
+  if (!grads || !m || !v) {
+    throw std::runtime_error("Trainer: decay zones of parameters and their state differ");
   }
-  TensorView params = make_flat_zone_view(data_arena_, decay_bytes_, no_decay_bytes, zone_dtype);
-  TensorView grads = make_flat_zone_view(grad_arena_, decay_bytes_, no_decay_bytes, zone_dtype);
-  TensorView m = make_flat_zone_view(
-      ArenaView{adam_state_.base, adam_state_.bytes / 2, adam_state_.device},
-      decay_bytes_, no_decay_bytes, zone_dtype);
-  TensorView v = make_flat_zone_view(
-      ArenaView{reinterpret_cast<uint8_t *>(adam_state_.base) + (adam_state_.bytes / 2),
-                adam_state_.bytes / 2, adam_state_.device},
-      decay_bytes_, no_decay_bytes, zone_dtype);
-  opt_.step(cfg_.training, learning_rate, params, grads, m, v, step, false);
+  opt_.step(cfg_.training, learning_rate, *params, *grads, *m, *v, step,
+            /*apply_weight_decay=*/zone == DecayZone::Decay);
 }
 
 double Trainer::train_one_batch(const TrainBatch &batch, BatchInEpoch in_epoch,
@@ -209,8 +166,8 @@ void Trainer::apply_optimizer_step(const TrainBatch &batch,
     diagnostics_.handle_nonfinite_grad_norm(
         batch, logits, err, [this]() { zero_gradients(); });
   }
-  apply_decay_zone_gradients(step, learning_rate);
-  apply_no_decay_zone_gradients(step, learning_rate);
+  apply_zone_gradients(DecayZone::Decay, step, learning_rate);
+  apply_zone_gradients(DecayZone::NoDecay, step, learning_rate);
 }
 
 ValidationResult Trainer::evaluate(IDataLoader &val_dataset) {
@@ -338,10 +295,9 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
 
   Trainer trainer(runtime_cfg, memory_manager.tensor_store(), ops, opt, transformer,
                   memory_manager.data_arena(),
-                  memory_manager.grad_arena(),
                   memory_manager.grad_sum_arena(),
                   memory_manager.gradient_store(),
-                  memory_manager.param_layout().decay_bytes(),
+                  memory_manager.adam_state_store(),
                   memory_manager.adam_state(), *backend, session_controller,
                   cmd.runtime_flags);
   

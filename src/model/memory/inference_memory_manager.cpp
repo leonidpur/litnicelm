@@ -1,5 +1,6 @@
 #include "inference_memory_manager.hpp"
 
+#include "adam_state_store.hpp"
 #include "backend/device_backend.hpp"
 
 #include <stdexcept>
@@ -9,15 +10,21 @@ InferenceMemoryManager::InferenceMemoryManager(
     DeviceBackend &backend)
     : cfg_(cfg),
       backend_(backend),
-      param_layout_(NamedLayout::build_param_layout(cfg, algo)),
-      temp_layout_(NamedLayout::build_inference_temp_layout(cfg, algo)) {
+      precision_(PrecisionPolicy::from_config(cfg)),
+      param_layout_(NamedLayout::build_param_layout(
+          cfg, algo, precision_.dtype(TensorRole::Parameter))),
+      temp_layout_(NamedLayout::build_inference_temp_layout(
+          cfg, algo, precision_.dtype(TensorRole::Activation))) {
   const uint64_t param_bytes = param_layout_.total_bytes();
+  // Checkpoints carry AdamW m and v; inference loads them into this arena.
+  const uint64_t adam_bytes = AdamStateStore::arena_bytes(NamedLayout::build_param_layout(
+      cfg, algo, precision_.dtype(TensorRole::OptimizerState)));
   const uint64_t temp_bytes = temp_layout_.total_bytes();
   const Device device = backend_.device();
 
   param_arena_ = std::make_unique<Arena>(backend_, device, param_bytes,
                                          cfg_.memory.alignment_bytes);
-  adam_arena_ = std::make_unique<Arena>(backend_, device, param_bytes * 2,
+  adam_arena_ = std::make_unique<Arena>(backend_, device, adam_bytes,
                                         cfg_.memory.alignment_bytes);
   temp_arena_ = std::make_unique<Arena>(backend_, device, temp_bytes,
                                         cfg_.memory.alignment_bytes);

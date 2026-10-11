@@ -42,29 +42,38 @@ private:
 } // namespace
 
 GradientStore::GradientStore(const Config &cfg,
-                                 const ModelAlgoFactory &algo,
-                                 const NamedLayout &param_layout,
-                                 void *params_base, uint64_t params_bytes,
-                                 const ArenaView &grad_arena)
+                             const ModelAlgoFactory &algo,
+                             const NamedLayout &param_layout,
+                             const NamedLayout &grad_layout,
+                             void *params_base, uint64_t params_bytes,
+                             const ArenaView &grad_arena)
     : cfg_(cfg),
       params_base_(reinterpret_cast<uint8_t *>(params_base)),
       params_bytes_(params_bytes),
       grad_base_(reinterpret_cast<uint8_t *>(grad_arena.base)),
       grad_bytes_(grad_arena.bytes),
       device_(grad_arena.device),
+      grad_layout_(grad_layout),
       full_gradient_view_(
-          grad_arena.device, param_layout.uniform_dtype(), grad_arena.base,
-          Shape{static_cast<int64_t>(param_layout.total_bytes() /
-                                     dtype_size(param_layout.uniform_dtype())),
+          grad_arena.device, grad_layout.uniform_dtype(), grad_arena.base,
+          Shape{static_cast<int64_t>(grad_layout.total_bytes() /
+                                     dtype_size(grad_layout.uniform_dtype())),
                 1}) {
   require(params_base_ != nullptr, "params_base is null");
   require(params_bytes_ > 0, "params_bytes must be > 0");
   require(grad_base_ != nullptr, "grad_arena.base is null");
-  require(grad_bytes_ >= param_layout.total_bytes(),
-          "grad arena must cover parameter layout bytes");
-  require((param_layout.total_bytes() % dtype_size(param_layout.uniform_dtype())) == 0,
-          "param layout bytes must be a multiple of the element size");
+  require(grad_bytes_ >= grad_layout.total_bytes(),
+          "grad arena must cover the gradient layout");
+  require((grad_layout.total_bytes() % dtype_size(grad_layout.uniform_dtype())) == 0,
+          "gradient layout bytes must be a multiple of the element size");
+  for (const LayoutSlice &s : grad_layout.slices()) {
+    grad_slice_by_name_.emplace(s.name, s);
+  }
   build_gradient_views(param_layout, algo);
+}
+
+std::optional<TensorView> GradientStore::zone_view(DecayZone zone) const {
+  return grad_layout_.zone_view(grad_base_, device_, zone);
 }
 
 TensorView GradientStore::grad_for_param(const TensorView &param) const {
@@ -92,17 +101,17 @@ void GradientStore::build_gradient_views(
   const LayoutSlice &tok_embedding_slice = cursor.next("tok_embedding");
   register_gradient_slot(
       "tok_embedding",
-      make_param_view_f32(tok_embedding_slice, {vocab_size, model_dim}),
-      make_grad_view_f32(tok_embedding_slice, {vocab_size, model_dim}));
+      make_param_view(tok_embedding_slice, {vocab_size, model_dim}),
+      make_grad_view(tok_embedding_slice, {vocab_size, model_dim}));
 
   if (algo.create_position_encoding(cfg_)->needs_position_table()) {
     const LayoutSlice &pos_embedding_slice = cursor.next("pos_embedding");
     register_gradient_slot(
         "pos_embedding",
-        make_param_view_f32(
+        make_param_view(
             pos_embedding_slice,
             {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}),
-        make_grad_view_f32(
+        make_grad_view(
             pos_embedding_slice,
             {static_cast<int64_t>(cfg_.model.max_seq_len), model_dim}));
   }
@@ -112,84 +121,84 @@ void GradientStore::build_gradient_views(
 
     const LayoutSlice &ln1_gamma_slice = cursor.next(lname(l, "ln1_gamma"));
     register_gradient_slot(lname(l, "ln1_gamma"),
-                           make_param_view_f32(ln1_gamma_slice, {1, model_dim}),
-                           make_grad_view_f32(ln1_gamma_slice, {1, model_dim}));
+                           make_param_view(ln1_gamma_slice, {1, model_dim}),
+                           make_grad_view(ln1_gamma_slice, {1, model_dim}));
 
     const LayoutSlice &ln1_beta_slice = cursor.next(lname(l, "ln1_beta"));
     register_gradient_slot(lname(l, "ln1_beta"),
-                           make_param_view_f32(ln1_beta_slice, {1, model_dim}),
-                           make_grad_view_f32(ln1_beta_slice, {1, model_dim}));
+                           make_param_view(ln1_beta_slice, {1, model_dim}),
+                           make_grad_view(ln1_beta_slice, {1, model_dim}));
 
     const LayoutSlice &attn_qkv_w_slice = cursor.next(lname(l, "attn_qkv_w"));
     register_gradient_slot(
         lname(l, "attn_qkv_w"),
-        make_param_view_f32(attn_qkv_w_slice, {model_dim, qkv_dim}),
-        make_grad_view_f32(attn_qkv_w_slice, {model_dim, qkv_dim}));
+        make_param_view(attn_qkv_w_slice, {model_dim, qkv_dim}),
+        make_grad_view(attn_qkv_w_slice, {model_dim, qkv_dim}));
 
     const LayoutSlice &attn_qkv_b_slice = cursor.next(lname(l, "attn_qkv_b"));
     register_gradient_slot(lname(l, "attn_qkv_b"),
-                           make_param_view_f32(attn_qkv_b_slice, {1, qkv_dim}),
-                           make_grad_view_f32(attn_qkv_b_slice, {1, qkv_dim}));
+                           make_param_view(attn_qkv_b_slice, {1, qkv_dim}),
+                           make_grad_view(attn_qkv_b_slice, {1, qkv_dim}));
 
     const LayoutSlice &attn_out_w_slice = cursor.next(lname(l, "attn_out_w"));
     register_gradient_slot(
         lname(l, "attn_out_w"),
-        make_param_view_f32(attn_out_w_slice, {model_dim, model_dim}),
-        make_grad_view_f32(attn_out_w_slice, {model_dim, model_dim}));
+        make_param_view(attn_out_w_slice, {model_dim, model_dim}),
+        make_grad_view(attn_out_w_slice, {model_dim, model_dim}));
 
     const LayoutSlice &attn_out_b_slice = cursor.next(lname(l, "attn_out_b"));
     register_gradient_slot(lname(l, "attn_out_b"),
-                           make_param_view_f32(attn_out_b_slice, {1, model_dim}),
-                           make_grad_view_f32(attn_out_b_slice, {1, model_dim}));
+                           make_param_view(attn_out_b_slice, {1, model_dim}),
+                           make_grad_view(attn_out_b_slice, {1, model_dim}));
 
     const LayoutSlice &ln2_gamma_slice = cursor.next(lname(l, "ln2_gamma"));
     register_gradient_slot(lname(l, "ln2_gamma"),
-                           make_param_view_f32(ln2_gamma_slice, {1, model_dim}),
-                           make_grad_view_f32(ln2_gamma_slice, {1, model_dim}));
+                           make_param_view(ln2_gamma_slice, {1, model_dim}),
+                           make_grad_view(ln2_gamma_slice, {1, model_dim}));
 
     const LayoutSlice &ln2_beta_slice = cursor.next(lname(l, "ln2_beta"));
     register_gradient_slot(lname(l, "ln2_beta"),
-                           make_param_view_f32(ln2_beta_slice, {1, model_dim}),
-                           make_grad_view_f32(ln2_beta_slice, {1, model_dim}));
+                           make_param_view(ln2_beta_slice, {1, model_dim}),
+                           make_grad_view(ln2_beta_slice, {1, model_dim}));
 
     const LayoutSlice &ffn_w1_slice = cursor.next(lname(l, "ffn_w1"));
     register_gradient_slot(
         lname(l, "ffn_w1"),
-        make_param_view_f32(ffn_w1_slice, {model_dim, ffn_dim}),
-        make_grad_view_f32(ffn_w1_slice, {model_dim, ffn_dim}));
+        make_param_view(ffn_w1_slice, {model_dim, ffn_dim}),
+        make_grad_view(ffn_w1_slice, {model_dim, ffn_dim}));
 
     const LayoutSlice &ffn_b1_slice = cursor.next(lname(l, "ffn_b1"));
     register_gradient_slot(lname(l, "ffn_b1"),
-                           make_param_view_f32(ffn_b1_slice, {1, ffn_dim}),
-                           make_grad_view_f32(ffn_b1_slice, {1, ffn_dim}));
+                           make_param_view(ffn_b1_slice, {1, ffn_dim}),
+                           make_grad_view(ffn_b1_slice, {1, ffn_dim}));
 
     const LayoutSlice &ffn_w2_slice = cursor.next(lname(l, "ffn_w2"));
     register_gradient_slot(
         lname(l, "ffn_w2"),
-        make_param_view_f32(ffn_w2_slice, {ffn_dim, model_dim}),
-        make_grad_view_f32(ffn_w2_slice, {ffn_dim, model_dim}));
+        make_param_view(ffn_w2_slice, {ffn_dim, model_dim}),
+        make_grad_view(ffn_w2_slice, {ffn_dim, model_dim}));
 
     const LayoutSlice &ffn_b2_slice = cursor.next(lname(l, "ffn_b2"));
     register_gradient_slot(lname(l, "ffn_b2"),
-                           make_param_view_f32(ffn_b2_slice, {1, model_dim}),
-                           make_grad_view_f32(ffn_b2_slice, {1, model_dim}));
+                           make_param_view(ffn_b2_slice, {1, model_dim}),
+                           make_grad_view(ffn_b2_slice, {1, model_dim}));
   }
 
   const LayoutSlice &lnf_gamma_slice = cursor.next("lnf_gamma");
   register_gradient_slot("lnf_gamma",
-                         make_param_view_f32(lnf_gamma_slice, {1, model_dim}),
-                         make_grad_view_f32(lnf_gamma_slice, {1, model_dim}));
+                         make_param_view(lnf_gamma_slice, {1, model_dim}),
+                         make_grad_view(lnf_gamma_slice, {1, model_dim}));
 
   const LayoutSlice &lnf_beta_slice = cursor.next("lnf_beta");
   register_gradient_slot("lnf_beta",
-                         make_param_view_f32(lnf_beta_slice, {1, model_dim}),
-                         make_grad_view_f32(lnf_beta_slice, {1, model_dim}));
+                         make_param_view(lnf_beta_slice, {1, model_dim}),
+                         make_grad_view(lnf_beta_slice, {1, model_dim}));
 
   const LayoutSlice &lm_head_w_slice = cursor.next("lm_head_w");
   register_gradient_slot(
       "lm_head_w",
-      make_param_view_f32(lm_head_w_slice, {model_dim, vocab_size}),
-      make_grad_view_f32(lm_head_w_slice, {model_dim, vocab_size}));
+      make_param_view(lm_head_w_slice, {model_dim, vocab_size}),
+      make_grad_view(lm_head_w_slice, {model_dim, vocab_size}));
 
   cursor.finish();
 }
@@ -223,27 +232,31 @@ std::string GradientStore::first_nonfinite_diagnostic(
   return "no named gradient slot with non-finite values was found";
 }
 
-TensorView GradientStore::make_param_view_f32(const LayoutSlice &s,
-                                                Shape shape) const {
-  const uint64_t expected = nbytes(shape, DType::F32);
+TensorView GradientStore::make_param_view(const LayoutSlice &s,
+                                         Shape shape) const {
+  const uint64_t expected = nbytes(shape, s.dtype);
   require(expected == s.bytes,
           "shape bytes mismatch for " + s.name + ": expected " +
               std::to_string(expected) + " got " + std::to_string(s.bytes));
   require(s.offset + s.bytes <= params_bytes_, "slice out of bounds: " + s.name);
   void *ptr = params_base_ + s.offset;
-  return TensorView(device_, DType::F32, ptr, shape);
+  return TensorView(device_, s.dtype, ptr, shape);
 }
 
-TensorView GradientStore::make_grad_view_f32(const LayoutSlice &s,
-                                               Shape shape) const {
-  const uint64_t expected = nbytes(shape, DType::F32);
+TensorView GradientStore::make_grad_view(const LayoutSlice &param_slice,
+                                        Shape shape) const {
+  const auto it = grad_slice_by_name_.find(param_slice.name);
+  require(it != grad_slice_by_name_.end(),
+          "no gradient slice for " + param_slice.name);
+  const LayoutSlice &s = it->second;
+  const uint64_t expected = nbytes(shape, s.dtype);
   require(expected == s.bytes,
-          "shape bytes mismatch for " + s.name + ": expected " +
+          "gradient shape bytes mismatch for " + s.name + ": expected " +
               std::to_string(expected) + " got " + std::to_string(s.bytes));
   require(s.offset + s.bytes <= grad_bytes_,
           "gradient slice out of bounds: " + s.name);
   void *ptr = grad_base_ + s.offset;
-  return TensorView(device_, DType::F32, ptr, shape);
+  return TensorView(device_, s.dtype, ptr, shape);
 }
 
 void GradientStore::check_layer(int layer) const {
