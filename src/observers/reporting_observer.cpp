@@ -1,6 +1,7 @@
 #include "reporting_observer.hpp"
 
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "observers_events.hpp"
 #include "report_renderer.hpp"
 #include "tensor_probe.hpp"
 
@@ -32,7 +33,7 @@ void ReportingObserver::runtime_cfg_ready(const Config &cfg) {
       << ", train_seq_len=" << cfg.training.train_seq_len
       << ", window_stride=" << cfg.training.window_stride
       << ", max_seq_len=" << cfg.model.max_seq_len;
-  logger().log(EventId::TrainingHyperparams, oss.str());
+  logger().log(observers_events::kTrainingHyperparams, oss.str());
 }
 
 void ReportingObserver::init_config_ready(const Config &cfg,
@@ -67,7 +68,7 @@ void ReportingObserver::batch_step_ready(uint32_t batch_size,
     return;
   }
   batch_step_reported_ = true;
-  logger().log(EventId::BatchShape,
+  logger().log(observers_events::kBatchShape,
                "batch_size=" + std::to_string(batch_size) +
                    " seq_len=" + std::to_string(seq_len) +
                    " token_rows=" + std::to_string(token_rows) +
@@ -110,11 +111,11 @@ void ReportingObserver::init_tensors_xy_ready(const TensorView &X,
   };
   const std::string x_shape = shape_str(X);
   const std::string y_shape = shape_str(Y);
-  logger().log(EventId::ProbeInitTensorsXY,
+  logger().log(observers_events::kProbeInitTensorsXY,
                (x_shape == y_shape ? "X, Y: " + x_shape
                                    : "X: " + x_shape + ", Y: " + y_shape) +
                    " (batch × seq × d_model)");
   if (tok_emb.device() != Device::CPU || tok_emb.dtype() != DType::F32) {
-    logger().log(EventId::ProbeTokEmbPreviewSkipped);
+    logger().log(observers_events::kProbeTokEmbPreviewSkipped);
   }
 }

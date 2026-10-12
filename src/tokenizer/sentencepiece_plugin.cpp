@@ -1,6 +1,7 @@
 #include "sentencepiece_plugin.hpp"
 
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tokenizer_events.hpp"
 
 #include <filesystem>
 #include <stdexcept>
@@ -57,7 +58,7 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
   fs::create_directories(artifacts_dir);
   const std::string model_prefix = (fs::path(artifacts_dir) / "spm").string();
   logger().log(
-      EventId::SentencePieceTrainingStart,
+      tokenizer_events::kSentencePieceTrainingStart,
       "SentencePiece training started: corpus=" + corpus_path +
           ", artifacts=" + artifacts_dir + ", vocab_size=" +
           std::to_string(target_vocab_size));
@@ -74,12 +75,12 @@ void SentencePiecePlugin::train(const std::string &corpus_path,
   if (!status.ok()) {
     const std::string message =
         "SentencePiece training failed: " + status.ToString();
-    logger().log(EventId::TokenizerError, message);
+    logger().log(tokenizer_events::kTokenizerError, message);
     throw std::runtime_error(message);
   }
 
   logger().log(
-      EventId::TokenizerTrainingEnd,
+      tokenizer_events::kTokenizerTrainingEnd,
       "SentencePiece artifacts created: model=" +
           SentencePiecePluginUtils::model_path_for(artifacts_dir) + ", vocab=" +
           SentencePiecePluginUtils::vocab_path_for(artifacts_dir));

@@ -4,7 +4,8 @@
 #include "only_seen_chars_tokenizer_plugin.hpp"
 #include "sentencepiece_plugin.hpp"
 #include "tokenizer_plugin.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tokenizer_events.hpp"
 #include <config.hpp>
 #include "character_tokenizer.hpp"
 
@@ -91,14 +92,14 @@ std::unique_ptr<TokenizerPlugin> TokenizerFactory::create_plugin(
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (type == "bpe" || type == "sentencepiece" || type == "spm") {
-    logger().log(EventId::TokenizerPluginSelected,
+    logger().log(tokenizer_events::kTokenizerPluginSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " plugin=SentencePiecePlugin");
     return std::make_unique<SentencePiecePlugin>();
   }
 
   if (type == "character" || type == "char" || type == "bytes") {
-    logger().log(EventId::TokenizerPluginSelected,
+    logger().log(tokenizer_events::kTokenizerPluginSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " plugin=CharacterTokenizerPlugin vocab_size=" +
                      std::to_string(cfg.tokenizer.target_vocab_size));
@@ -108,7 +109,7 @@ std::unique_ptr<TokenizerPlugin> TokenizerFactory::create_plugin(
 
   if (type == "only_seen_chars" || type == "char_seen" ||
       type == "seen_chars") {
-    logger().log(EventId::TokenizerPluginSelected,
+    logger().log(tokenizer_events::kTokenizerPluginSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " plugin=OnlySeenCharsTokenizer vocab_size=" +
                      std::to_string(cfg.tokenizer.target_vocab_size));
@@ -126,7 +127,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (type == "character" || type == "char" || type == "bytes") {
-    logger().log(EventId::TokenizerRuntimeSelected,
+    logger().log(tokenizer_events::kTokenizerRuntimeSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " tokenizer=CharacterTokenizer vocab_size=" +
                      std::to_string(cfg.tokenizer.target_vocab_size));
@@ -135,7 +136,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
 
   if (type == "bpe" || type == "sentencepiece" || type == "spm") {
     const std::string artifacts_dir = resolve_bpe_artifacts_dir(cfg);
-    logger().log(EventId::TokenizerRuntimeSelected,
+    logger().log(tokenizer_events::kTokenizerRuntimeSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " artifacts_dir=" + artifacts_dir);
     if (artifacts_dir.empty()) {
@@ -144,7 +145,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
     }
 
     auto tok = create_plugin(cfg);
-    logger().log(EventId::TokenizerLoaded, "plugin=" + std::string(tok->name()) +
+    logger().log(tokenizer_events::kTokenizerLoaded, "plugin=" + std::string(tok->name()) +
                                                " from " + artifacts_dir);
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(
@@ -156,7 +157,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
   if (type == "only_seen_chars" || type == "char_seen" ||
       type == "seen_chars") {
     const std::string artifacts_dir = resolve_bpe_artifacts_dir(cfg);
-    logger().log(EventId::TokenizerRuntimeSelected,
+    logger().log(tokenizer_events::kTokenizerRuntimeSelected,
                  "tokenizer.type=" + cfg.tokenizer.type + " resolved_type=" +
                      type + " artifacts_dir=" + artifacts_dir);
     if (artifacts_dir.empty()) {
@@ -165,7 +166,7 @@ std::unique_ptr<Tokenizer> TokenizerFactory::create(const Config &cfg) {
     }
     auto tok = std::make_unique<OnlySeenCharsTokenizerPlugin>(
         cfg.tokenizer.target_vocab_size);
-    logger().log(EventId::TokenizerLoaded, "plugin=" + std::string(tok->name()) +
+    logger().log(tokenizer_events::kTokenizerLoaded, "plugin=" + std::string(tok->name()) +
                                                " from " + artifacts_dir);
     if (!tok->load(artifacts_dir)) {
       throw std::runtime_error(

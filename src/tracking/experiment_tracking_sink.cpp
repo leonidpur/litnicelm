@@ -1,5 +1,6 @@
 #include "experiment_tracking_sink.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tracking_events.hpp"
 
 #include <chrono>
 #include <ctime>
@@ -194,7 +195,7 @@ void ExperimentTrackingSink::emit(const TrackingEventBuilder &event) {
     }
     char err[kErrLen] = {};
     if (sink.api->on_event(sink.instance, &ev, err, kErrLen) != 0) {
-      logger().log(EventId::TrackingSinkDisabled,
+      logger().log(tracking_events::kTrackingSinkDisabled,
                    std::string(sink.api->name) + " sink failed on " +
                        event.name_ + " event and is disabled: " + err);
       sink.enabled = false;

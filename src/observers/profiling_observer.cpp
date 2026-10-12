@@ -1,5 +1,6 @@
 #include "profiling_observer.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "observers_events.hpp"
 
 void ProfilingObserver::on_training_start(
     const TrainingPosition &training_position, uint64_t batches_per_epoch) {
@@ -14,7 +15,7 @@ void ProfilingObserver::on_training_end(const TrainingPosition &training_positio
   if (!summary.empty() && summary.back() == '\n') {
     summary.pop_back();
   }
-  logger().log(EventId::ProfilingSummary, summary);
+  logger().log(observers_events::kProfilingSummary, summary);
 }
 
 void ProfilingObserver::on_batch_start(uint64_t batch_idx) {

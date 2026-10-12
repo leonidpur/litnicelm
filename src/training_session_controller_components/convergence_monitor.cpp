@@ -1,5 +1,6 @@
 #include "convergence_monitor.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "training_session_controller_components_events.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -67,7 +68,7 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
     if (had_best) {
       oss << " (previous " << previous_best << ")";
     }
-    logger().log(EventId::NewBest, oss.str(),
+    logger().log(training_session_controller_components_events::kNewBest, oss.str(),
                 LogFields()
                     .u64("epoch", best_epoch_)
                     .f64("loss", best_loss_)
@@ -89,7 +90,7 @@ ConvergenceVerdict ConvergenceMonitor::observe(uint32_t epoch,
             << cfg_.training.min_epochs;
       }
     }
-    logger().log(EventId::NoImprovement, oss.str(),
+    logger().log(training_session_controller_components_events::kNoImprovement, oss.str(),
                 LogFields()
                     .u64("epoch", epoch)
                     .f64("loss", loss)
@@ -157,7 +158,7 @@ void ConvergenceMonitor::restore(const CheckpointConvergenceState &state,
   const bool saved_best_is_val =
       (state.flags & CheckpointConvergenceState::kBestIsVal) != 0;
   if (has_best_ && saved_best_is_val != judge_by_val_) {
-    logger().log(EventId::BestMetricChanged,
+    logger().log(training_session_controller_components_events::kBestMetricChanged,
                  std::string("checkpoint's best was judged on ") +
                      (saved_best_is_val ? "val" : "train") +
                      " loss, this run judges " + judged_loss_name() + " loss");
@@ -193,7 +194,7 @@ void ConvergenceMonitor::clear_persisted_stop_for_resume() {
   stop_reason_ = StopReason::None;
   stop_message_.clear();
   epochs_without_improvement_ = 0;
-  logger().log(EventId::PersistedStopCleared,
+  logger().log(training_session_controller_components_events::kPersistedStopCleared,
               "(" + restored_stop_reason +
                   "). Current run explicitly requested incremental resume, so "
                   "the persisted stop state and no-improvement counter are "
@@ -229,6 +230,6 @@ void ConvergenceMonitor::request_stop(StopReason reason,
   stop_requested_ = true;
   stop_reason_ = reason;
   stop_message_ = message;
-  logger().log(EventId::EarlyStopRequested, stop_message_,
+  logger().log(training_session_controller_components_events::kEarlyStopRequested, stop_message_,
               LogFields().str("reason", stop_message_));
 }

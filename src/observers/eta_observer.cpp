@@ -1,5 +1,6 @@
 #include "eta_observer.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "observers_events.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -48,7 +49,7 @@ ContinueTrainingDecision EtaObserver::on_epoch_end(uint32_t epoch,
         << training_position.optimizer_steps << " | epoch "
         << format_duration(epoch_elapsed) << ", total "
         << format_duration(elapsed) << ", " << get_eta_report(epoch);
-    logger().log(EventId::EpochProgress, oss.str());
+    logger().log(observers_events::kEpochProgress, oss.str());
   }
   return {};
 }
@@ -57,7 +58,7 @@ void EtaObserver::on_training_end(const TrainingPosition &training_position) {
   if (!plan_.dry_run()) {
     return;
   }
-  logger().log(EventId::EtaSummary,
+  logger().log(observers_events::kEtaSummary,
                get_dry_run_estimate(training_position.epoch));
 }
 

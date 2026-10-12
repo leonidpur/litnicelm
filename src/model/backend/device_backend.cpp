@@ -1,6 +1,8 @@
 #include "device_backend.hpp"
 #include "backend_plugin_api.hpp"
-#include "logger.hpp"
+#include "backend_events.hpp"
+
+#include <litnicelm_utils/log.hpp>
 
 #include <cerrno>
 #include <cmath>
@@ -187,7 +189,7 @@ public:
       throw std::runtime_error("DynamicLibraryBackend: failed to load " +
                                library_path + ": " + dlerror());
     }
-    logger().log(EventId::BackendLoaded, library_path);
+    logger().log(backend_events::kBackendLoaded, library_path);
 
     auto *get_api = reinterpret_cast<BackendGetApiFn>(
         dlsym(library_handle_, "litnice_backend_get_api"));

@@ -25,9 +25,13 @@ enum class EventType : uint8_t {
   Count
 };
 
-// One kind of logged event, defined by the component that logs it.
+// One kind of logged event. A component is a source folder; it defines all
+// its events in one catalog, <folder>/<folder>_events.hpp, inside namespace
+// <folder>_events.
 struct EventDef {
-  const char *name;    // stable machine name, for structured destinations
+  // Stable machine name for structured destinations: "<folder>.<event>",
+  // unique because folder names are.
+  const char *name;
   EventType type;
   const char *prefix;  // text written before the component's appendix
   const char *color = nullptr;  // ANSI color of the whole line on a console;
@@ -39,22 +43,6 @@ inline constexpr const char *kAnsiGreen = "\033[32m";
 inline constexpr const char *kAnsiYellow = "\033[33m";
 inline constexpr const char *kAnsiCyan = "\033[36m";
 inline constexpr const char *kAnsiReset = "\033[0m";
-
-// The event to log: an EventDef, or an id that an event_def(id) function
-// (found by argument-dependent lookup) turns into one. The id form serves
-// the central catalog until events move to their components.
-class EventRef {
-public:
-  EventRef(const EventDef &def) : def_(&def) {}
-  template <typename Id,
-            typename = decltype(event_def(std::declval<Id>()))>
-  EventRef(Id id) : def_(&event_def(id)) {}
-
-  const EventDef &def() const { return *def_; }
-
-private:
-  const EventDef *def_;
-};
 
 // Typed key/value data of one event, for destinations that keep numbers
 // (journal, TensorBoard). Text destinations write them as key=value.
@@ -104,13 +92,13 @@ public:
 class ILogger {
 public:
   virtual ~ILogger() = default;
-  virtual void log(EventRef event, std::string_view appendix,
+  virtual void log(const EventDef &event, std::string_view appendix,
                    const LogFields &fields) = 0;
 
-  void log(EventRef event, std::string_view appendix = {}) {
+  void log(const EventDef &event, std::string_view appendix = {}) {
     log(event, appendix, LogFields{});
   }
-  void log(EventRef event, const LogFields &fields) { log(event, {}, fields); }
+  void log(const EventDef &event, const LogFields &fields) { log(event, {}, fields); }
 };
 
 // Writes "prefix appendix" to a stream; without an appendix, the fields as
@@ -135,7 +123,7 @@ public:
   ILogDestination &add_destination(std::unique_ptr<ILogDestination> destination);
   void route(EventType type, ILogDestination &destination);
 
-  void log(EventRef event, std::string_view appendix,
+  void log(const EventDef &event, std::string_view appendix,
            const LogFields &fields) override;
 
   // Info, History and Probe to stdout, Warning and Error to stderr.

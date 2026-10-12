@@ -1,7 +1,8 @@
 #include "trainer_validation_utils.hpp"
 
 #include "dataset.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "model_events.hpp"
 
 #include <config.hpp>
 #include <tokenizer.hpp>
@@ -39,7 +40,7 @@ void validate_config_tokenizer_and_dataset(const Config &cfg,
                              std::to_string(ds_vocab) + ")");
   }
 
-  logger().log(EventId::ConfigTokenizerDatasetValidated,
+  logger().log(model_events::kConfigTokenizerDatasetValidated,
                "batch_size=" + std::to_string(cfg.training.batch_size) +
                    ", train_seq_len=" + std::to_string(cfg.training.train_seq_len) +
                    " <= max_seq_len=" + std::to_string(cfg.model.max_seq_len) +
@@ -74,7 +75,7 @@ void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
         << "  -> Total Batches:     "
         << (batches_per_epoch * cfg.training.num_epochs_train) << " (over "
         << cfg.training.num_epochs_train << " epochs)";
-  logger().log(EventId::DatasetStats, stats.str());
+  logger().log(model_events::kDatasetStats, stats.str());
 
   if (loader.max_token_id() >= cfg.model.vocab_size) {
     throw std::runtime_error(
@@ -85,7 +86,7 @@ void print_dataset_stats(const Config &cfg, const TextDataset &loader) {
         "). Did you use the wrong tokenizer for this model?");
   }
 
-  logger().log(EventId::VocabCheckPassed,
+  logger().log(model_events::kVocabCheckPassed,
                "(Max ID: " + std::to_string(loader.max_token_id()) + " < " +
                    std::to_string(cfg.model.vocab_size) + ")\n");
 }

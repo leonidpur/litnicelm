@@ -9,7 +9,8 @@
 #include "ops.hpp"
 #include <tokenizer_factory.hpp>
 #include "algo/transformer.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "model_events.hpp"
 #include "program_terminal.hpp"
 #include "runtime_config.hpp"
 
@@ -301,7 +302,7 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
     start << " (prompt_tokens=" << ids.size() << ", model sees the last "
           << max_seq << ")";
   }
-  logger().log(EventId::InferenceStart, start.str());
+  logger().log(model_events::kInferenceStart, start.str());
   for (uint32_t step = 0; step < max_new; ++step) {
     TensorView logits = forward_prompt(rt, context_window(ids, max_seq));
     const std::vector<float> row_logits =
@@ -311,7 +312,7 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
     ids.push_back(next);
   }
 
-  logger().log(EventId::InferenceEnd, "Inference complete: tokens=" +
+  logger().log(model_events::kInferenceEnd, "Inference complete: tokens=" +
                                           std::to_string(ids.size()));
   return rt.tokenizer->decode(ids);
 }

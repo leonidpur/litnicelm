@@ -1,7 +1,8 @@
 #include "config_mapper.hpp"
 
 #include <litnicelm_utils/string_utils.hpp>
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "config_events.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -828,7 +829,7 @@ void Config::apply_env_overrides(const std::string &prefix) {
     const std::string full_key = prefix + suffix;
     if (const char *val = std::getenv(full_key.c_str())) {
       field = parse_u32_or_throw(val, full_key);
-      logger().log(EventId::EnvOverride,
+      logger().log(config_events::kEnvOverride,
                    full_key + " set to " + std::to_string(field));
     }
   };
@@ -839,7 +840,7 @@ void Config::apply_env_overrides(const std::string &prefix) {
       field = parse_f32_or_throw(val, full_key);
       std::ostringstream value;
       value << field;
-      logger().log(EventId::EnvOverride, full_key + " set to " + value.str());
+      logger().log(config_events::kEnvOverride, full_key + " set to " + value.str());
     }
   };
 

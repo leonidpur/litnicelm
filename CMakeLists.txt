@@ -22,7 +22,6 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/model/backend/*.cpp
     src/observers/*.cpp
     src/training_session_controller_components/*.cpp
-    src/logging/*.cpp
     src/tracking/*.cpp
     src/profiling/*.cpp
     src/config/*.cpp
@@ -62,7 +61,6 @@ target_include_directories(litnice_core PRIVATE
     src/model/memory
     src/observers
     src/training_session_controller_components
-    src/logging
     src/tracking
     src/profiling
     src/config
@@ -98,7 +96,6 @@ target_include_directories(litnice_backend_cpu PRIVATE
     src/model/memory
     src/config
     src/utils
-    src/logging
 )
 target_link_libraries(litnice_backend_cpu PRIVATE dl litnicelm_utils)
 set_target_properties(litnice_backend_cpu PROPERTIES
@@ -117,7 +114,6 @@ target_include_directories(litnicelm PRIVATE
     include
     src/config
     src/utils
-    src/logging
     src/model
     src/model/algo
     src/model/memory
@@ -182,7 +178,6 @@ target_include_directories(litnice_convergence_monitor_test PRIVATE
     src/model/memory
     src/observers
     src/training_session_controller_components
-    src/logging
 )
 target_link_libraries(litnice_convergence_monitor_test PRIVATE litnice_core)
 add_test(NAME convergence_monitor COMMAND litnice_convergence_monitor_test)
@@ -193,7 +188,6 @@ target_include_directories(litnice_learning_rate_schedule_test PRIVATE
     include
     src/config
     src/training_session_controller_components
-    src/logging
 )
 target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
 add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)

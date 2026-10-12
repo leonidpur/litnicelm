@@ -1,5 +1,6 @@
 #include "only_seen_chars_tokenizer_plugin.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tokenizer_events.hpp"
 
 
 #include <algorithm>
@@ -209,7 +210,7 @@ void warn_about_suspicious_byte_vocab(const std::vector<std::string> &vocab,
         << std::setfill('0') << examples[i] << std::dec
         << std::nouppercase << std::setfill(' ');
   }
-  logger().log(EventId::TokenizerNonAsciiBytes, oss.str());
+  logger().log(tokenizer_events::kTokenizerNonAsciiBytes, oss.str());
 }
 } // namespace
 
@@ -287,7 +288,7 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
   out << "\n  }\n";
   out << "}\n";
 
-  logger().log(EventId::TokenizerTrainingEnd,
+  logger().log(tokenizer_events::kTokenizerTrainingEnd,
                "OnlySeenCharsTokenizer trained: chars=" +
                 std::to_string(vocab_.size()) +
                 ", artifact=" + artifact_path(artifacts_dir).string());

@@ -1,6 +1,7 @@
 #include "tokenizer_utils.hpp"
 #include "corpus_input.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tokenizer_events.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -70,7 +71,7 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
 
   uint64_t total_tokens = 0;
   uint32_t chunk_index = 0;
-  logger().log(EventId::TokenizeStreamStart,
+  logger().log(tokenizer_events::kTokenizeStreamStart,
                "Streaming tokenization started: input=" + input_path +
                 ", output=" + output_path + ", chunk_size_mb=" +
                 std::to_string(effective_chunk_mb) + ", " +
@@ -111,7 +112,7 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
     ++chunk_index;
     if (progress_every_chunks <= 1 ||
         chunk_index % static_cast<uint32_t>(progress_every_chunks) == 0) {
-      logger().log(EventId::TokenizeProgress,
+      logger().log(tokenizer_events::kTokenizeProgress,
                    "Tokenized chunk " +
                        std::to_string(chunk_index) +
                        ": bytes=" + std::to_string(bytes_read) +
@@ -125,7 +126,7 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
         output_path);
   }
 
-  logger().log(EventId::TokenizeEnd,
+  logger().log(tokenizer_events::kTokenizeEnd,
                "Streaming tokenization complete: chunks=" +
                 std::to_string(chunk_index) + ", tokens=" +
                 std::to_string(total_tokens));

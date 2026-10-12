@@ -2,7 +2,7 @@
 // min_epochs, non-finite loss, new-best flags, and state save/restore.
 
 #include "convergence_monitor.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
 
 #include <config.hpp>
 

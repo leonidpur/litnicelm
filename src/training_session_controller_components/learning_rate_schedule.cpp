@@ -1,5 +1,6 @@
 #include "learning_rate_schedule.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "training_session_controller_components_events.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -42,7 +43,7 @@ void LearningRateSchedule::report() const {
         << tc_.learning_rate << ", then down to "
         << tc_.learning_rate * tc_.min_lr_ratio << " at step " << total_steps_;
   }
-  logger().log(EventId::LrSchedule, oss.str(),
+  logger().log(training_session_controller_components_events::kLrSchedule, oss.str(),
                LogFields()
                    .str("schedule", tc_.lr_schedule)
                    .f64("learning_rate", tc_.learning_rate)
@@ -50,7 +51,7 @@ void LearningRateSchedule::report() const {
                    .f64("min_lr_ratio", tc_.min_lr_ratio)
                    .u64("total_steps", total_steps_));
   if (tc_.lr_schedule == "cosine" && tc_.warmup_steps >= total_steps_) {
-    logger().log(EventId::LrWarmupTooLong,
+    logger().log(training_session_controller_components_events::kLrWarmupTooLong,
                  "warmup_steps " + std::to_string(tc_.warmup_steps) +
                      " >= planned steps " + std::to_string(total_steps_) +
                      "; the rate never reaches its peak");

@@ -1,5 +1,6 @@
 #include "training_session_controller.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "observers_events.hpp"
 
 #include "eta_observer.hpp"
 #include "profiling_observer.hpp"
@@ -9,13 +10,13 @@
 
 #include "tensor_store.hpp"
 
-
 #include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
 
 namespace {
 void zero_buffer(DeviceBackend &device_backend, void *dst, uint64_t bytes) {
@@ -158,7 +159,7 @@ void TrainingSessionController::on_evaluate_end(uint32_t epoch,
       << ") | train " << std::setprecision(4) << train_loss << ", gap "
       << std::showpos << (result.loss - train_loss) << std::noshowpos << " | "
       << result.batches << " batches, " << result.tokens << " tokens";
-  logger().log(EventId::ValidationComplete, oss.str(),
+  logger().log(observers_events::kValidationComplete, oss.str(),
                LogFields()
                    .u64("epoch", epoch)
                    .f64("val_loss", result.loss)
@@ -194,7 +195,7 @@ TrainingPosition TrainingSessionController::restore_or_initialize(
     training_position.optimizer_steps = 0;
     training_position.epoch = 0;
     zero_buffer(device_backend, adam_state.base, adam_state.bytes);
-    logger().log(EventId::FreshInitialization);
+    logger().log(observers_events::kFreshInitialization);
   } else if (convergence_monitor_.should_stop()) {
     convergence_monitor_.clear_persisted_stop_for_resume();
   }
@@ -210,17 +211,17 @@ bool TrainingSessionController::resume_from_latest(
   }
 
   if (!checkpoint_store_.latest_exists()) {
-    logger().log(EventId::CheckpointNotFound,
+    logger().log(observers_events::kCheckpointNotFound,
                  checkpoint_store_.latest_path() + ". Starting fresh.");
     return false;
   }
 
-  logger().log(EventId::ResumeStart, checkpoint_store_.latest_path() + "...");
+  logger().log(observers_events::kResumeStart, checkpoint_store_.latest_path() + "...");
 
   const CheckpointLoad loaded =
       checkpoint_store_.load_latest(device_backend, data_arena, adam_state);
   if (!loaded.ok) {
-    logger().log(EventId::ResumeFailed,
+    logger().log(observers_events::kResumeFailed,
                  loaded.error +
                      "\n[TrainingSessionController] Falling back to fresh initialization.");
     return false;
@@ -229,7 +230,7 @@ bool TrainingSessionController::resume_from_latest(
   convergence_monitor_.restore(loaded.convergence, training_position.epoch);
   const uint64_t total_steps =
       steps_per_epoch * static_cast<uint64_t>(training_plan_.last_epoch);
-  logger().log(EventId::ResumeSucceeded,
+  logger().log(observers_events::kResumeSucceeded,
                "[" + std::to_string(training_position.optimizer_steps) + "/" +
                    std::to_string(total_steps) + "], epoch[" +
                    std::to_string(training_position.epoch) + "/" +
@@ -265,7 +266,7 @@ void TrainingSessionController::on_training_start(
       oss << " (real training: " << cfg_.training.num_epochs_train
           << " epochs)";
     }
-    logger().log(EventId::TrainingStart, oss.str());
+    logger().log(observers_events::kTrainingStart, oss.str());
     lr_schedule_->report();
   }
   for (const auto &observer : observers_) {
@@ -330,7 +331,7 @@ void TrainingSessionController::log_training_end(
   for (size_t i = 0; i < reasons.size(); ++i) {
     message += (i ? " and " : "") + reasons[i];
   }
-  logger().log(EventId::TrainingEnd, message);
+  logger().log(observers_events::kTrainingEnd, message);
 }
 
 void TrainingSessionController::nothing_to_do(
@@ -338,7 +339,7 @@ void TrainingSessionController::nothing_to_do(
   const char *epochs_key = training_plan_.dry_run()
                                ? "training.num_epochs_dry_run"
                                : "training.num_epochs_train";
-  logger().log(EventId::NothingToTrain,
+  logger().log(observers_events::kNothingToTrain,
                "checkpoint is already at epoch " +
                    std::to_string(training_position.epoch) + " of " +
                    std::to_string(training_plan_.last_epoch) + " (step " +

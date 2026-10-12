@@ -1,7 +1,8 @@
 #include "checkpoint_store.hpp"
 
 #include "backend/device_backend.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "training_session_controller_components_events.hpp"
 #include "model_algo_factory.hpp"
 
 #include <filesystem>
@@ -104,7 +105,7 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
     if (val_loss) {
       fields.f64("val_loss", *val_loss);
     }
-    logger().log(EventId::CheckpointSaved,
+    logger().log(training_session_controller_components_events::kCheckpointSaved,
                 path + " (epoch " + std::to_string(epoch) +
                     ", step " + std::to_string(optimizer_steps) + ", " +
                     losses.str() + ")",
@@ -112,7 +113,7 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
     return true;
   } catch (const std::exception &e) {
     reporters_.on_checkpoint_save_end(false);
-    logger().log(EventId::CheckpointSaveFailed, e.what());
+    logger().log(training_session_controller_components_events::kCheckpointSaveFailed, e.what());
     return false;
   }
 }
@@ -130,7 +131,7 @@ bool CheckpointStore::promote_latest_to_best(float best_loss,
                                  .f64("loss", best_loss)
                                  .str("metric", best_metric);
     if (latest == best) {
-      logger().log(EventId::BestCheckpointPromoted, "Latest is also best: " + best + reason,
+      logger().log(training_session_controller_components_events::kBestCheckpointPromoted, "Latest is also best: " + best + reason,
                   fields);
       return true;
     }
@@ -149,11 +150,11 @@ bool CheckpointStore::promote_latest_to_best(float best_loss,
             std::filesystem::copy_options::overwrite_existing);
       }
     }
-    logger().log(EventId::BestCheckpointPromoted, "Copied latest → best: " + best + reason,
+    logger().log(training_session_controller_components_events::kBestCheckpointPromoted, "Copied latest → best: " + best + reason,
                 fields);
     return true;
   } catch (const std::exception &e) {
-    logger().log(EventId::BestCheckpointCopyFailed, e.what());
+    logger().log(training_session_controller_components_events::kBestCheckpointCopyFailed, e.what());
     return false;
   }
 }

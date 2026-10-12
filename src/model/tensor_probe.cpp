@@ -1,6 +1,7 @@
 #include "tensor_probe.hpp"
 
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "model_events.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -90,7 +91,7 @@ void log_tensor(const std::string &group, const std::string &name,
       << " min=" << s.min
       << " max=" << s.max
       << " hash=0x" << std::hex << s.hash << std::dec;
-  logger().log(EventId::ProbeTensor, oss.str(),
+  logger().log(model_events::kProbeTensor, oss.str(),
                stats_fields("", s).str("tensor", group + "." + name));
 }
 
@@ -111,7 +112,7 @@ void log_loss(const TensorView &loss_scalar, const TensorView &logits,
       << " logits_max=" << logits_stats.max
       << " logits_hash=0x" << std::hex << logits_stats.hash << std::dec
       << " targets_shape=" << format_shape(targets.shape_nd());
-  logger().log(EventId::ProbeLoss, oss.str(),
+  logger().log(model_events::kProbeLoss, oss.str(),
                stats_fields("logits_", logits_stats).f64("loss", scalar));
 }
 

@@ -1,6 +1,7 @@
 #include "dataset.hpp"
 #include "backend/device_backend.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "model_events.hpp"
 #include <config.hpp>
 #include <litnicelm_utils/assert.hpp>
 
@@ -167,7 +168,7 @@ DatasetHeader TextDataset::read_header_or_throw(const std::string &path) {
 std::string TextDataset::early_evaluate_input(const Config &cfg, bool report) {
   const std::string selected_input_path = cfg.tokenization.output_binary;
   if (report) {
-    logger().log(EventId::DatasetFileSelected, selected_input_path);
+    logger().log(model_events::kDatasetFileSelected, selected_input_path);
   }
   if (selected_input_path.empty()) {
     throw std::runtime_error(
@@ -370,7 +371,7 @@ bool TextDataset::next_impl(TrainBatch &out) {
 
   if (report_first_fetch_ && !fetch_reported_) {
     fetch_reported_ = true;
-    logger().log(EventId::BatchFetched,
+    logger().log(model_events::kBatchFetched,
                  "start_index=" + std::to_string(first_start) +
                      " batch_size=" + std::to_string(batch_size_) +
                      " seq_len=" + std::to_string(seq_len_) +

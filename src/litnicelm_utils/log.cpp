@@ -81,9 +81,8 @@ void Logger::route(EventType type, ILogDestination &destination) {
   routes_[static_cast<std::size_t>(type)].push_back(&destination);
 }
 
-void Logger::log(EventRef event, std::string_view appendix,
+void Logger::log(const EventDef &def, std::string_view appendix,
                  const LogFields &fields) {
-  const EventDef &def = event.def();
   const LogRecord record{def, appendix, fields};
   for (ILogDestination *destination :
        routes_[static_cast<std::size_t>(def.type)]) {

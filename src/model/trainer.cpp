@@ -3,7 +3,8 @@
 #include "mean_loss.hpp"
 
 #include "dataset.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "model_events.hpp"
 #include "memory/training_memory_manager.hpp"
 #include "model_algo_factory.hpp"
 #include "report_renderer.hpp"
@@ -267,7 +268,7 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   const std::string dataset_path =
       TextDataset::early_evaluate_input(runtime_cfg);
 
-  logger().log(EventId::TrainingRuntimeInitialized);
+  logger().log(model_events::kTrainingRuntimeInitialized);
   //////////////////////////
   // Asset construction
   //////////////////////////
@@ -291,7 +292,7 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   TrainerValidationUtils::validate_validation_split(runtime_cfg, val_dataset);
   TrainerValidationUtils::print_dataset_stats(runtime_cfg, training_dataset);
   
-  logger().log(EventId::TrainingEngineInitialized);
+  logger().log(model_events::kTrainingEngineInitialized);
 
   Trainer trainer(runtime_cfg, memory_manager.tensor_store(), ops, opt, transformer,
                   memory_manager.data_arena(),
@@ -303,7 +304,7 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   
   // Do it! Train the model using the dataset loader
   trainer.train(training_dataset, val_dataset);
-  logger().log(EventId::TrainingConfigFile, cmd.config_path,
+  logger().log(model_events::kTrainingConfigFile, cmd.config_path,
                LogFields().str("path", cmd.config_path));
   return 0;
 }

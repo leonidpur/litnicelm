@@ -35,7 +35,6 @@ target_include_directories(litnice_backend_cublas_plugin PRIVATE
     ${CMAKE_SOURCE_DIR}/src/model/memory
     ${CMAKE_SOURCE_DIR}/src/config
     ${CMAKE_SOURCE_DIR}/src/utils
-    ${CMAKE_SOURCE_DIR}/src/logging
 )
 
 target_compile_features(litnice_backend_cublas_plugin PRIVATE cxx_std_17)

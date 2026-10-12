@@ -1,5 +1,6 @@
 #include "checkpoint_policy.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "training_session_controller_components_events.hpp"
 
 #include <cmath>
 
@@ -26,7 +27,7 @@ void CheckpointPolicy::apply(const ConvergenceVerdict &verdict,
 
   if (cfg_.training.stop_on_nonfinite_loss &&
       !std::isfinite(monitor.last_epoch_loss())) {
-    logger().log(EventId::CheckpointSaveSkippedNonFinite);
+    logger().log(training_session_controller_components_events::kCheckpointSaveSkippedNonFinite);
     return;
   }
 

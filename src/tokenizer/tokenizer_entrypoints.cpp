@@ -1,7 +1,8 @@
 #include "tokenizer_plugin.hpp"
 #include "tokenizer_utils.hpp"
 #include "corpus_input.hpp"
-#include "logger.hpp"
+#include <litnicelm_utils/log.hpp>
+#include "tokenizer_events.hpp"
 
 #include <tokenizer_factory.hpp>
 
@@ -75,7 +76,7 @@ int run_tokenizer_training_mode(const std::string &config_path) {
       ", target_vocab_size=" + std::to_string(cfg.tokenizer.target_vocab_size) +
       ", artifacts_dir_out=" + artifacts_dir +
       (training_files.empty() ? "" : ", " + CorpusInput::describe_files(training_files));
-  logger().log(EventId::TokenizerTrainingStart, create_message);
+  logger().log(tokenizer_events::kTokenizerTrainingStart, create_message);
   try {
     plugin->train(plugin_training_corpus, artifacts_dir,
                   cfg.tokenizer.target_vocab_size);
@@ -125,7 +126,7 @@ int run_tokenization_mode(const std::string &config_path) {
       ", output=" + cfg.tokenization.output_binary +
       ", artifacts_dir=" + artifacts_dir +
       ", chunk_size_mb=" + std::to_string(cfg.tokenization.chunk_size_mb);
-  logger().log(EventId::TokenizeStart, tokenize_message);
+  logger().log(tokenizer_events::kTokenizeStart, tokenize_message);
 
   TokenizerUtils::stream_tokenize(plugin.get(), cfg.tokenization.input_corpus,
                                   cfg.tokenization.output_binary,
