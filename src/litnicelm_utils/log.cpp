@@ -1,4 +1,5 @@
-#include "logger.hpp"
+#include "litnicelm_utils/log.hpp"
+#include "litnicelm_utils/plugin_log.h"
 
 #include <iostream>
 #include <type_traits>
@@ -80,9 +81,9 @@ void Logger::route(EventType type, ILogDestination &destination) {
   routes_[static_cast<std::size_t>(type)].push_back(&destination);
 }
 
-void Logger::log(EventId id, std::string_view appendix,
+void Logger::log(EventRef event, std::string_view appendix,
                  const LogFields &fields) {
-  const EventDef &def = event_def(id);
+  const EventDef &def = event.def();
   const LogRecord record{def, appendix, fields};
   for (ILogDestination *destination :
        routes_[static_cast<std::size_t>(def.type)]) {
@@ -114,3 +115,14 @@ ScopedLogger::ScopedLogger(ILogger &logger) : previous_(::logger()) {
 }
 
 ScopedLogger::~ScopedLogger() { set_logger(previous_); }
+
+extern "C" void litnicelm_log(uint8_t type, const char *name, const char *prefix,
+                              const char *color, const char *appendix) {
+  try {
+    const EventDef def{name != nullptr ? name : "", static_cast<EventType>(type),
+                       prefix != nullptr ? prefix : "", color};
+    logger().log(def, appendix != nullptr ? appendix : "");
+  } catch (...) {
+    // Logging must not throw across the plugin boundary.
+  }
+}

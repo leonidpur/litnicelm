@@ -38,6 +38,17 @@ file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
 
 # --- 3. Build Targets ---
 
+# Utilities shared by the program and its plugins: logging (and later
+# validation). A shared library, so that the executable and every plugin use
+# one logger instance.
+add_library(litnicelm_utils SHARED
+    src/litnicelm_utils/log.cpp
+)
+target_include_directories(litnicelm_utils PUBLIC src/litnicelm_utils/include)
+set_target_properties(litnicelm_utils PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+)
+
 # Build core library
 add_library(litnice_core STATIC 
     ${MODEL_SOURCES} 
@@ -73,6 +84,7 @@ target_include_directories(litnice_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # Link SentencePiece to the core library
 target_link_libraries(litnice_core PRIVATE ${SPM_LIBRARIES})
 target_link_libraries(litnice_core PRIVATE dl)
+target_link_libraries(litnice_core PUBLIC litnicelm_utils)
 target_compile_definitions(litnice_core PRIVATE LITNICELM_HAVE_SENTENCEPIECE=1)
 
 add_library(litnice_backend_cpu SHARED
@@ -86,8 +98,9 @@ target_include_directories(litnice_backend_cpu PRIVATE
     src/model/memory
     src/config
     src/utils
+    src/logging
 )
-target_link_libraries(litnice_backend_cpu PRIVATE dl)
+target_link_libraries(litnice_backend_cpu PRIVATE dl litnicelm_utils)
 set_target_properties(litnice_backend_cpu PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
@@ -184,6 +197,14 @@ target_include_directories(litnice_learning_rate_schedule_test PRIVATE
 )
 target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
 add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)
+
+# Plugins log through the program's logger: one instance in liblitnicelm_utils.so.
+add_library(litnicelm_fake_log_plugin SHARED tests/fake_log_plugin.cpp)
+target_link_libraries(litnicelm_fake_log_plugin PRIVATE litnicelm_utils)
+add_executable(litnicelm_plugin_log_test tests/plugin_log_test.cpp)
+target_link_libraries(litnicelm_plugin_log_test PRIVATE litnicelm_utils dl)
+add_test(NAME plugin_log
+         COMMAND litnicelm_plugin_log_test $<TARGET_FILE:litnicelm_fake_log_plugin>)
 
 # Experiment-tracking plugin loading, against fake tracking plugins.
 foreach(variant fake fake2 fake_bad_abi)

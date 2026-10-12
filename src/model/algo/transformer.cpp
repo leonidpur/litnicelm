@@ -2,7 +2,7 @@
 #include "tensor_contracts.hpp"
 #include "tensor_probe.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <utils/assert.hpp>
+#include <litnicelm_utils/assert.hpp>
 
 #include <cmath>
 #include <cstring>

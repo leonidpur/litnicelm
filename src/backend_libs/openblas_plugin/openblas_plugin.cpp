@@ -1,6 +1,8 @@
 #include "../../model/backend/backend_plugin_api.hpp"
 #include "../../model/backend/device_backend.hpp"
 
+#include <litnicelm_utils/plugin_log.h>
+
 #include <cblas.h>
 
 #include <array>
@@ -11,11 +13,11 @@
 
 namespace {
 
-void warn_cpu_fallback(const char *op) {
-  std::cerr << "\033[31m"
-            << "openblas_plugin TEMP fallback to cpu_backend_ in " << op
-            << "\033[0m" << std::endl;
-}
+inline constexpr EventDef kCpuFallback{
+    "openblas_cpu_fallback", EventType::Warning,
+    "[OpenBLAS] TEMP fallback to cpu_backend_ in"};
+
+void warn_cpu_fallback(const char *op) { plugin_log(kCpuFallback, op); }
 
 void validate_backend_tensor_view(const BackendTensorView &abi, const char *who) {
   if (abi.rank > kBackendTensorMaxRank) {

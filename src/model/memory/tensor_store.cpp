@@ -1,6 +1,6 @@
 #include "tensor_store.hpp"
 
-#include <utils/assert.hpp>
+#include <litnicelm_utils/assert.hpp>
 
 #include <algorithm>
 #include <stdexcept>

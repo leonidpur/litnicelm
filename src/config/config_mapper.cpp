@@ -1,6 +1,6 @@
 #include "config_mapper.hpp"
 
-#include "string_utils.hpp"
+#include <litnicelm_utils/string_utils.hpp>
 #include "logger.hpp"
 
 #include <cstdlib>

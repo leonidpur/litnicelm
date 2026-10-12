@@ -1,7 +1,7 @@
 #include "adam_state_store.hpp"
 #include "model_algo_factory.hpp"
 
-#include <utils/assert.hpp>
+#include <litnicelm_utils/assert.hpp>
 
 #include <stdexcept>
 

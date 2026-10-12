@@ -1,5 +1,5 @@
 #include "yaml_parser.hpp"
-#include "string_utils.hpp"
+#include <litnicelm_utils/string_utils.hpp>
 
 #include <fstream>
 #include <stdexcept>

@@ -2,7 +2,7 @@
 #include "backend/device_backend.hpp"
 #include "logger.hpp"
 #include <config.hpp>
-#include <utils/assert.hpp>
+#include <litnicelm_utils/assert.hpp>
 
 #include <algorithm>
 #include <cstdint>
