@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <string>
 #include "litnicelm_utils/device.hpp"
+#include "litnicelm_utils/tensor_view_struct.h"
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -15,7 +17,7 @@ enum class DType : uint8_t {
   I32 = 1,
 };
 
-constexpr size_t kMaxTensorRank = 6;
+constexpr size_t kMaxTensorRank = LITNICELM_MAX_TENSOR_RANK;
 
 class Shape {
 public:
@@ -28,6 +30,9 @@ public:
   explicit Shape(const std::vector<int64_t> &dims) {
     init_(dims.begin(), dims.size());
   }
+
+  // The first `rank` entries of dims.
+  Shape(size_t rank, const int64_t *dims) { init_(dims, rank); }
 
 private:
   template <typename Iter>
@@ -118,185 +123,198 @@ inline uint64_t nbytes(const Shape &s, DType dt) {
   return elems * esz;
 }
 
-class TensorView {
+// A non-owning view of tensor memory. It is a TensorViewStruct (the ABI
+// form) with methods and adds no data, so a TensorView can be handed to a
+// plugin as a TensorViewStruct pointer and used again as a TensorView.
+class TensorView : public TensorViewStruct {
 public:
-  TensorView() = default;
+  TensorView() : TensorViewStruct{} {}
 
-  TensorView(Device dev, DType dt, void *data, Shape shape)
-      : dev_(dev), dt_(dt), data_(data), shape_(shape) {
-    const int64_t elem = static_cast<int64_t>(dtype_size(dt_));
+  TensorView(Device dev, DType dt, void *data, Shape shape) : TensorViewStruct{} {
+    set_(dev, dt, data, shape);
+    const int64_t elem = static_cast<int64_t>(dtype_size(dt));
     if (elem <= 0) {
       throw std::runtime_error("TensorView: invalid dtype size");
     }
-    strides_bytes_ = compute_contiguous_strides_(shape_, elem);
+    set_strides_(compute_contiguous_strides_(shape, elem));
   }
 
   TensorView(Device dev, DType dt, void *data, Shape shape,
              int64_t stride_c_bytes, int64_t stride_r_bytes)
-      : dev_(dev), dt_(dt), data_(data), shape_(shape) {
-    const int64_t elem = static_cast<int64_t>(dtype_size(dt_));
+      : TensorViewStruct{} {
+    set_(dev, dt, data, shape);
+    const int64_t elem = static_cast<int64_t>(dtype_size(dt));
     if (elem <= 0) {
       throw std::runtime_error("TensorView: invalid dtype size");
     }
-    strides_bytes_ = compute_contiguous_strides_(shape_, elem);
-    if (shape_.rank() >= 1) {
-      strides_bytes_[shape_.rank() - 1] =
-          (stride_c_bytes == 0) ? elem : stride_c_bytes;
+    std::array<int64_t, kMaxTensorRank> strides = compute_contiguous_strides_(shape, elem);
+    if (shape.rank() >= 1) {
+      strides[shape.rank() - 1] = (stride_c_bytes == 0) ? elem : stride_c_bytes;
     }
-    if (shape_.rank() >= 2) {
-      strides_bytes_[shape_.rank() - 2] =
+    if (shape.rank() >= 2) {
+      strides[shape.rank() - 2] =
           (stride_r_bytes == 0)
-              ? static_cast<int64_t>(shape_.dim(shape_.rank() - 1)) *
-                    strides_bytes_[shape_.rank() - 1]
+              ? static_cast<int64_t>(shape.dim(shape.rank() - 1)) *
+                    strides[shape.rank() - 1]
               : stride_r_bytes;
-      for (size_t i = shape_.rank() - 2; i > 0; --i) {
-        strides_bytes_[i - 1] = strides_bytes_[i] * shape_.dim(i);
+      for (size_t i = shape.rank() - 2; i > 0; --i) {
+        strides[i - 1] = strides[i] * shape.dim(i);
       }
     }
+    set_strides_(strides);
   }
 
   TensorView(Device dev, DType dt, void *data, Shape shape,
              const std::array<int64_t, kMaxTensorRank> &strides_bytes)
-      : dev_(dev), dt_(dt), data_(data), shape_(shape),
-        strides_bytes_(strides_bytes) {
-    const int64_t elem = static_cast<int64_t>(dtype_size(dt_));
+      : TensorViewStruct{} {
+    set_(dev, dt, data, shape);
+    set_strides_(strides_bytes);
+    const int64_t elem = static_cast<int64_t>(dtype_size(dt));
     if (elem <= 0) {
       throw std::runtime_error("TensorView: invalid dtype size");
     }
   }
 
-  Device device() const { return dev_; }
-  DType dtype() const { return dt_; }
-  const Shape &shape() const { return shape_; }
-  const Shape &logical_shape() const { return shape_; }
-  size_t rank() const { return shape_.rank(); }
-  int64_t dim(size_t axis) const { return shape_.dim(axis); }
-  Shape shape_nd() const { return shape_; }
+  Device device() const { return static_cast<Device>(device_id); }
+  DType dtype() const { return static_cast<DType>(dtype_id); }
+  Shape shape() const { return Shape(ndim, dims); }
+  Shape logical_shape() const { return shape(); }
+  size_t rank() const { return ndim; }
+  int64_t dim(size_t axis) const {
+    if (axis >= ndim) {
+      throw std::out_of_range("Shape::dim axis out of range");
+    }
+    return dims[axis];
+  }
+  Shape shape_nd() const { return shape(); }
 
   int64_t stride_bytes(size_t axis) const {
-    if (axis >= shape_.rank()) {
+    if (axis >= ndim) {
       throw std::out_of_range("TensorView::stride_bytes axis out of range");
     }
-    return strides_bytes_[axis];
+    return strides_bytes[axis];
   }
 
-  void *data() const { return data_; }
+  void *data() const { return ptr; }
 
-  uint64_t bytes() const { return nbytes(shape_, dt_); }
-  uint64_t numel() const { return shape_.numel(); }
+  uint64_t bytes() const { return nbytes(shape(), dtype()); }
+  uint64_t numel() const { return shape().numel(); }
 
   bool is_contiguous_row_major() const {
-    const int64_t elem = static_cast<int64_t>(dtype_size(dt_));
-    return strides_bytes_ == compute_contiguous_strides_(shape_, elem);
+    const int64_t elem = static_cast<int64_t>(dtype_size(dtype()));
+    const std::array<int64_t, kMaxTensorRank> expected =
+        compute_contiguous_strides_(shape(), elem);
+    for (size_t i = 0; i < kMaxTensorRank; ++i) {
+      if (strides_bytes[i] != expected[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool is_contiguous() const { return is_contiguous_row_major(); }
 
   TensorView slice(size_t axis, int64_t start, int64_t len) const {
-    if (axis >= shape_.rank()) {
+    if (axis >= ndim) {
       throw std::out_of_range("TensorView::slice axis out of range");
     }
-    if (start < 0 || len < 0 || start + len > shape_.dim(axis)) {
+    if (start < 0 || len < 0 || start + len > dims[axis]) {
       throw std::out_of_range("TensorView::slice bounds");
     }
     std::vector<int64_t> rebuilt;
-    rebuilt.reserve(shape_.rank());
-    for (size_t i = 0; i < shape_.rank(); ++i) {
-      rebuilt.push_back((i == axis) ? len : shape_.dim(i));
+    rebuilt.reserve(ndim);
+    for (size_t i = 0; i < ndim; ++i) {
+      rebuilt.push_back((i == axis) ? len : dims[i]);
     }
     Shape sliced(rebuilt);
-    uint8_t *base = reinterpret_cast<uint8_t *>(data_);
-    void *sub_ptr = base + start * strides_bytes_[axis];
-    return TensorView(dev_, dt_, sub_ptr, sliced, strides_bytes_);
+    uint8_t *base = reinterpret_cast<uint8_t *>(ptr);
+    void *sub_ptr = base + start * strides_bytes[axis];
+    return TensorView(device(), dtype(), sub_ptr, sliced, strides_array_());
   }
 
   TensorView select(size_t axis, int64_t index) const {
-    if (axis >= shape_.rank()) {
+    if (axis >= ndim) {
       throw std::out_of_range("TensorView::select axis out of range");
     }
-    if (index < 0 || index >= shape_.dim(axis)) {
+    if (index < 0 || index >= dims[axis]) {
       throw std::out_of_range("TensorView::select bounds");
     }
     std::vector<int64_t> rebuilt;
-    rebuilt.reserve(shape_.rank() > 0 ? shape_.rank() - 1 : 0);
-    for (size_t i = 0; i < shape_.rank(); ++i) {
+    rebuilt.reserve(ndim > 0 ? ndim - 1 : 0);
+    for (size_t i = 0; i < ndim; ++i) {
       if (i != axis) {
-        rebuilt.push_back(shape_.dim(i));
+        rebuilt.push_back(dims[i]);
       }
     }
     Shape selected(rebuilt);
-    uint8_t *base = reinterpret_cast<uint8_t *>(data_);
-    void *sub_ptr = base + index * strides_bytes_[axis];
+    uint8_t *base = reinterpret_cast<uint8_t *>(ptr);
+    void *sub_ptr = base + index * strides_bytes[axis];
     std::array<int64_t, kMaxTensorRank> selected_strides{};
     size_t out_axis = 0;
-    for (size_t i = 0; i < shape_.rank(); ++i) {
+    for (size_t i = 0; i < ndim; ++i) {
       if (i != axis) {
-        selected_strides[out_axis++] = strides_bytes_[i];
+        selected_strides[out_axis++] = strides_bytes[i];
       }
     }
-    return TensorView(dev_, dt_, sub_ptr, selected, selected_strides);
+    return TensorView(device(), dtype(), sub_ptr, selected, selected_strides);
   }
 
   TensorView subcols(int64_t col_offset, int64_t sub_cols) const {
-    if (shape_.rank() == 0) {
+    if (ndim == 0) {
       throw std::out_of_range("TensorView::subcols requires rank >= 1");
     }
-    const size_t axis = shape_.rank() - 1;
-    if (col_offset < 0 || sub_cols < 0 ||
-        col_offset + sub_cols > shape_.dim(axis)) {
+    const size_t axis = ndim - 1;
+    if (col_offset < 0 || sub_cols < 0 || col_offset + sub_cols > dims[axis]) {
       throw std::out_of_range("TensorView::subcols out of bounds");
     }
     return slice(axis, col_offset, sub_cols);
   }
 
   TensorView subrows(int64_t row_offset, int64_t sub_rows) const {
-    if (shape_.rank() == 0) {
+    if (ndim == 0) {
       throw std::out_of_range("TensorView::subrows requires rank >= 1");
     }
-    if (row_offset < 0 || sub_rows < 0 || row_offset + sub_rows > shape_.dim(0)) {
+    if (row_offset < 0 || sub_rows < 0 || row_offset + sub_rows > dims[0]) {
       throw std::out_of_range("TensorView::subrows out of bounds");
     }
     return slice(0, row_offset, sub_rows);
   }
 
   float *f32() const {
-    if (dt_ != DType::F32) {
+    if (dtype() != DType::F32) {
       throw std::runtime_error("TensorView: not f32");
     }
-    return reinterpret_cast<float *>(data_);
+    return reinterpret_cast<float *>(ptr);
   }
 
   float at_f32(int64_t r, int64_t c) const {
-    if (dev_ != Device::CPU) {
+    if (device() != Device::CPU) {
       throw std::runtime_error("TensorView::at_f32 CPU only");
     }
-    if (dt_ != DType::F32) {
+    if (dtype() != DType::F32) {
       throw std::runtime_error("TensorView::at_f32 requires f32");
     }
-    if (shape_.rank() != 2 || r < 0 || c < 0 || r >= shape_.dim(0) ||
-        c >= shape_.dim(1)) {
+    if (ndim != 2 || r < 0 || c < 0 || r >= dims[0] || c >= dims[1]) {
       throw std::out_of_range("at_f32 oob");
     }
-    const uint8_t *base = reinterpret_cast<const uint8_t *>(data_);
-    const uint8_t *p =
-        base + r * stride_bytes(0) + c * stride_bytes(1);
+    const uint8_t *base = reinterpret_cast<const uint8_t *>(ptr);
+    const uint8_t *p = base + r * stride_bytes(0) + c * stride_bytes(1);
     float out;
     std::memcpy(&out, p, sizeof(float));
     return out;
   }
 
   void set_f32(int64_t r, int64_t c, float v) const {
-    if (dev_ != Device::CPU) {
+    if (device() != Device::CPU) {
       throw std::runtime_error("TensorView::set_f32 CPU only");
     }
-    if (dt_ != DType::F32) {
+    if (dtype() != DType::F32) {
       throw std::runtime_error("TensorView::set_f32 requires f32");
     }
-    if (shape_.rank() != 2 || r < 0 || c < 0 || r >= shape_.dim(0) ||
-        c >= shape_.dim(1)) {
+    if (ndim != 2 || r < 0 || c < 0 || r >= dims[0] || c >= dims[1]) {
       throw std::out_of_range("set_f32 oob");
     }
-    uint8_t *base = reinterpret_cast<uint8_t *>(data_);
+    uint8_t *base = reinterpret_cast<uint8_t *>(ptr);
     uint8_t *p = base + r * stride_bytes(0) + c * stride_bytes(1);
     std::memcpy(p, &v, sizeof(float));
   }
@@ -315,12 +333,51 @@ private:
     return strides;
   }
 
-  Device dev_ = Device::CPU;
-  DType dt_ = DType::F32;
-  void *data_ = nullptr;
-  Shape shape_{};
-  std::array<int64_t, kMaxTensorRank> strides_bytes_{};
+  void set_(Device dev, DType dt, void *data, const Shape &shape) {
+    ptr = data;
+    device_id = static_cast<uint32_t>(dev);
+    dtype_id = static_cast<uint32_t>(dt);
+    ndim = static_cast<uint32_t>(shape.rank());
+    for (size_t i = 0; i < shape.rank(); ++i) {
+      dims[i] = shape.dim(i);
+    }
+  }
+
+  void set_strides_(const std::array<int64_t, kMaxTensorRank> &strides) {
+    for (size_t i = 0; i < kMaxTensorRank; ++i) {
+      strides_bytes[i] = strides[i];
+    }
+  }
+
+  std::array<int64_t, kMaxTensorRank> strides_array_() const {
+    std::array<int64_t, kMaxTensorRank> out{};
+    for (size_t i = 0; i < kMaxTensorRank; ++i) {
+      out[i] = strides_bytes[i];
+    }
+    return out;
+  }
 };
+
+// A TensorView is exactly its TensorViewStruct: same size, standard layout.
+static_assert(sizeof(TensorView) == sizeof(TensorViewStruct),
+              "TensorView must add no data to TensorViewStruct");
+static_assert(std::is_standard_layout_v<TensorView>,
+              "TensorView must keep the C layout");
+
+// A plugin's view of a TensorViewStruct it received across the ABI: the same
+// memory, checked for a sane rank and leading dims. who names the receiver.
+inline const TensorView &as_tensor_view(const TensorViewStruct &s, const char *who) {
+  if (s.ndim > kMaxTensorRank) {
+    throw std::runtime_error(std::string(who) + ": rank exceeds backend max");
+  }
+  if (s.ndim >= 1 && s.dims[0] <= 0) {
+    throw std::runtime_error(std::string(who) + ": invalid leading dim");
+  }
+  if (s.ndim >= 2 && s.dims[1] <= 0) {
+    throw std::runtime_error(std::string(who) + ": invalid second dim");
+  }
+  return static_cast<const TensorView &>(s);
+}
 
 class Tensor {
 public:
@@ -332,7 +389,7 @@ public:
 
   Device device() const { return view_.device(); }
   DType dtype() const { return view_.dtype(); }
-  const Shape &shape() const { return view_.shape(); }
+  Shape shape() const { return view_.shape(); }
   uint64_t bytes() const { return view_.bytes(); }
 
   TensorView view() const { return view_; }

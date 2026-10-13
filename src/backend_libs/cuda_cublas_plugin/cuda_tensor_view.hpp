@@ -23,7 +23,7 @@ struct KernelTensorView {
   int64_t stride_c_bytes;
 };
 
-TensorView to_tensor_view(const BackendTensorView &abi);
+const TensorView &to_tensor_view(const TensorViewStruct &abi);
 KernelTensorView to_kernel_tensor_view(const TensorView &view);
 KernelTensorView to_kernel_index_vector_view(const TensorView &view);
 

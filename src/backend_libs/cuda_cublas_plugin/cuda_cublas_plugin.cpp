@@ -35,170 +35,170 @@ void plugin_copy_device2host(void *backend, void *dst, const void *src,
   backend_from_opaque(backend).copy_device2host(dst, src, bytes);
 }
 
-void plugin_copy(void *backend, const BackendTensorView *src,
-                 const BackendTensorView *dst) {
+void plugin_copy(void *backend, const TensorViewStruct *src,
+                 const TensorViewStruct *dst) {
   TensorView dst_view = to_tensor_view(*dst);
   backend_from_opaque(backend).copy(to_tensor_view(*src), dst_view);
 }
 
-void plugin_fill(void *backend, const BackendTensorView *t, float v) {
+void plugin_fill(void *backend, const TensorViewStruct *t, float v) {
   TensorView t_view = to_tensor_view(*t);
   backend_from_opaque(backend).fill(t_view, v);
 }
 
-void plugin_add(void *backend, const BackendTensorView *a,
-                const BackendTensorView *b, const BackendTensorView *out) {
+void plugin_add(void *backend, const TensorViewStruct *a,
+                const TensorViewStruct *b, const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).add(to_tensor_view(*a), to_tensor_view(*b),
                                  out_view);
 }
 
-void plugin_add_inplace(void *backend, const BackendTensorView *a,
-                        const BackendTensorView *b) {
+void plugin_add_inplace(void *backend, const TensorViewStruct *a,
+                        const TensorViewStruct *b) {
   TensorView a_view = to_tensor_view(*a);
   backend_from_opaque(backend).add_inplace(a_view, to_tensor_view(*b));
 }
 
-void plugin_add_bias_rowwise(void *backend, const BackendTensorView *x,
-                             const BackendTensorView *bias_1xC,
-                             const BackendTensorView *out) {
+void plugin_add_bias_rowwise(void *backend, const TensorViewStruct *x,
+                             const TensorViewStruct *bias_1xC,
+                             const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).add_bias_rowwise(
       to_tensor_view(*x), to_tensor_view(*bias_1xC), out_view);
 }
 
-void plugin_add_bias_relu_rowwise(void *backend, const BackendTensorView *x,
-                                  const BackendTensorView *bias_1xC,
-                                  const BackendTensorView *out) {
+void plugin_add_bias_relu_rowwise(void *backend, const TensorViewStruct *x,
+                                  const TensorViewStruct *bias_1xC,
+                                  const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).add_bias_relu_rowwise(
       to_tensor_view(*x), to_tensor_view(*bias_1xC), out_view);
 }
 
 void plugin_add_bias_relu_rowwise_inplace(void *backend,
-                                          const BackendTensorView *x,
-                                          const BackendTensorView *bias_1xC) {
+                                          const TensorViewStruct *x,
+                                          const TensorViewStruct *bias_1xC) {
   TensorView x_view = to_tensor_view(*x);
   backend_from_opaque(backend).add_bias_relu_rowwise_inplace(
       x_view, to_tensor_view(*bias_1xC));
 }
 
-void plugin_mul_scalar(void *backend, const BackendTensorView *x, float s,
-                       const BackendTensorView *out) {
+void plugin_mul_scalar(void *backend, const TensorViewStruct *x, float s,
+                       const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).mul_scalar(to_tensor_view(*x), s, out_view);
 }
 
-float plugin_sum_squares_f32(void *backend, const BackendTensorView *x) {
+float plugin_sum_squares_f32(void *backend, const TensorViewStruct *x) {
   return backend_from_opaque(backend).sum_squares_f32(to_tensor_view(*x));
 }
 
-void plugin_relu(void *backend, const BackendTensorView *x,
-                 const BackendTensorView *out) {
+void plugin_relu(void *backend, const TensorViewStruct *x,
+                 const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).relu(to_tensor_view(*x), out_view);
 }
 
-void plugin_relu_backward(void *backend, const BackendTensorView *preact,
-                          const BackendTensorView *dout,
-                          const BackendTensorView *dx) {
+void plugin_relu_backward(void *backend, const TensorViewStruct *preact,
+                          const TensorViewStruct *dout,
+                          const TensorViewStruct *dx) {
   TensorView dx_view = to_tensor_view(*dx);
   backend_from_opaque(backend).relu_backward(to_tensor_view(*preact),
                                            to_tensor_view(*dout), dx_view);
 }
 
 void plugin_relu_backward_inplace(void *backend,
-                                  const BackendTensorView *preact,
-                                  const BackendTensorView *dout_dx) {
+                                  const TensorViewStruct *preact,
+                                  const TensorViewStruct *dout_dx) {
   TensorView dout_dx_view = to_tensor_view(*dout_dx);
   backend_from_opaque(backend).relu_backward_inplace(to_tensor_view(*preact),
                                                    dout_dx_view);
 }
 
-void plugin_row_sum(void *backend, const BackendTensorView *x,
-                    const BackendTensorView *out_1xC) {
+void plugin_row_sum(void *backend, const TensorViewStruct *x,
+                    const TensorViewStruct *out_1xC) {
   TensorView out_view = to_tensor_view(*out_1xC);
   backend_from_opaque(backend).row_sum(to_tensor_view(*x), out_view);
 }
 
-void plugin_gemm(void *backend, const BackendTensorView *a,
-                 const BackendTensorView *b, const BackendTensorView *out) {
+void plugin_gemm(void *backend, const TensorViewStruct *a,
+                 const TensorViewStruct *b, const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm(to_tensor_view(*a), to_tensor_view(*b),
                                     out_view);
 }
 
-void plugin_gemm_ranked_matrix_rhs(void *backend, const BackendTensorView *a,
-                                   const BackendTensorView *b,
-                                   const BackendTensorView *out) {
+void plugin_gemm_ranked_matrix_rhs(void *backend, const TensorViewStruct *a,
+                                   const TensorViewStruct *b,
+                                   const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_ranked_matrix_rhs(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_gemm_ranked_matrix_rhs_t(void *backend, const BackendTensorView *a,
-                                     const BackendTensorView *b,
-                                     const BackendTensorView *out) {
+void plugin_gemm_ranked_matrix_rhs_t(void *backend, const TensorViewStruct *a,
+                                     const TensorViewStruct *b,
+                                     const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_ranked_matrix_rhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
 void plugin_gemm_ranked_reduce_lhs_t(void *backend,
-                                     const BackendTensorView *a,
-                                     const BackendTensorView *b,
-                                     const BackendTensorView *out) {
+                                     const TensorViewStruct *a,
+                                     const TensorViewStruct *b,
+                                     const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_ranked_reduce_lhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_gemm_batched(void *backend, const BackendTensorView *a,
-                         const BackendTensorView *b,
-                         const BackendTensorView *out) {
+void plugin_gemm_batched(void *backend, const TensorViewStruct *a,
+                         const TensorViewStruct *b,
+                         const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_gemm_batched_lhs_t(void *backend, const BackendTensorView *a,
-                               const BackendTensorView *b,
-                               const BackendTensorView *out) {
+void plugin_gemm_batched_lhs_t(void *backend, const TensorViewStruct *a,
+                               const TensorViewStruct *b,
+                               const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched_lhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_gemm_batched_rhs_t(void *backend, const BackendTensorView *a,
-                               const BackendTensorView *b,
-                               const BackendTensorView *out) {
+void plugin_gemm_batched_rhs_t(void *backend, const TensorViewStruct *a,
+                               const TensorViewStruct *b,
+                               const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched_rhs_t(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
-void plugin_transpose(void *backend, const BackendTensorView *x,
-                      const BackendTensorView *out) {
+void plugin_transpose(void *backend, const TensorViewStruct *x,
+                      const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).transpose(to_tensor_view(*x), out_view);
 }
 
-void plugin_layernorm_forward(void *backend, const BackendTensorView *x,
-                              const BackendTensorView *gamma_1xC,
-                              const BackendTensorView *beta_1xC,
-                              const BackendTensorView *out) {
+void plugin_layernorm_forward(void *backend, const TensorViewStruct *x,
+                              const TensorViewStruct *gamma_1xC,
+                              const TensorViewStruct *beta_1xC,
+                              const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).layernorm_forward(
       to_tensor_view(*x), to_tensor_view(*gamma_1xC),
       to_tensor_view(*beta_1xC), out_view);
 }
 
-void plugin_layernorm_backward(void *backend, const BackendTensorView *x,
-                               const BackendTensorView *gamma_1xC,
-                               const BackendTensorView *dout,
-                               const BackendTensorView *dx,
-                               const BackendTensorView *dgamma_1xC,
-                               const BackendTensorView *dbeta_1xC) {
+void plugin_layernorm_backward(void *backend, const TensorViewStruct *x,
+                               const TensorViewStruct *gamma_1xC,
+                               const TensorViewStruct *dout,
+                               const TensorViewStruct *dx,
+                               const TensorViewStruct *dgamma_1xC,
+                               const TensorViewStruct *dbeta_1xC) {
   TensorView dx_view = to_tensor_view(*dx);
   TensorView dgamma_view = to_tensor_view(*dgamma_1xC);
   TensorView dbeta_view = to_tensor_view(*dbeta_1xC);
@@ -207,62 +207,62 @@ void plugin_layernorm_backward(void *backend, const BackendTensorView *x,
       dx_view, dgamma_view, dbeta_view);
 }
 
-void plugin_embedding_lookup(void *backend, const BackendTensorView *table,
-                             const BackendTensorView *ids,
-                             const BackendTensorView *out) {
+void plugin_embedding_lookup(void *backend, const TensorViewStruct *table,
+                             const TensorViewStruct *ids,
+                             const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).embedding_lookup(
       to_tensor_view(*table), to_tensor_view(*ids), out_view);
 }
 
 void plugin_accumulate_embedding_grads(void *backend,
-                                       const BackendTensorView *ids,
-                                       const BackendTensorView *d_cur,
-                                       const BackendTensorView *d_tok) {
+                                       const TensorViewStruct *ids,
+                                       const TensorViewStruct *d_cur,
+                                       const TensorViewStruct *d_tok) {
   TensorView d_tok_view = to_tensor_view(*d_tok);
   backend_from_opaque(backend).accumulate_embedding_grads(
       to_tensor_view(*ids), to_tensor_view(*d_cur), d_tok_view);
 }
 
-void plugin_cross_entropy_mean(void *backend, const BackendTensorView *logits,
-                               const BackendTensorView *targets,
-                               const BackendTensorView *out_loss) {
+void plugin_cross_entropy_mean(void *backend, const TensorViewStruct *logits,
+                               const TensorViewStruct *targets,
+                               const TensorViewStruct *out_loss) {
   TensorView out_loss_view = to_tensor_view(*out_loss);
   backend_from_opaque(backend).cross_entropy_mean(
       to_tensor_view(*logits), to_tensor_view(*targets), out_loss_view);
 }
 
 void plugin_cross_entropy_mean_backward_inplace(
-    void *backend, const BackendTensorView *logits,
-    const BackendTensorView *targets, const BackendTensorView *out_loss) {
+    void *backend, const TensorViewStruct *logits,
+    const TensorViewStruct *targets, const TensorViewStruct *out_loss) {
   TensorView logits_view = to_tensor_view(*logits);
   TensorView out_loss_view = to_tensor_view(*out_loss);
   backend_from_opaque(backend).cross_entropy_mean_backward_inplace(
       logits_view, to_tensor_view(*targets), out_loss_view);
 }
 
-float plugin_read_scalar_f32(void *backend, const BackendTensorView *x) {
+float plugin_read_scalar_f32(void *backend, const TensorViewStruct *x) {
   return backend_from_opaque(backend).read_scalar_f32(to_tensor_view(*x));
 }
 
 void plugin_backward_from_logits_targets(void *backend,
-                                         const BackendTensorView *logits,
-                                         const BackendTensorView *targets) {
+                                         const TensorViewStruct *logits,
+                                         const TensorViewStruct *targets) {
   TensorView logits_view = to_tensor_view(*logits);
   backend_from_opaque(backend).backward_from_logits_targets(
       logits_view, to_tensor_view(*targets));
 }
 
-void plugin_softmax_rows(void *backend, const BackendTensorView *x,
-                         const BackendTensorView *out) {
+void plugin_softmax_rows(void *backend, const TensorViewStruct *x,
+                         const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).softmax_rows(to_tensor_view(*x), out_view);
 }
 
 void plugin_softmax_backward_rows(void *backend,
-                                  const BackendTensorView *softmax,
-                                  const BackendTensorView *dout,
-                                  const BackendTensorView *dx) {
+                                  const TensorViewStruct *softmax,
+                                  const TensorViewStruct *dout,
+                                  const TensorViewStruct *dx) {
   TensorView dx_view = to_tensor_view(*dx);
   backend_from_opaque(backend).softmax_backward_rows(to_tensor_view(*softmax),
                                                    to_tensor_view(*dout),
@@ -270,9 +270,9 @@ void plugin_softmax_backward_rows(void *backend,
 }
 
 void plugin_scaled_causal_softmax_rows(void *backend,
-                                       const BackendTensorView *scores,
+                                       const TensorViewStruct *scores,
                                        float scale,
-                                       const BackendTensorView *out) {
+                                       const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).scaled_causal_softmax_rows(
       to_tensor_view(*scores), scale, out_view);
@@ -299,73 +299,73 @@ void plugin_finish_exec_context_group(void *backend) {
   backend_from_opaque(backend).finish_exec_context_group();
 }
 
-void plugin_gemm_batched_exec_context(void *backend, const BackendTensorView *a,
-                                      const BackendTensorView *b,
-                                      const BackendTensorView *out) {
+void plugin_gemm_batched_exec_context(void *backend, const TensorViewStruct *a,
+                                      const TensorViewStruct *b,
+                                      const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
 void plugin_gemm_batched_rhs_t_exec_context(
-    void *backend, const BackendTensorView *a, const BackendTensorView *b,
-    const BackendTensorView *out) {
+    void *backend, const TensorViewStruct *a, const TensorViewStruct *b,
+    const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched_rhs_t_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
 void plugin_gemm_batched_lhs_t_exec_context(
-    void *backend, const BackendTensorView *a, const BackendTensorView *b,
-    const BackendTensorView *out) {
+    void *backend, const TensorViewStruct *a, const TensorViewStruct *b,
+    const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).gemm_batched_lhs_t_exec_context(
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
 void plugin_scaled_causal_softmax_rows_exec_context(
-    void *backend, const BackendTensorView *scores, float scale,
-    const BackendTensorView *out) {
+    void *backend, const TensorViewStruct *scores, float scale,
+    const TensorViewStruct *out) {
   TensorView out_view = to_tensor_view(*out);
   backend_from_opaque(backend).scaled_causal_softmax_rows_exec_context(
       to_tensor_view(*scores), scale, out_view);
 }
 
 void plugin_softmax_backward_causal_rows_exec_context(
-    void *backend, const BackendTensorView *softmax,
-    const BackendTensorView *dout, const BackendTensorView *dx) {
+    void *backend, const TensorViewStruct *softmax,
+    const TensorViewStruct *dout, const TensorViewStruct *dx) {
   TensorView dx_view = to_tensor_view(*dx);
   backend_from_opaque(backend).softmax_backward_causal_rows_exec_context(
       to_tensor_view(*softmax), to_tensor_view(*dout), dx_view);
 }
 
 void plugin_softmax_backward_causal_rows(void *backend,
-                                         const BackendTensorView *softmax,
-                                         const BackendTensorView *dout,
-                                         const BackendTensorView *dx) {
+                                         const TensorViewStruct *softmax,
+                                         const TensorViewStruct *dout,
+                                         const TensorViewStruct *dx) {
   TensorView dx_view = to_tensor_view(*dx);
   backend_from_opaque(backend).softmax_backward_causal_rows(
       to_tensor_view(*softmax), to_tensor_view(*dout), dx_view);
 }
 
 void plugin_apply_causal_mask_inplace(void *backend,
-                                      const BackendTensorView *scores,
+                                      const TensorViewStruct *scores,
                                       float neg_inf) {
   TensorView scores_view = to_tensor_view(*scores);
   backend_from_opaque(backend).apply_causal_mask_inplace(scores_view, neg_inf);
 }
 
-void plugin_rotary_embedding_inplace(void *backend, const BackendTensorView *x,
+void plugin_rotary_embedding_inplace(void *backend, const TensorViewStruct *x,
                                      int64_t n_heads, float base,
                                      uint32_t inverse) {
   TensorView x_view = to_tensor_view(*x);
   backend_from_opaque(backend).rotary_embedding_inplace(x_view, n_heads, base, inverse != 0);
 }
 
-void plugin_adamw_step(void *backend, const BackendTensorView *params,
-                       const BackendTensorView *grads,
-                       const BackendTensorView *m,
-                       const BackendTensorView *v, uint64_t step,
+void plugin_adamw_step(void *backend, const TensorViewStruct *params,
+                       const TensorViewStruct *grads,
+                       const TensorViewStruct *m,
+                       const TensorViewStruct *v, uint64_t step,
                        float learning_rate, float beta1, float beta2,
                        float weight_decay, uint32_t apply_weight_decay) {
   TensorView params_view = to_tensor_view(*params);

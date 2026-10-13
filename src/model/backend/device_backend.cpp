@@ -155,23 +155,6 @@ struct CpuMemOperations {
   }
 };
 
-BackendTensorView to_backend_tensor_view(const TensorView &view) {
-  BackendTensorView abi{};
-  abi.device = static_cast<uint32_t>(view.device());
-  abi.dtype = static_cast<uint32_t>(view.dtype());
-  abi.data = view.data();
-  abi.rank = static_cast<uint32_t>(view.rank());
-  abi.rows = view.shape().dim(0);
-  abi.cols = view.shape().dim(1);
-  abi.stride_r_bytes = view.rank() >= 2 ? view.stride_bytes(view.rank() - 2) : 0;
-  abi.stride_c_bytes = view.rank() >= 1 ? view.stride_bytes(view.rank() - 1) : 0;
-  for (size_t i = 0; i < view.rank() && i < kBackendTensorMaxRank; ++i) {
-    abi.dims[i] = view.dim(i);
-    abi.strides_bytes[i] = view.stride_bytes(i);
-  }
-  return abi;
-}
-
 void require_f32_cpu_contig(const TensorView &t, const char *who) {
   require_backend(t.device() == Device::CPU,
                   std::string(who) + " requires CPU tensor");
@@ -267,245 +250,162 @@ public:
   }
 
   void copy(const TensorView &src, TensorView &dst) override {
-    const BackendTensorView src_view = to_backend_tensor_view(src);
-    const BackendTensorView dst_view = to_backend_tensor_view(dst);
-    api_->copy(instance_, &src_view, &dst_view);
+    api_->copy(instance_, &src, &dst);
   }
 
   void fill(TensorView &t, float v) override {
-    const BackendTensorView t_view = to_backend_tensor_view(t);
-    api_->fill(instance_, &t_view, v);
+    api_->fill(instance_, &t, v);
   }
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->add(instance_, &a_view, &b_view, &out_view);
+    api_->add(instance_, &a, &b, &out);
   }
 
   void add_inplace(TensorView &a, const TensorView &b) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    api_->add_inplace(instance_, &a_view, &b_view);
+    api_->add_inplace(instance_, &a, &b);
   }
 
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->add_bias_rowwise(instance_, &x_view, &bias_view, &out_view);
+    api_->add_bias_rowwise(instance_, &x, &bias_1xC, &out);
   }
 
   void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
                              TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->add_bias_relu_rowwise(instance_, &x_view, &bias_view, &out_view);
+    api_->add_bias_relu_rowwise(instance_, &x, &bias_1xC, &out);
   }
 
   void add_bias_relu_rowwise_inplace(TensorView &x,
                                      const TensorView &bias_1xC) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView bias_view = to_backend_tensor_view(bias_1xC);
-    api_->add_bias_relu_rowwise_inplace(instance_, &x_view, &bias_view);
+    api_->add_bias_relu_rowwise_inplace(instance_, &x, &bias_1xC);
   }
 
   void mul_scalar(const TensorView &x, float s, TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->mul_scalar(instance_, &x_view, s, &out_view);
+    api_->mul_scalar(instance_, &x, s, &out);
   }
 
   float sum_squares_f32(const TensorView &x) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    return api_->sum_squares_f32(instance_, &x_view);
+    return api_->sum_squares_f32(instance_, &x);
   }
 
   void relu(const TensorView &x, TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->relu(instance_, &x_view, &out_view);
+    api_->relu(instance_, &x, &out);
   }
 
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) override {
-    const BackendTensorView preact_view = to_backend_tensor_view(preact);
-    const BackendTensorView dout_view = to_backend_tensor_view(dout);
-    const BackendTensorView dx_view = to_backend_tensor_view(dx);
-    api_->relu_backward(instance_, &preact_view, &dout_view, &dx_view);
+    api_->relu_backward(instance_, &preact, &dout, &dx);
   }
 
   void relu_backward_inplace(const TensorView &preact,
                              TensorView &dout_dx) override {
-    const BackendTensorView preact_view = to_backend_tensor_view(preact);
-    const BackendTensorView dout_dx_view = to_backend_tensor_view(dout_dx);
-    api_->relu_backward_inplace(instance_, &preact_view, &dout_dx_view);
+    api_->relu_backward_inplace(instance_, &preact, &dout_dx);
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView out_view = to_backend_tensor_view(out_1xC);
-    api_->row_sum(instance_, &x_view, &out_view);
+    api_->row_sum(instance_, &x, &out_1xC);
   }
 
   void gemm(const TensorView &a, const TensorView &b, TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm(instance_, &a_view, &b_view, &out_view);
+    api_->gemm(instance_, &a, &b, &out);
   }
 
   void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
                               TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_ranked_matrix_rhs(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_ranked_matrix_rhs(instance_, &a, &b, &out);
   }
 
   void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
                                 TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_ranked_matrix_rhs_t(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_ranked_matrix_rhs_t(instance_, &a, &b, &out);
   }
 
   void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
                                 TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_ranked_reduce_lhs_t(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_ranked_reduce_lhs_t(instance_, &a, &b, &out);
   }
 
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_batched(instance_, &a, &b, &out);
   }
 
   void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
                           TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched_lhs_t(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_batched_lhs_t(instance_, &a, &b, &out);
   }
 
   void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
                           TensorView &out) override {
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched_rhs_t(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_batched_rhs_t(instance_, &a, &b, &out);
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->transpose(instance_, &x_view, &out_view);
+    api_->transpose(instance_, &x, &out);
   }
 
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView gamma_view = to_backend_tensor_view(gamma_1xC);
-    const BackendTensorView beta_view = to_backend_tensor_view(beta_1xC);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->layernorm_forward(instance_, &x_view, &gamma_view, &beta_view,
-                            &out_view);
+    api_->layernorm_forward(instance_, &x, &gamma_1xC, &beta_1xC,
+                            &out);
   }
 
   void layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
                           const TensorView &dout, TensorView &dx,
                           TensorView &dgamma_1xC,
                           TensorView &dbeta_1xC) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView gamma_view = to_backend_tensor_view(gamma_1xC);
-    const BackendTensorView dout_view = to_backend_tensor_view(dout);
-    const BackendTensorView dx_view = to_backend_tensor_view(dx);
-    const BackendTensorView dgamma_view = to_backend_tensor_view(dgamma_1xC);
-    const BackendTensorView dbeta_view = to_backend_tensor_view(dbeta_1xC);
-    api_->layernorm_backward(instance_, &x_view, &gamma_view, &dout_view,
-                             &dx_view, &dgamma_view, &dbeta_view);
+    api_->layernorm_backward(instance_, &x, &gamma_1xC, &dout,
+                             &dx, &dgamma_1xC, &dbeta_1xC);
   }
 
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) override {
-    const BackendTensorView table_view = to_backend_tensor_view(table);
-    const BackendTensorView ids_view = to_backend_tensor_view(ids);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->embedding_lookup(instance_, &table_view, &ids_view, &out_view);
+    api_->embedding_lookup(instance_, &table, &ids, &out);
   }
 
   void accumulate_embedding_grads(const TensorView &ids,
                                   const TensorView &d_cur,
                                   TensorView &d_tok) override {
-    const BackendTensorView ids_view = to_backend_tensor_view(ids);
-    const BackendTensorView d_cur_view = to_backend_tensor_view(d_cur);
-    const BackendTensorView d_tok_view = to_backend_tensor_view(d_tok);
-    api_->accumulate_embedding_grads(instance_, &ids_view, &d_cur_view,
-                                     &d_tok_view);
+    api_->accumulate_embedding_grads(instance_, &ids, &d_cur,
+                                     &d_tok);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                           TensorView &out_loss) override {
-    const BackendTensorView logits_view = to_backend_tensor_view(logits);
-    const BackendTensorView targets_view = to_backend_tensor_view(targets);
-    const BackendTensorView out_loss_view = to_backend_tensor_view(out_loss);
-    api_->cross_entropy_mean(instance_, &logits_view, &targets_view,
-                             &out_loss_view);
+    api_->cross_entropy_mean(instance_, &logits, &targets,
+                             &out_loss);
   }
 
   void cross_entropy_mean_backward_inplace(TensorView &logits,
                                            const TensorView &targets,
                                            TensorView &out_loss) override {
-    const BackendTensorView logits_view = to_backend_tensor_view(logits);
-    const BackendTensorView targets_view = to_backend_tensor_view(targets);
-    const BackendTensorView out_loss_view = to_backend_tensor_view(out_loss);
-    api_->cross_entropy_mean_backward_inplace(instance_, &logits_view,
-                                              &targets_view, &out_loss_view);
+    api_->cross_entropy_mean_backward_inplace(instance_, &logits,
+                                              &targets, &out_loss);
   }
 
   float read_scalar_f32(const TensorView &x) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    return api_->read_scalar_f32(instance_, &x_view);
+    return api_->read_scalar_f32(instance_, &x);
   }
 
   void backward_from_logits_targets(TensorView &logits,
                                     const TensorView &targets) override {
-    const BackendTensorView logits_view = to_backend_tensor_view(logits);
-    const BackendTensorView targets_view = to_backend_tensor_view(targets);
-    api_->backward_from_logits_targets(instance_, &logits_view, &targets_view);
+    api_->backward_from_logits_targets(instance_, &logits, &targets);
   }
 
   void softmax_rows(const TensorView &x, TensorView &out) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->softmax_rows(instance_, &x_view, &out_view);
+    api_->softmax_rows(instance_, &x, &out);
   }
 
   void softmax_backward_rows(const TensorView &softmax,
                              const TensorView &dout,
                              TensorView &dx) override {
-    const BackendTensorView softmax_view = to_backend_tensor_view(softmax);
-    const BackendTensorView dout_view = to_backend_tensor_view(dout);
-    const BackendTensorView dx_view = to_backend_tensor_view(dx);
-    api_->softmax_backward_rows(instance_, &softmax_view, &dout_view,
-                                &dx_view);
+    api_->softmax_backward_rows(instance_, &softmax, &dout,
+                                &dx);
   }
 
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) override {
-    const BackendTensorView scores_view = to_backend_tensor_view(scores);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->scaled_causal_softmax_rows(instance_, &scores_view, scale, &out_view);
+    api_->scaled_causal_softmax_rows(instance_, &scores, scale, &out);
   }
 
   bool supports_exec_context_iteration() const override {
@@ -551,10 +451,7 @@ public:
       throw std::runtime_error(
           "DynamicLibraryBackend: exec context batched gemm is not supported");
     }
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched_exec_context(instance_, &a_view, &b_view, &out_view);
+    api_->gemm_batched_exec_context(instance_, &a, &b, &out);
   }
 
   void gemm_batched_rhs_t_exec_context(const TensorView &a,
@@ -564,11 +461,8 @@ public:
       throw std::runtime_error(
           "DynamicLibraryBackend: exec context rhs-transposed batched gemm is not supported");
     }
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched_rhs_t_exec_context(instance_, &a_view, &b_view,
-                                          &out_view);
+    api_->gemm_batched_rhs_t_exec_context(instance_, &a, &b,
+                                          &out);
   }
 
   void gemm_batched_lhs_t_exec_context(const TensorView &a,
@@ -578,11 +472,8 @@ public:
       throw std::runtime_error(
           "DynamicLibraryBackend: exec context lhs-transposed batched gemm is not supported");
     }
-    const BackendTensorView a_view = to_backend_tensor_view(a);
-    const BackendTensorView b_view = to_backend_tensor_view(b);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->gemm_batched_lhs_t_exec_context(instance_, &a_view, &b_view,
-                                          &out_view);
+    api_->gemm_batched_lhs_t_exec_context(instance_, &a, &b,
+                                          &out);
   }
 
   void scaled_causal_softmax_rows_exec_context(
@@ -591,10 +482,8 @@ public:
       throw std::runtime_error(
           "DynamicLibraryBackend: exec context causal softmax is not supported");
     }
-    const BackendTensorView scores_view = to_backend_tensor_view(scores);
-    const BackendTensorView out_view = to_backend_tensor_view(out);
-    api_->scaled_causal_softmax_rows_exec_context(instance_, &scores_view,
-                                                  scale, &out_view);
+    api_->scaled_causal_softmax_rows_exec_context(instance_, &scores,
+                                                  scale, &out);
   }
 
   void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
@@ -604,32 +493,24 @@ public:
       throw std::runtime_error(
           "DynamicLibraryBackend: exec context causal softmax backward is not supported");
     }
-    const BackendTensorView softmax_view = to_backend_tensor_view(softmax);
-    const BackendTensorView dout_view = to_backend_tensor_view(dout);
-    const BackendTensorView dx_view = to_backend_tensor_view(dx);
     api_->softmax_backward_causal_rows_exec_context(
-        instance_, &softmax_view, &dout_view, &dx_view);
+        instance_, &softmax, &dout, &dx);
   }
 
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
-    const BackendTensorView softmax_view = to_backend_tensor_view(softmax);
-    const BackendTensorView dout_view = to_backend_tensor_view(dout);
-    const BackendTensorView dx_view = to_backend_tensor_view(dx);
-    api_->softmax_backward_causal_rows(instance_, &softmax_view, &dout_view,
-                                       &dx_view);
+    api_->softmax_backward_causal_rows(instance_, &softmax, &dout,
+                                       &dx);
   }
 
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf) override {
-    const BackendTensorView scores_view = to_backend_tensor_view(scores);
-    api_->apply_causal_mask_inplace(instance_, &scores_view, neg_inf);
+    api_->apply_causal_mask_inplace(instance_, &scores, neg_inf);
   }
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                                 bool inverse) override {
-    const BackendTensorView x_view = to_backend_tensor_view(x);
-    api_->rotary_embedding_inplace(instance_, &x_view, n_heads, base,
+    api_->rotary_embedding_inplace(instance_, &x, n_heads, base,
                                    inverse ? 1u : 0u);
   }
 
@@ -637,11 +518,7 @@ public:
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,
                   bool apply_weight_decay) override {
-    const BackendTensorView params_view = to_backend_tensor_view(params);
-    const BackendTensorView grads_view = to_backend_tensor_view(grads);
-    const BackendTensorView m_view = to_backend_tensor_view(m);
-    const BackendTensorView v_view = to_backend_tensor_view(v);
-    api_->adamw_step(instance_, &params_view, &grads_view, &m_view, &v_view,
+    api_->adamw_step(instance_, &params, &grads, &m, &v,
                      step, learning_rate, beta1, beta2, weight_decay,
                      apply_weight_decay ? 1u : 0u);
   }

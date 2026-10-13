@@ -6,44 +6,8 @@
 
 namespace cuda_cublas_plugin {
 
-void validate_backend_tensor_view(const BackendTensorView &abi, const char *who) {
-  if (abi.rank > kBackendTensorMaxRank) {
-    throw std::runtime_error(std::string(who) + ": rank exceeds backend max");
-  }
-  if (abi.rank == 0) {
-    if (abi.rows != 0 || abi.cols != 0) {
-      throw std::runtime_error(std::string(who) +
-                               ": rank-0 tensor must not advertise 2D extents");
-    }
-    return;
-  }
-  if (abi.rank >= 1 && abi.dims[0] <= 0) {
-    throw std::runtime_error(std::string(who) + ": invalid leading dim");
-  }
-  if (abi.rank >= 2 && abi.dims[1] <= 0) {
-    throw std::runtime_error(std::string(who) + ": invalid second dim");
-  }
-}
-
-TensorView to_tensor_view(const BackendTensorView &abi) {
-  validate_backend_tensor_view(abi, "cuda cublas plugin");
-  Shape logical_shape{};
-  if (abi.rank > 0) {
-    std::vector<int64_t> dims;
-    dims.reserve(abi.rank);
-    for (uint32_t i = 0; i < abi.rank && i < kBackendTensorMaxRank; ++i) {
-      dims.push_back(abi.dims[i]);
-    }
-    logical_shape = Shape(dims);
-  }
-  const Shape shape = logical_shape.rank() == 0 ? Shape{abi.rows, abi.cols}
-                                                : logical_shape;
-  std::array<int64_t, kMaxTensorRank> strides{};
-  for (uint32_t i = 0; i < abi.rank && i < kBackendTensorMaxRank; ++i) {
-    strides[i] = abi.strides_bytes[i];
-  }
-  return TensorView(static_cast<Device>(abi.device),
-                    static_cast<DType>(abi.dtype), abi.data, shape, strides);
+const TensorView &to_tensor_view(const TensorViewStruct &abi) {
+  return as_tensor_view(abi, "cuda cublas plugin");
 }
 
 KernelTensorView to_kernel_tensor_view(const TensorView &view) {

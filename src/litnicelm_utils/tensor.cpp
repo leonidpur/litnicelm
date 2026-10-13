@@ -5,16 +5,16 @@
 
 std::string TensorView::debug_string() const {
   std::ostringstream oss;
-  oss << "TensorView(" << device_name(dev_) << "," << dtype_name(dt_)
+  oss << "TensorView(" << device_name(device()) << "," << dtype_name(dtype())
       << ", shape=[";
-  for (size_t i = 0; i < shape_.rank(); ++i) {
+  for (size_t i = 0; i < ndim; ++i) {
     if (i != 0) {
       oss << "x";
     }
-    oss << shape_.dim(i);
+    oss << dims[i];
   }
   oss << "], bytes=" << bytes() << ", strides=[";
-  for (size_t i = 0; i < shape_.rank(); ++i) {
+  for (size_t i = 0; i < ndim; ++i) {
     if (i != 0) {
       oss << "/";
     }
