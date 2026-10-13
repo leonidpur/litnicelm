@@ -3,7 +3,7 @@
 #include <config.hpp>
 #include "checkpoint.hpp"
 #include "named_layout.hpp"
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 
 #include <cstdint>
 #include <optional>

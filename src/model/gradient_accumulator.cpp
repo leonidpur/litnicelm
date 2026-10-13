@@ -10,7 +10,7 @@ GradientAccumulator::GradientAccumulator(const Ops &ops, uint32_t batches_per_st
     if (sum_arena.base == nullptr || sum_arena.bytes < grads_.bytes()) {
       throw std::runtime_error("GradientAccumulator: sum arena is missing or too small");
     }
-    sum_ = TensorView(sum_arena.device, DType::F32, sum_arena.base, grads_.shape());
+    sum_ = TensorView(sum_arena.device, grads_.dtype(), sum_arena.base, grads_.shape());
   }
 }
 

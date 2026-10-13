@@ -2,7 +2,7 @@
 
 #include "backend/device_backend.hpp"
 #include <config.hpp>
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 
 #include <cstdint>
 #include <string>

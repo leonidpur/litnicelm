@@ -5,10 +5,7 @@
 #include <utility>
 #include <vector>
 
-enum class Device : uint8_t {
-  CPU = 0,
-  GPU = 1,
-};
+#include <litnicelm_utils/device.hpp>
 
 struct TrainingConfig {
   struct DiagnosticsConfig {

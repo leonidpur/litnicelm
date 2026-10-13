@@ -1,6 +1,7 @@
 #pragma once
 
-#include "tensor.hpp"
+#include <litnicelm_utils/layout_slice.hpp>
+#include <litnicelm_utils/tensor.hpp>
 
 #include <cstdint>
 #include <limits>
@@ -12,12 +13,6 @@
 struct Config;
 class ModelAlgoFactory;
 
-struct LayoutSlice {
-  std::string name;
-  uint64_t offset = 0;
-  uint64_t bytes = 0;
-  DType dtype = DType::F32;
-};
 
 class NamedLayout;
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 #include <config.hpp>
 
 #include <cstdint>

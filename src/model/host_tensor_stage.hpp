@@ -1,7 +1,7 @@
 #pragma once
 
 #include "backend/device_backend.hpp"
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 
 #include <cstring>
 #include <stdexcept>

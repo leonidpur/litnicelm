@@ -6,7 +6,7 @@
 #include <initializer_list>
 #include <stdexcept>
 #include <string>
-#include <types.hpp>
+#include "litnicelm_utils/device.hpp"
 #include <utility>
 #include <vector>
 

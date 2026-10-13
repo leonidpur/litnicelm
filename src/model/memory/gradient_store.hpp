@@ -3,7 +3,7 @@
 #include "checkpoint.hpp"
 #include "host_tensor_stage.hpp"
 #include "named_layout.hpp"
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 
 #include <config.hpp>
 

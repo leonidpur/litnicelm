@@ -3,7 +3,7 @@
 #include "memory/memory_resource_info.hpp"
 
 #include <config.hpp>
-#include "tensor.hpp"
+#include <litnicelm_utils/tensor.hpp>
 
 #include <cstdint>
 #include <memory>
