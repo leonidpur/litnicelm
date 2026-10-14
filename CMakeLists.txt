@@ -42,6 +42,7 @@ file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
 # one logger instance.
 add_library(litnicelm_utils SHARED
     src/litnicelm_utils/log.cpp
+    src/litnicelm_utils/validation.cpp
 )
 target_include_directories(litnicelm_utils PUBLIC src/litnicelm_utils/include)
 set_target_properties(litnicelm_utils PROPERTIES
@@ -191,6 +192,12 @@ target_include_directories(litnice_learning_rate_schedule_test PRIVATE
 )
 target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
 add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)
+
+# Validator: named checks pass on valid input, report and throw otherwise.
+add_executable(litnicelm_validation_test tests/validation_test.cpp)
+target_include_directories(litnicelm_validation_test PRIVATE src/model)
+target_link_libraries(litnicelm_validation_test PRIVATE litnicelm_utils)
+add_test(NAME validation COMMAND litnicelm_validation_test)
 
 # Plugins log through the program's logger: one instance in liblitnicelm_utils.so.
 add_library(litnicelm_fake_log_plugin SHARED tests/fake_log_plugin.cpp)
