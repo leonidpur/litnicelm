@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 class Arena {
 public:

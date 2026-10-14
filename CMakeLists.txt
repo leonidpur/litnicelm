@@ -42,7 +42,6 @@ file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
 # one logger instance.
 add_library(litnicelm_utils SHARED
     src/litnicelm_utils/log.cpp
-    src/litnicelm_utils/tensor.cpp
 )
 target_include_directories(litnicelm_utils PUBLIC src/litnicelm_utils/include)
 set_target_properties(litnicelm_utils PROPERTIES

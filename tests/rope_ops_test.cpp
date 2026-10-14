@@ -8,7 +8,7 @@
 
 #include "backend/device_backend.hpp"
 #include "ops.hpp"
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 #include <config.hpp>
 

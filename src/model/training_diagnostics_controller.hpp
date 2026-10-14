@@ -4,7 +4,7 @@
 #include "dataset.hpp"
 #include "gradient_store.hpp"
 #include "ops.hpp"
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 #include "tensor_store.hpp"
 #include <config.hpp>
 #include <types.hpp>

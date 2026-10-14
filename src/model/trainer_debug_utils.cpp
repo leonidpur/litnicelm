@@ -1,6 +1,6 @@
 #include "trainer_debug_utils.hpp"
 
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 namespace TrainerDebugUtils {
 

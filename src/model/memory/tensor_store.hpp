@@ -4,7 +4,7 @@
 #include "model_algo_factory.hpp"
 #include "named_layout.hpp"
 #include "backend/device_backend.hpp"
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 #include <cstdint>
 #include <memory>

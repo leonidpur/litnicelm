@@ -1,7 +1,7 @@
 #pragma once
 
 #include <litnicelm_utils/layout_slice.hpp>
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 #include <cstdint>
 #include <limits>

@@ -1,7 +1,7 @@
 #pragma once
 
 /* The ABI form of a tensor view: plain C data shared by the program and its
- * plugins. A TensorView (C++) is this struct plus methods, with the same
+ * plugins. The host's TensorView (C++) is this struct plus methods, with the same
  * memory layout, so views cross the plugin boundary without conversion. */
 
 #include <stdint.h>

@@ -1,4 +1,4 @@
-#include "litnicelm_utils/tensor.hpp"
+#include "tensor.hpp"
 
 #include <limits>
 #include <sstream>

@@ -3,7 +3,7 @@
 #include "checkpoint.hpp"
 #include "mean_loss.hpp"
 #include "ops.hpp"
-#include <litnicelm_utils/tensor.hpp>
+#include "tensor.hpp"
 
 #include <cstdint>
 
