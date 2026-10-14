@@ -2,14 +2,14 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 void InplaceFusedBiasReluFFN::forward(const TensorView &x, TensorView &out) {
   observer_->on_ffn_start(idx_);
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_bsd_io(x, out, model_dim,
-                                       "InplaceFusedBiasReluFFN");
+      TensorContracts::check_bsd_io(x, out, model_dim,
+                                    "InplaceFusedBiasReluFFN");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
 
@@ -17,8 +17,8 @@ void InplaceFusedBiasReluFFN::forward(const TensorView &x, TensorView &out) {
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
-  validator().validate_same_device_dtype(W1, x, "InplaceFusedBiasReluFFN W1/x");
-  validator().validate_same_device_dtype(W2, x, "InplaceFusedBiasReluFFN W2/x");
+  checker().check_same_device_dtype(W1, x, "InplaceFusedBiasReluFFN W1/x");
+  checker().check_same_device_dtype(W2, x, "InplaceFusedBiasReluFFN W2/x");
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
 
@@ -34,9 +34,9 @@ void InplaceFusedBiasReluFFN::forward(const TensorView &x, TensorView &out) {
 
 void InplaceFusedBiasReluFFN::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_ffn_start(idx_);
-  validator().validate_same_device_dtype(dout, cache_x_,
-                                         "InplaceFusedBiasReluFFN dout/cache_x");
-  validator().validate_same_shape(dx, cache_x_, "InplaceFusedBiasReluFFN dx");
+  checker().check_same_device_dtype(dout, cache_x_,
+                                    "InplaceFusedBiasReluFFN dout/cache_x");
+  checker().check_same_shape(dx, cache_x_, "InplaceFusedBiasReluFFN dx");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 

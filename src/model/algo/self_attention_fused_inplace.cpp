@@ -2,7 +2,7 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 
@@ -16,7 +16,7 @@ SelfAttentionFusedInplace::SelfAttentionFusedInplace(
       gradientStore_(gradient_store),
       ops_(ops),
       positionEncoding_(position_encoding) {
-  validate_contract();
+  check_contract();
 }
 
 void SelfAttentionFusedInplace::set_observer(ITrainingObserver *observer) {
@@ -28,27 +28,27 @@ void SelfAttentionFusedInplace::set_diagnostics(
   diagnostics_ = diagnostics;
 }
 
-void SelfAttentionFusedInplace::validate_contract() const {
+void SelfAttentionFusedInplace::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t num_heads = static_cast<int64_t>(cfg_.model.n_heads);
-  TensorContracts::validate_attention_config(model_dim, num_heads,
-                                             "SelfAttentionFusedInplace");
+  TensorContracts::check_attention_config(model_dim, num_heads,
+                                          "SelfAttentionFusedInplace");
 
   const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
-  TensorContracts::validate_attention_params(Wqkv, bqkv, Wo, bo, model_dim,
-                                             "SelfAttentionFusedInplace");
+  TensorContracts::check_attention_params(Wqkv, bqkv, Wo, bo, model_dim,
+                                          "SelfAttentionFusedInplace");
 }
 
 void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
   observer_->on_attention_start(idx_);
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_bsd_io(x, out, model_dim,
-                                       "SelfAttentionFusedInplace");
+      TensorContracts::check_bsd_io(x, out, model_dim,
+                                    "SelfAttentionFusedInplace");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
 
@@ -61,10 +61,10 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
-  validator().validate_same_device_dtype(Wqkv, x,
-                                         "SelfAttentionFusedInplace Wqkv/x");
-  validator().validate_same_device_dtype(Wo, x,
-                                         "SelfAttentionFusedInplace Wo/x");
+  checker().check_same_device_dtype(Wqkv, x,
+                                    "SelfAttentionFusedInplace Wqkv/x");
+  checker().check_same_device_dtype(Wo, x,
+                                    "SelfAttentionFusedInplace Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
@@ -108,13 +108,13 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
 void SelfAttentionFusedInplace::backward(const TensorView &dout,
                                          TensorView &dx) {
   observer_->on_attention_start(idx_);
-  validator().validate_same_shape(dout, cache_x_,
-                                  "SelfAttentionFusedInplace dout");
-  validator().validate_same_shape(dx, cache_x_, "SelfAttentionFusedInplace dx");
+  checker().check_same_shape(dout, cache_x_,
+                             "SelfAttentionFusedInplace dout");
+  checker().check_same_shape(dx, cache_x_, "SelfAttentionFusedInplace dx");
 
   const int64_t model_dim = cache_x_.dim(2);
-  validator().validate_bsd(cache_x_, -1, -1, model_dim,
-                           "SelfAttentionFusedInplace cached x");
+  checker().check_bsd(cache_x_, -1, -1, model_dim,
+                      "SelfAttentionFusedInplace cached x");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);

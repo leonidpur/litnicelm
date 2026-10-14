@@ -2,7 +2,7 @@
 #include "layout_cursor.hpp"
 #include "model_algo_factory.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <stdexcept>
 
@@ -21,15 +21,15 @@ AdamStateStore::AdamStateStore(const Config &cfg,
       device_(adam_state.device),
       optimizer_layout_(optimizer_layout),
       v_offset_(optimizer_layout.total_bytes()) {
-  const Validator &v = validator();
-  v.validate_not_null(params_base_, "AdamStateStore", "params_base");
-  v.validate_positive(static_cast<double>(params_bytes_), "AdamStateStore",
-                      "params_bytes");
-  v.validate_in_bounds(0, param_bytes_, params_bytes_, "AdamStateStore",
-                       "parameter layout");
-  v.validate_not_null(adam_base_, "AdamStateStore", "adam_base");
-  v.validate_in_bounds(0, arena_bytes(optimizer_layout), adam_bytes_,
-                       "AdamStateStore", "m and v state");
+  const Checker &v = checker();
+  v.check_not_null(params_base_, "AdamStateStore", "params_base");
+  v.check_positive(static_cast<double>(params_bytes_), "AdamStateStore",
+                   "params_bytes");
+  v.check_in_bounds(0, param_bytes_, params_bytes_, "AdamStateStore",
+                    "parameter layout");
+  v.check_not_null(adam_base_, "AdamStateStore", "adam_base");
+  v.check_in_bounds(0, arena_bytes(optimizer_layout), adam_bytes_,
+                    "AdamStateStore", "m and v state");
   for (const LayoutSlice &s : optimizer_layout.slices()) {
     state_slice_by_name_.emplace(s.name, s);
   }
@@ -47,9 +47,9 @@ std::optional<TensorView> AdamStateStore::v_zone_view(DecayZone zone) const {
 const AdamStateStore::StatePair &
 AdamStateStore::state_for_param(const TensorView &param) const {
   const auto it = state_by_param_data_.find(param.data());
-  validator().validate(Check::Contract, it != state_by_param_data_.end(),
-                       "AdamStateStore",
-                       "missing optimizer state for parameter");
+  checker().check(CheckKind::Contract, it != state_by_param_data_.end(),
+                  "AdamStateStore",
+                  "missing optimizer state for parameter");
   return it->second;
 }
 
@@ -138,8 +138,8 @@ const AdamStateStore::StatePair &AdamStateStore::param_ln2_beta(int layer) const
 }
 
 void AdamStateStore::check_layer(int layer) const {
-  validator().validate_index(layer, cfg_.model.n_layers, "AdamStateStore",
-                             "layer");
+  checker().check_index(layer, cfg_.model.n_layers, "AdamStateStore",
+                        "layer");
 }
 
 void AdamStateStore::build_state_views(
@@ -276,7 +276,7 @@ void AdamStateStore::register_state(const TensorView &param,
 
 TensorView AdamStateStore::make_param_view(const LayoutSlice &s,
                                                  Shape shape) const {
-  validator().validate_slice(s, shape, param_bytes_, "AdamStateStore");
+  checker().check_slice(s, shape, param_bytes_, "AdamStateStore");
   void *ptr = params_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -285,14 +285,14 @@ TensorView AdamStateStore::make_state_view(const LayoutSlice &param_slice,
                                            Shape shape,
                                            uint64_t state_base_offset) const {
   const auto it = state_slice_by_name_.find(param_slice.name);
-  validator().validate(Check::Layout, it != state_slice_by_name_.end(),
-                       "AdamStateStore", [&] {
-                         return "no optimizer-state slice for " +
-                                param_slice.name;
-                       });
+  checker().check(CheckKind::Layout, it != state_slice_by_name_.end(),
+                  "AdamStateStore", [&] {
+                    return "no optimizer-state slice for " +
+                           param_slice.name;
+                  });
   const LayoutSlice &s = it->second;
   // m and v each span v_offset_ bytes; the slice must lie in one of them.
-  validator().validate_slice(s, shape, v_offset_, "AdamStateStore");
+  checker().check_slice(s, shape, v_offset_, "AdamStateStore");
   void *ptr = adam_base_ + state_base_offset + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }

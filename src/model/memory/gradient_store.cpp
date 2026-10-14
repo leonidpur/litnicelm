@@ -2,7 +2,7 @@
 #include "layout_cursor.hpp"
 #include "model_algo_factory.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 #include <sstream>
@@ -27,16 +27,16 @@ GradientStore::GradientStore(const Config &cfg,
           Shape{static_cast<int64_t>(grad_layout.total_bytes() /
                                      dtype_size(grad_layout.uniform_dtype())),
                 1}) {
-  const Validator &v = validator();
-  v.validate_not_null(params_base_, "GradientStore", "params_base");
-  v.validate_positive(static_cast<double>(params_bytes_), "GradientStore",
-                      "params_bytes");
-  v.validate_not_null(grad_base_, "GradientStore", "grad_arena.base");
-  v.validate_in_bounds(0, grad_layout.total_bytes(), grad_bytes_,
-                       "GradientStore", "gradient layout");
-  v.validate_aligned(grad_layout.total_bytes(),
-                     dtype_size(grad_layout.uniform_dtype()), "GradientStore",
-                     "gradient layout bytes");
+  const Checker &v = checker();
+  v.check_not_null(params_base_, "GradientStore", "params_base");
+  v.check_positive(static_cast<double>(params_bytes_), "GradientStore",
+                   "params_bytes");
+  v.check_not_null(grad_base_, "GradientStore", "grad_arena.base");
+  v.check_in_bounds(0, grad_layout.total_bytes(), grad_bytes_,
+                    "GradientStore", "gradient layout");
+  v.check_aligned(grad_layout.total_bytes(),
+                  dtype_size(grad_layout.uniform_dtype()), "GradientStore",
+                  "gradient layout bytes");
   for (const LayoutSlice &s : grad_layout.slices()) {
     grad_slice_by_name_.emplace(s.name, s);
   }
@@ -49,8 +49,8 @@ std::optional<TensorView> GradientStore::zone_view(DecayZone zone) const {
 
 TensorView GradientStore::grad_for_param(const TensorView &param) const {
   const auto it = grad_by_param_data_.find(param.data());
-  validator().validate(Check::Contract, it != grad_by_param_data_.end(),
-                       "GradientStore", "missing gradient slot for parameter");
+  checker().check(CheckKind::Contract, it != grad_by_param_data_.end(),
+                  "GradientStore", "missing gradient slot for parameter");
   return it->second;
 }
 
@@ -205,7 +205,7 @@ std::string GradientStore::first_nonfinite_diagnostic(
 
 TensorView GradientStore::make_param_view(const LayoutSlice &s,
                                          Shape shape) const {
-  validator().validate_slice(s, shape, params_bytes_, "GradientStore");
+  checker().check_slice(s, shape, params_bytes_, "GradientStore");
   void *ptr = params_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -213,19 +213,19 @@ TensorView GradientStore::make_param_view(const LayoutSlice &s,
 TensorView GradientStore::make_grad_view(const LayoutSlice &param_slice,
                                         Shape shape) const {
   const auto it = grad_slice_by_name_.find(param_slice.name);
-  validator().validate(Check::Layout, it != grad_slice_by_name_.end(),
-                       "GradientStore", [&] {
-                         return "no gradient slice for " + param_slice.name;
-                       });
+  checker().check(CheckKind::Layout, it != grad_slice_by_name_.end(),
+                  "GradientStore", [&] {
+                    return "no gradient slice for " + param_slice.name;
+                  });
   const LayoutSlice &s = it->second;
-  validator().validate_slice(s, shape, grad_bytes_, "GradientStore");
+  checker().check_slice(s, shape, grad_bytes_, "GradientStore");
   void *ptr = grad_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
 
 void GradientStore::check_layer(int layer) const {
-  validator().validate_index(layer, cfg_.model.n_layers, "GradientStore",
-                             "layer");
+  checker().check_index(layer, cfg_.model.n_layers, "GradientStore",
+                        "layer");
 }
 
 std::string GradientStore::lname(int layer, const char *suffix) const {

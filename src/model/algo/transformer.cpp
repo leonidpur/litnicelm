@@ -3,7 +3,7 @@
 #include "tensor_probe.hpp"
 #include "training_diagnostics_controller.hpp"
 #include <litnicelm_utils/assert.hpp>
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 #include <cstring>
@@ -30,7 +30,7 @@ Transformer::Transformer(const Config &cfg,
                          gradientStore_, ops_, algo, *positionEncoding_);
   }
   positionEncoding_->bind(tensorStore_, gradientStore_, ops_);
-  validate_contract();
+  check_contract();
 }
 
 void Transformer::set_observer(ITrainingObserver *observer) {
@@ -50,14 +50,14 @@ void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
   positionEncoding_->set_diagnostics(diagnostics);
 }
 
-void Transformer::validate_contract() const {
+void Transformer::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
-  TensorContracts::validate_transformer_embedding_params(
+  TensorContracts::check_transformer_embedding_params(
       tok_emb, model_dim, vocab_size, "Transformer");
 }
 
@@ -67,16 +67,16 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_ids_bs(ids, max_seq_len, "Transformer");
+      TensorContracts::check_ids_bs(ids, max_seq_len, "Transformer");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
-  TensorContracts::validate_logits_bsv(logits, batch_size, seq_len,
-                                       vocab_size, "Transformer", "logits");
+  TensorContracts::check_logits_bsv(logits, batch_size, seq_len,
+                                    vocab_size, "Transformer", "logits");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
-  validator().validate_same_device_dtype(tok_emb, logits,
-                                         "Transformer params/logits");
+  checker().check_same_device_dtype(tok_emb, logits,
+                                    "Transformer params/logits");
 
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
@@ -109,7 +109,7 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
 
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_ids_bs(ids, max_seq_len, "Transformer");
+      TensorContracts::check_ids_bs(ids, max_seq_len, "Transformer");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
   const int64_t ids_token_rows = static_cast<int64_t>(ids.numel());
@@ -121,8 +121,8 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
-  TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
-                                       vocab_size, "Transformer", "dlogits");
+  TensorContracts::check_logits_bsv(dlogits, batch_size, seq_len,
+                                    vocab_size, "Transformer", "dlogits");
 
   (void)probe;
 

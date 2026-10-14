@@ -37,12 +37,12 @@ file(GLOB TOKENIZER_SOURCES CONFIGURE_DEPENDS
 
 # --- 3. Build Targets ---
 
-# Utilities shared by the program and its plugins: logging (and later
-# validation). A shared library, so that the executable and every plugin use
-# one logger instance.
+# Utilities shared by the program and its plugins: logging and checks. A
+# shared library, so that the executable and every plugin use one logger and
+# one checker instance.
 add_library(litnicelm_utils SHARED
     src/litnicelm_utils/log.cpp
-    src/litnicelm_utils/validation.cpp
+    src/litnicelm_utils/checks.cpp
 )
 target_include_directories(litnicelm_utils PUBLIC src/litnicelm_utils/include)
 set_target_properties(litnicelm_utils PROPERTIES
@@ -193,11 +193,11 @@ target_include_directories(litnice_learning_rate_schedule_test PRIVATE
 target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
 add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)
 
-# Validator: named checks pass on valid input, report and throw otherwise.
-add_executable(litnicelm_validation_test tests/validation_test.cpp)
-target_include_directories(litnicelm_validation_test PRIVATE src/model)
-target_link_libraries(litnicelm_validation_test PRIVATE litnicelm_utils)
-add_test(NAME validation COMMAND litnicelm_validation_test)
+# Checker: named checks pass on valid input, report and throw otherwise.
+add_executable(litnicelm_checks_test tests/checks_test.cpp)
+target_include_directories(litnicelm_checks_test PRIVATE src/model)
+target_link_libraries(litnicelm_checks_test PRIVATE litnicelm_utils)
+add_test(NAME checks COMMAND litnicelm_checks_test)
 
 # Plugins log through the program's logger: one instance in liblitnicelm_utils.so.
 add_library(litnicelm_fake_log_plugin SHARED tests/fake_log_plugin.cpp)

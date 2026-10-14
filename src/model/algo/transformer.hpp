@@ -52,7 +52,7 @@ public:
                 const RuntimeFlags::ProbeFlags &probe);
 
 private:
-  void validate_contract() const;
+  void check_contract() const;
 
   const Config &cfg_;
   // Declared before layers_, which hold references to it.

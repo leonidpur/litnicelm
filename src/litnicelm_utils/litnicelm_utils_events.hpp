@@ -7,8 +7,8 @@
 
 namespace litnicelm_utils_events {
 
-// validation.cpp
-inline constexpr EventDef kValidationFailed{"litnicelm_utils.validation_failed",
-                                            EventType::Error, "[Validator]"};
+// checks.cpp
+inline constexpr EventDef kCheckFailed{"litnicelm_utils.check_failed",
+                                       EventType::Error, "[Check]"};
 
 } // namespace litnicelm_utils_events

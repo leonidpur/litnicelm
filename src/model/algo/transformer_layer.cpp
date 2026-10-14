@@ -2,7 +2,7 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 
@@ -20,7 +20,7 @@ TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
       algo_factory.create_attention(layer_index, cfg, tensor_store,
                                     gradient_store, ops, position_encoding);
   ffn_ = algo_factory.create_ffn(layer_index, cfg, tensor_store, gradient_store, ops);
-  validate_contract();
+  check_contract();
 }
 
 void TransformerLayer::set_observer(ITrainingObserver *observer) {
@@ -36,26 +36,26 @@ void TransformerLayer::set_diagnostics(
   ffn_->set_diagnostics(diagnostics);
 }
 
-void TransformerLayer::validate_contract() const {
+void TransformerLayer::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorView &ln1_gamma = tensorStore_.param_ln1_gamma(idx_);
   const TensorView &ln1_beta = tensorStore_.param_ln1_beta(idx_);
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  TensorContracts::validate_layernorm_params(ln1_gamma, ln1_beta, model_dim,
-                                             "TransformerLayer", "ln1");
-  TensorContracts::validate_layernorm_params(ln2_gamma, ln2_beta, model_dim,
-                                             "TransformerLayer", "ln2");
-  validator().validate_same_device_dtype(ln1_gamma, ln2_gamma,
-                                         "TransformerLayer ln1/ln2");
+  TensorContracts::check_layernorm_params(ln1_gamma, ln1_beta, model_dim,
+                                          "TransformerLayer", "ln1");
+  TensorContracts::check_layernorm_params(ln2_gamma, ln2_beta, model_dim,
+                                          "TransformerLayer", "ln2");
+  checker().check_same_device_dtype(ln1_gamma, ln2_gamma,
+                                    "TransformerLayer ln1/ln2");
 }
 
 void TransformerLayer::forward(const TensorView &x, TensorView &out) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_bsd_io(x, out, model_dim,
-                                       "TransformerLayer");
+      TensorContracts::check_bsd_io(x, out, model_dim,
+                                    "TransformerLayer");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
 
@@ -64,10 +64,10 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  validator().validate_same_device_dtype(ln1_gamma, x,
-                                         "TransformerLayer ln1_gamma/x");
-  validator().validate_same_device_dtype(ln2_gamma, x,
-                                         "TransformerLayer ln2_gamma/x");
+  checker().check_same_device_dtype(ln1_gamma, x,
+                                    "TransformerLayer ln1_gamma/x");
+  checker().check_same_device_dtype(ln2_gamma, x,
+                                    "TransformerLayer ln2_gamma/x");
 
   TensorView ln1 = tensorStore_.temp_layer_ln1(idx_, batch_size, seq_len);
   TensorView attn_out =
@@ -94,8 +94,8 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
 }
 
 void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
-  validator().validate_same_shape(dout, cache_x_, "TransformerLayer dout");
-  validator().validate_same_shape(dx, cache_x_, "TransformerLayer dx");
+  checker().check_same_shape(dout, cache_x_, "TransformerLayer dout");
+  checker().check_same_shape(dx, cache_x_, "TransformerLayer dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);

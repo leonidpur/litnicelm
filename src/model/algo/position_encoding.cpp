@@ -7,7 +7,7 @@
 #include "training_diagnostics_controller.hpp"
 #include "tensor_probe.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <stdexcept>
 #include <string>
@@ -19,7 +19,7 @@ void LearnedPositionEncoding::bind(TensorStore &tensor_store,
                                    GradientStore *gradient_store, const Ops &ops) {
   ops_ = &ops;
   pos_emb_ = tensor_store.param_pos_embedding();
-  TensorContracts::validate_position_embedding_param(
+  TensorContracts::check_position_embedding_param(
       pos_emb_, static_cast<int64_t>(cfg_.model.max_seq_len),
       static_cast<int64_t>(cfg_.model.d_model), "LearnedPositionEncoding");
   if (gradient_store != nullptr) {
@@ -33,18 +33,18 @@ void LearnedPositionEncoding::set_diagnostics(
 }
 
 void LearnedPositionEncoding::apply_to_input(TensorView &x) {
-  validator().validate(Check::Contract, x.device() == pos_emb_.device(),
-                       "LearnedPositionEncoding",
-                       "pos_emb/x device mismatch");
+  checker().check(CheckKind::Contract, x.device() == pos_emb_.device(),
+                  "LearnedPositionEncoding",
+                  "pos_emb/x device mismatch");
   const int64_t seq_len = x.dim(1);
   TensorView pos_slice = pos_emb_.subrows(0, seq_len);
   ops_->add(x, pos_slice, x);
 }
 
 void LearnedPositionEncoding::backward_input(const TensorView &dx) {
-  validator().validate_not_null(d_pos_.data(), "LearnedPositionEncoding",
-                                "gradient store (backward_input)");
-  validator().validate_rank(dx, 3, "LearnedPositionEncoding dx");
+  checker().check_not_null(d_pos_.data(), "LearnedPositionEncoding",
+                           "gradient store (backward_input)");
+  checker().check_rank(dx, 3, "LearnedPositionEncoding dx");
   const int64_t batch_size = dx.dim(0);
   const int64_t seq_len = dx.dim(1);
   // d_pos[s] += sum_b dx[b, s], accumulated in batch order.
@@ -91,8 +91,8 @@ void RopePositionEncoding::backward_qk(TensorView &dqkv) {
 void RopePositionEncoding::rotate_qk(TensorView &qkv, bool inverse) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t n_heads = static_cast<int64_t>(cfg_.model.n_heads);
-  validator().validate_bsd(qkv, -1, -1, 3 * model_dim,
-                           "RopePositionEncoding qkv");
+  checker().check_bsd(qkv, -1, -1, 3 * model_dim,
+                      "RopePositionEncoding qkv");
   TensorView q = qkv.subcols(0, model_dim);
   TensorView k = qkv.subcols(model_dim, model_dim);
   ops_->rotary_embedding_inplace(q, n_heads, kBase, inverse);

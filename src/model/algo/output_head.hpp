@@ -21,7 +21,7 @@ public:
   void backward(const TensorView &dlogits, TensorView &dx);
 
 private:
-  void validate_contract() const;
+  void check_contract() const;
 
   const Config &cfg_;
   TensorStore &tensorStore_;

@@ -38,7 +38,7 @@ public:
   void backward(const TensorView &dout, TensorView &dx) override;
 
 private:
-  void validate_contract() const;
+  void check_contract() const;
 
   int idx_;
   const Config &cfg_;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <litnicelm_utils/layout_slice.hpp>
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <string>
 #include <utility>
@@ -17,19 +17,19 @@ public:
       : slices_(slices), who_(std::move(who)) {}
 
   const LayoutSlice &next(const std::string &expected) {
-    validator().validate(Check::Layout, index_ < slices_.size(), who_, [&] {
+    checker().check(CheckKind::Layout, index_ < slices_.size(), who_, [&] {
       return "layout ended before slice " + expected;
     });
     const LayoutSlice &slice = slices_[index_++];
-    validator().validate(Check::Layout, slice.name == expected, who_, [&] {
+    checker().check(CheckKind::Layout, slice.name == expected, who_, [&] {
       return "expected slice " + expected + ", got " + slice.name;
     });
     return slice;
   }
 
   void finish() const {
-    validator().validate(Check::Layout, index_ == slices_.size(), who_,
-                         "layout has unexpected extra slices");
+    checker().check(CheckKind::Layout, index_ == slices_.size(), who_,
+                    "layout has unexpected extra slices");
   }
 
 private:

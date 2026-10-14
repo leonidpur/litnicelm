@@ -2,7 +2,7 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <cstring>
 
@@ -13,7 +13,7 @@ FFN::FFN(int layer_index, const Config &cfg, TensorStore &tensor_store,
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops) {
-  validate_contract();
+  check_contract();
 }
 
 void FFN::set_observer(ITrainingObserver *observer) {
@@ -24,7 +24,7 @@ void FFN::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
   diagnostics_ = diagnostics;
 }
 
-void FFN::validate_contract() const {
+void FFN::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t ffn_dim = static_cast<int64_t>(cfg_.model.d_ff);
 
@@ -33,15 +33,15 @@ void FFN::validate_contract() const {
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
 
-  TensorContracts::validate_ffn_params(W1, b1, W2, b2, model_dim, ffn_dim,
-                                       "FFN");
+  TensorContracts::check_ffn_params(W1, b1, W2, b2, model_dim, ffn_dim,
+                                    "FFN");
 }
 
 void FFN::forward(const TensorView &x, TensorView &out) {
   observer_->on_ffn_start(idx_);
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorContracts::BatchSeqDims dims =
-      TensorContracts::validate_bsd_io(x, out, model_dim, "FFN");
+      TensorContracts::check_bsd_io(x, out, model_dim, "FFN");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
 
@@ -49,8 +49,8 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
-  validator().validate_same_device_dtype(W1, x, "FFN W1/x");
-  validator().validate_same_device_dtype(W2, x, "FFN W2/x");
+  checker().check_same_device_dtype(W1, x, "FFN W1/x");
+  checker().check_same_device_dtype(W2, x, "FFN W2/x");
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
@@ -69,8 +69,8 @@ void FFN::forward(const TensorView &x, TensorView &out) {
 
 void FFN::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_ffn_start(idx_);
-  validator().validate_same_device_dtype(dout, cache_x_, "FFN dout/cache_x");
-  validator().validate_same_shape(dx, cache_x_, "FFN dx");
+  checker().check_same_device_dtype(dout, cache_x_, "FFN dout/cache_x");
+  checker().check_same_shape(dx, cache_x_, "FFN dx");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 

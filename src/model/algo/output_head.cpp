@@ -2,7 +2,7 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
-#include <litnicelm_utils/validation.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 
 OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
@@ -11,7 +11,7 @@ OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops) {
-  validate_contract();
+  check_contract();
 }
 
 void OutputHead::set_observer(ITrainingObserver *observer) {
@@ -22,7 +22,7 @@ void OutputHead::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
   diagnostics_ = diagnostics;
 }
 
-void OutputHead::validate_contract() const {
+void OutputHead::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
@@ -31,38 +31,38 @@ void OutputHead::validate_contract() const {
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
 
-  TensorContracts::validate_output_head_params(lnf_g, lnf_b, lm_w, model_dim,
-                                               vocab_size, "OutputHead");
+  TensorContracts::check_output_head_params(lnf_g, lnf_b, lm_w, model_dim,
+                                            vocab_size, "OutputHead");
 }
 
 void OutputHead::forward(const TensorView &x, TensorView &logits,
                          TensorView *last_hidden) {
   observer_->on_output_head_start();
-  validator().validate_same_device_dtype(x, logits, "OutputHead x/logits");
+  checker().check_same_device_dtype(x, logits, "OutputHead x/logits");
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
-  validator().validate_bsd(x, -1, -1, model_dim, "OutputHead x");
+  checker().check_bsd(x, -1, -1, model_dim, "OutputHead x");
   const int64_t batch_size = x.dim(0);
   const int64_t seq_len = x.dim(1);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
-  TensorContracts::validate_logits_bsv(logits, batch_size, seq_len, vocab_size,
-                                       "OutputHead", "logits");
+  TensorContracts::check_logits_bsv(logits, batch_size, seq_len, vocab_size,
+                                    "OutputHead", "logits");
 
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
-  validator().validate_same_device_dtype(lnf_g, logits,
-                                         "OutputHead lnf_gamma/logits");
-  validator().validate_same_device_dtype(lm_w, logits,
-                                         "OutputHead lm_head_w/logits");
+  checker().check_same_device_dtype(lnf_g, logits,
+                                    "OutputHead lnf_gamma/logits");
+  checker().check_same_device_dtype(lm_w, logits,
+                                    "OutputHead lm_head_w/logits");
 
   TensorView Xn = tensorStore_.temp_tr_Xn(batch_size, seq_len);
   ops_.layernorm(x, lnf_g, lnf_b, Xn);
 
   if (last_hidden != nullptr) {
-    validator().validate_same_shape(*last_hidden, x, "OutputHead last_hidden");
-    validator().validate_same_device_dtype(*last_hidden, logits,
-                                           "OutputHead last_hidden/logits");
+    checker().check_same_shape(*last_hidden, x, "OutputHead last_hidden");
+    checker().check_same_device_dtype(*last_hidden, logits,
+                                      "OutputHead last_hidden/logits");
     ops_.copy(Xn, *last_hidden);
   }
 
@@ -74,14 +74,14 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
 
 void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   observer_->on_output_head_start();
-  validator().validate_same_shape(dx, cache_x_, "OutputHead dx");
+  checker().check_same_shape(dx, cache_x_, "OutputHead dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
-  TensorContracts::validate_logits_bsv(dlogits, batch_size, seq_len,
-                                       vocab_size, "OutputHead", "dlogits");
+  TensorContracts::check_logits_bsv(dlogits, batch_size, seq_len,
+                                    vocab_size, "OutputHead", "dlogits");
 
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
