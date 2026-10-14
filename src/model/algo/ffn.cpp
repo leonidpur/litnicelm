@@ -2,6 +2,8 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
+#include <litnicelm_utils/validation.hpp>
+
 #include <cstring>
 
 FFN::FFN(int layer_index, const Config &cfg, TensorStore &tensor_store,
@@ -47,8 +49,8 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
-  TensorContracts::validate_same_device_dtype(W1, x, "FFN", "W1/x");
-  TensorContracts::validate_same_device_dtype(W2, x, "FFN", "W2/x");
+  validator().validate_same_device_dtype(W1, x, "FFN W1/x");
+  validator().validate_same_device_dtype(W2, x, "FFN W2/x");
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
@@ -67,9 +69,8 @@ void FFN::forward(const TensorView &x, TensorView &out) {
 
 void FFN::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_ffn_start(idx_);
-  TensorContracts::validate_same_device_dtype(dout, cache_x_, "FFN",
-                                              "dout/cache_x");
-  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "FFN", "dx");
+  validator().validate_same_device_dtype(dout, cache_x_, "FFN dout/cache_x");
+  validator().validate_same_shape(dx, cache_x_, "FFN dx");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 

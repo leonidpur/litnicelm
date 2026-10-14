@@ -2,6 +2,8 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
+#include <litnicelm_utils/validation.hpp>
+
 
 OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
                        GradientStore *gradient_store, const Ops &ops)
@@ -36,10 +38,9 @@ void OutputHead::validate_contract() const {
 void OutputHead::forward(const TensorView &x, TensorView &logits,
                          TensorView *last_hidden) {
   observer_->on_output_head_start();
-  TensorContracts::validate_same_device_dtype(x, logits, "OutputHead",
-                                              "x/logits");
+  validator().validate_same_device_dtype(x, logits, "OutputHead x/logits");
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
-  TensorContracts::validate_bsd_tensor(x, model_dim, "OutputHead", "x");
+  validator().validate_bsd(x, -1, -1, model_dim, "OutputHead x");
   const int64_t batch_size = x.dim(0);
   const int64_t seq_len = x.dim(1);
   const int64_t vocab_size =
@@ -50,20 +51,18 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
-  TensorContracts::validate_same_device_dtype(lnf_g, logits, "OutputHead",
-                                              "lnf_gamma/logits");
-  TensorContracts::validate_same_device_dtype(lm_w, logits, "OutputHead",
-                                              "lm_head_w/logits");
+  validator().validate_same_device_dtype(lnf_g, logits,
+                                         "OutputHead lnf_gamma/logits");
+  validator().validate_same_device_dtype(lm_w, logits,
+                                         "OutputHead lm_head_w/logits");
 
   TensorView Xn = tensorStore_.temp_tr_Xn(batch_size, seq_len);
   ops_.layernorm(x, lnf_g, lnf_b, Xn);
 
   if (last_hidden != nullptr) {
-    TensorContracts::validate_bsd_shape_like(*last_hidden, x, "OutputHead",
-                                             "last_hidden");
-    TensorContracts::validate_same_device_dtype(*last_hidden, logits,
-                                                "OutputHead",
-                                                "last_hidden/logits");
+    validator().validate_same_shape(*last_hidden, x, "OutputHead last_hidden");
+    validator().validate_same_device_dtype(*last_hidden, logits,
+                                           "OutputHead last_hidden/logits");
     ops_.copy(Xn, *last_hidden);
   }
 
@@ -75,7 +74,7 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
 
 void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   observer_->on_output_head_start();
-  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "OutputHead", "dx");
+  validator().validate_same_shape(dx, cache_x_, "OutputHead dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);

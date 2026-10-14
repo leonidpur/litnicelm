@@ -3,6 +3,7 @@
 #include "tensor_probe.hpp"
 #include "training_diagnostics_controller.hpp"
 #include <litnicelm_utils/assert.hpp>
+#include <litnicelm_utils/validation.hpp>
 
 #include <cmath>
 #include <cstring>
@@ -74,8 +75,8 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
-  TensorContracts::validate_same_device_dtype(tok_emb, logits, "Transformer",
-                                              "params/logits");
+  validator().validate_same_device_dtype(tok_emb, logits,
+                                         "Transformer params/logits");
 
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 

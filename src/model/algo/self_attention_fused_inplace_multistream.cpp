@@ -2,6 +2,8 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
+#include <litnicelm_utils/validation.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -52,10 +54,10 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
-  TensorContracts::validate_same_device_dtype(
-      Wqkv, x, "SelfAttentionFusedInplaceMultistream", "Wqkv/x");
-  TensorContracts::validate_same_device_dtype(
-      Wo, x, "SelfAttentionFusedInplaceMultistream", "Wo/x");
+  validator().validate_same_device_dtype(Wqkv, x,
+                                         "SelfAttentionFusedInplaceMultistream Wqkv/x");
+  validator().validate_same_device_dtype(Wo, x,
+                                         "SelfAttentionFusedInplaceMultistream Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
@@ -105,14 +107,14 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
     throw std::runtime_error(
         "SelfAttentionFusedInplaceMultistream: backend does not support exec context iteration");
   }
-  TensorContracts::validate_bsd_shape_like(
-      dout, cache_x_, "SelfAttentionFusedInplaceMultistream", "dout");
-  TensorContracts::validate_bsd_shape_like(
-      dx, cache_x_, "SelfAttentionFusedInplaceMultistream", "dx");
+  validator().validate_same_shape(dout, cache_x_,
+                                  "SelfAttentionFusedInplaceMultistream dout");
+  validator().validate_same_shape(dx, cache_x_,
+                                  "SelfAttentionFusedInplaceMultistream dx");
 
   const int64_t model_dim = cache_x_.dim(2);
-  TensorContracts::validate_bsd_tensor(
-      cache_x_, model_dim, "SelfAttentionFusedInplaceMultistream", "cached x");
+  validator().validate_bsd(cache_x_, -1, -1, model_dim,
+                           "SelfAttentionFusedInplaceMultistream cached x");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);

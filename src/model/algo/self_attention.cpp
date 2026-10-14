@@ -2,6 +2,8 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
+#include <litnicelm_utils/validation.hpp>
+
 #include <cmath>
 
 SelfAttention::SelfAttention(int layer_index, const Config &cfg,
@@ -57,9 +59,8 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
-  TensorContracts::validate_same_device_dtype(Wqkv, x, "SelfAttention",
-                                              "Wqkv/x");
-  TensorContracts::validate_same_device_dtype(Wo, x, "SelfAttention", "Wo/x");
+  validator().validate_same_device_dtype(Wqkv, x, "SelfAttention Wqkv/x");
+  validator().validate_same_device_dtype(Wo, x, "SelfAttention Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
@@ -106,14 +107,12 @@ void SelfAttention::forward(const TensorView &x, TensorView &out) {
 
 void SelfAttention::backward(const TensorView &dout, TensorView &dx) {
   observer_->on_attention_start(idx_);
-  TensorContracts::validate_bsd_shape_like(dout, cache_x_, "SelfAttention",
-                                           "dout");
-  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "SelfAttention",
-                                           "dx");
+  validator().validate_same_shape(dout, cache_x_, "SelfAttention dout");
+  validator().validate_same_shape(dx, cache_x_, "SelfAttention dx");
 
   const int64_t model_dim = cache_x_.dim(2);
-  TensorContracts::validate_bsd_tensor(cache_x_, model_dim, "SelfAttention",
-                                       "cached x");
+  validator().validate_bsd(cache_x_, -1, -1, model_dim,
+                           "SelfAttention cached x");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);

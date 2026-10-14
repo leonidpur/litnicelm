@@ -2,6 +2,8 @@
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
+#include <litnicelm_utils/validation.hpp>
+
 #include <cmath>
 
 TransformerLayer::TransformerLayer(int layer_index, const Config &cfg,
@@ -45,8 +47,8 @@ void TransformerLayer::validate_contract() const {
                                              "TransformerLayer", "ln1");
   TensorContracts::validate_layernorm_params(ln2_gamma, ln2_beta, model_dim,
                                              "TransformerLayer", "ln2");
-  TensorContracts::validate_same_device_dtype(ln1_gamma, ln2_gamma,
-                                              "TransformerLayer", "ln1/ln2");
+  validator().validate_same_device_dtype(ln1_gamma, ln2_gamma,
+                                         "TransformerLayer ln1/ln2");
 }
 
 void TransformerLayer::forward(const TensorView &x, TensorView &out) {
@@ -62,12 +64,10 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  TensorContracts::validate_same_device_dtype(ln1_gamma, x,
-                                              "TransformerLayer",
-                                              "ln1_gamma/x");
-  TensorContracts::validate_same_device_dtype(ln2_gamma, x,
-                                              "TransformerLayer",
-                                              "ln2_gamma/x");
+  validator().validate_same_device_dtype(ln1_gamma, x,
+                                         "TransformerLayer ln1_gamma/x");
+  validator().validate_same_device_dtype(ln2_gamma, x,
+                                         "TransformerLayer ln2_gamma/x");
 
   TensorView ln1 = tensorStore_.temp_layer_ln1(idx_, batch_size, seq_len);
   TensorView attn_out =
@@ -94,10 +94,8 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
 }
 
 void TransformerLayer::backward(const TensorView &dout, TensorView &dx) {
-  TensorContracts::validate_bsd_shape_like(dout, cache_x_,
-                                           "TransformerLayer", "dout");
-  TensorContracts::validate_bsd_shape_like(dx, cache_x_, "TransformerLayer",
-                                           "dx");
+  validator().validate_same_shape(dout, cache_x_, "TransformerLayer dout");
+  validator().validate_same_shape(dx, cache_x_, "TransformerLayer dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
