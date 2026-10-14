@@ -1,14 +1,10 @@
 #include "tensor_store.hpp"
+#include "layout_cursor.hpp"
 
-#include <litnicelm_utils/assert.hpp>
+#include <litnicelm_utils/validation.hpp>
 
 #include <algorithm>
 #include <stdexcept>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("TensorStore: ") + std::string(msg);                   \
-  })
 
 namespace {
 
@@ -18,32 +14,6 @@ uint64_t splitmix64(uint64_t x) {
   x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
   return x ^ (x >> 31);
 }
-
-class LayoutCursor {
-public:
-  LayoutCursor(const std::vector<LayoutSlice> &slices, const char *label)
-      : slices_(slices), label_(label) {}
-
-  const LayoutSlice &next(const std::string &expected) {
-    require(index_ < slices_.size(),
-            std::string(label_) + " layout ended before slice " + expected);
-    const LayoutSlice &slice = slices_[index_++];
-    require(slice.name == expected,
-            std::string(label_) + " layout mismatch: expected " + expected +
-                " got " + slice.name);
-    return slice;
-  }
-
-  void finish() const {
-    require(index_ == slices_.size(),
-            std::string(label_) + " layout has unexpected extra slices");
-  }
-
-private:
-  const std::vector<LayoutSlice> &slices_;
-  const char *label_;
-  size_t index_ = 0;
-};
 
 } // namespace
 
@@ -254,15 +224,18 @@ TensorStore::TensorStore(const Config &cfg,
     : cfg_(cfg), algo_(algo),
       base_(reinterpret_cast<uint8_t *>(params_base)),
       bytes_(params_bytes), device_(device), param_layout_(param_layout) {
-  require(base_ != nullptr, "params_base is null");
-  require(bytes_ > 0, "params_bytes must be > 0");
-  require(param_layout.total_bytes() <= bytes_,
-          "param_layout.total_bytes() exceeds provided params_bytes");
+  const Validator &v = validator();
+  v.validate_not_null(base_, "TensorStore", "params_base");
+  v.validate_positive(static_cast<double>(bytes_), "TensorStore",
+                      "params_bytes");
+  v.validate_in_bounds(0, param_layout.total_bytes(), bytes_, "TensorStore",
+                       "parameter layout");
   auto *temp_base_bytes = reinterpret_cast<uint8_t *>(temp_base);
-  require(temp_base_bytes != nullptr, "temp_base is null");
-  require(temp_bytes > 0, "temp_bytes must be > 0");
-  require(temp_layout.total_bytes() <= temp_bytes,
-          "temp_layout.total_bytes() exceeds provided temp_bytes");
+  v.validate_not_null(temp_base_bytes, "TensorStore", "temp_base");
+  v.validate_positive(static_cast<double>(temp_bytes), "TensorStore",
+                      "temp_bytes");
+  v.validate_in_bounds(0, temp_layout.total_bytes(), temp_bytes,
+                       "TensorStore", "temporary layout");
   build_param_views(param_layout);
   if (temp_kind == TempLayoutKind::Training) {
     temp_tensor_substore_ = std::make_unique<TrainingTempTensorSubStore>(
@@ -274,9 +247,8 @@ TensorStore::TensorStore(const Config &cfg,
 }
 
 void TensorStore::check_layer(int layer) const {
-  require(layer >= 0, "layer < 0");
-  require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
-          "layer out of range");
+  validator().validate_index(layer, cfg_.model.n_layers, "TensorStore",
+                             "layer");
 }
 
 std::string TensorStore::lname(int layer, const char *suffix) const {
@@ -284,9 +256,8 @@ std::string TensorStore::lname(int layer, const char *suffix) const {
 }
 
 void TensorStore::TempTensorSubStore::check_layer(int layer) const {
-  require(layer >= 0, "layer < 0");
-  require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
-          "layer out of range");
+  validator().validate_index(layer, cfg_.model.n_layers, "TensorStore",
+                             "layer");
 }
 
 std::string TensorStore::TempTensorSubStore::lname(int layer,
@@ -306,7 +277,7 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
       static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t qkv_dim = 3 * model_dim;
 
-  LayoutCursor cursor(param_layout.slices(), "parameter");
+  LayoutCursor cursor(param_layout.slices(), "TensorStore parameter layout");
   tok_embedding_ = make_view(cursor.next("tok_embedding"),
                                  {vocab_size, model_dim});
   if (algo_.create_position_encoding(cfg_)->needs_position_table()) {
@@ -379,7 +350,8 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
       static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads);
 
   layer_temp_views_.clear();
-  LayoutCursor cursor(temp_layout.slices(), "temporary(training)");
+  LayoutCursor cursor(temp_layout.slices(),
+                      "TensorStore temporary(training) layout");
   ds_ids_ = make_temp_view(cursor.next("ds.ids"),
                            Shape{training_batch_size, training_seq_len});
   ds_targets_ = make_temp_view(cursor.next("ds.targets"),
@@ -554,7 +526,8 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
       static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads);
 
   layer_temp_views_.clear();
-  LayoutCursor cursor(temp_layout.slices(), "temporary(inference)");
+  LayoutCursor cursor(temp_layout.slices(),
+                      "TensorStore temporary(inference) layout");
   infer_ids_ = make_temp_view(cursor.next("infer.ids"), Shape{1, max_seq_len});
   infer_logits_ =
       make_temp_view(cursor.next("infer.logits"),
@@ -626,15 +599,7 @@ std::optional<TensorView> TensorStore::param_zone_view(DecayZone zone) const {
 
 TensorView TensorStore::make_view(const LayoutSlice &s,
                                         Shape shape) const {
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(s.offset + s.bytes <= bytes_, "slice out of bounds: " + s.name);
-  require((s.offset % dtype_size(s.dtype)) == 0,
-          "slice offset not aligned to its element size: " + s.name);
-  require((s.bytes % dtype_size(s.dtype)) == 0,
-          "slice bytes not a multiple of its element size: " + s.name);
+  validator().validate_slice(s, shape, bytes_, "TensorStore");
   void *ptr = base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -642,105 +607,82 @@ TensorView TensorStore::make_view(const LayoutSlice &s,
 TensorView TensorStore::make_subview(const TensorView &view,
                                            int64_t col_offset,
                                            Shape sub_shape) const {
-  require(sub_shape.dim(0) == view.shape().dim(0),
-          "subview must keep the full row count");
-  require(col_offset >= 0, "negative col_offset for subview");
-  require(col_offset + sub_shape.dim(1) <= view.shape().dim(1),
-          "subview exceeds column bounds");
+  const Validator &v = validator();
+  v.validate(Check::Layout, sub_shape.dim(0) == view.shape().dim(0),
+             "TensorStore", "subview must keep the full row count");
+  v.validate(Check::Layout,
+             col_offset >= 0 &&
+                 col_offset + sub_shape.dim(1) <= view.shape().dim(1),
+             "TensorStore", "subview exceeds column bounds");
   return view.subcols(col_offset, sub_shape.dim(1));
 }
 
 TensorView TensorStore::TempTensorSubStore::make_temp_view(
     const LayoutSlice &s, Shape shape) const {
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "temporary shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(s.offset + s.bytes <= temp_bytes_,
-          "temporary slice out of bounds: " + s.name);
+  validator().validate_slice(s, shape, temp_bytes_, "TensorStore temporary");
   void *ptr = temp_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
 
 TensorView TensorStore::TempTensorSubStore::prefix_storage(
     const TensorView &view, Shape shape) const {
-  require(shape.dim(0) >= 0 && shape.dim(0) <= view.shape().dim(0),
-          "shape row prefix out of bounds");
-  require(shape.dim(1) >= 0 && shape.dim(1) <= view.shape().dim(1),
-          "shape col prefix out of bounds");
+  validator().validate_prefix(view, shape, "TensorStore");
   return view.subrows(0, shape.dim(0)).subcols(0, shape.dim(1));
 }
 
 TensorView TrainingTempTensorSubStore::prefix_batch_seq(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label, int64_t expected_last_dim) const {
-  require(view.rank() == 3, std::string(label) + " rank mismatch");
-  if (expected_last_dim >= 0) {
-    require(view.dim(2) == expected_last_dim,
-            std::string(label) + " last-dim mismatch");
-  }
-  require(view.dim(0) == batch_size && view.dim(1) == seq_len,
-          std::string(label) + " training shape mismatch");
+  // expected_last_dim < 0 accepts any last dim.
+  validator().validate_bsd(view, batch_size, seq_len, expected_last_dim,
+                           label);
   return view;
 }
 
 TensorView TrainingTempTensorSubStore::prefix_batch_seq_square(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label) const {
-  require(view.rank() == 3, std::string(label) + " rank mismatch");
-  require(view.dim(0) == batch_size && view.dim(1) == seq_len &&
-              view.dim(2) == seq_len,
-          std::string(label) + " training shape mismatch");
+  validator().validate_bsd(view, batch_size, seq_len, seq_len, label);
   return view;
 }
 
 TensorView TrainingTempTensorSubStore::prefix_head_batch_seq_square(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label) const {
-  require(view.rank() == 4, std::string(label) + " rank mismatch");
-  require(view.dim(0) == static_cast<int64_t>(cfg_.model.n_heads),
-          std::string(label) + " head-count mismatch");
-  require(view.dim(1) == batch_size && view.dim(2) == seq_len &&
-              view.dim(3) == seq_len,
-          std::string(label) + " training shape mismatch");
+  validator().validate_dims(
+      view,
+      {static_cast<int64_t>(cfg_.model.n_heads), batch_size, seq_len, seq_len},
+      label);
   return view;
 }
 
 TensorView InferenceTempTensorSubStore::prefix_batch_seq(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label, int64_t expected_last_dim) const {
-  require(view.rank() == 3, std::string(label) + " rank mismatch");
-  if (expected_last_dim >= 0) {
-    require(view.dim(2) == expected_last_dim,
-            std::string(label) + " last-dim mismatch");
-  }
-  require(batch_size >= 0 && batch_size <= view.dim(0) &&
-              seq_len >= 0 && seq_len <= view.dim(1),
-          std::string(label) + " inference shape mismatch");
+  const Validator &v = validator();
+  // expected_last_dim < 0 accepts any last dim.
+  v.validate_bsd(view, -1, -1, expected_last_dim, label);
+  v.validate_prefix(view, Shape{batch_size, seq_len}, label);
   return view.slice(0, 0, batch_size).slice(1, 0, seq_len);
 }
 
 TensorView InferenceTempTensorSubStore::prefix_batch_seq_square(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label) const {
-  require(view.rank() == 3, std::string(label) + " rank mismatch");
-  require(batch_size >= 0 && batch_size <= view.dim(0) &&
-              seq_len >= 0 && seq_len <= view.dim(1) &&
-              seq_len >= 0 && seq_len <= view.dim(2),
-          std::string(label) + " inference shape mismatch");
+  const Validator &v = validator();
+  v.validate_rank(view, 3, label);
+  v.validate_prefix(view, Shape{batch_size, seq_len, seq_len}, label);
   return view.slice(0, 0, batch_size).slice(1, 0, seq_len).slice(2, 0, seq_len);
 }
 
 TensorView InferenceTempTensorSubStore::prefix_head_batch_seq_square(
     const TensorView &view, int64_t batch_size, int64_t seq_len,
     const char *label) const {
-  require(view.rank() == 4, std::string(label) + " rank mismatch");
-  require(view.dim(0) == static_cast<int64_t>(cfg_.model.n_heads),
-          std::string(label) + " head-count mismatch");
-  require(batch_size >= 0 && batch_size <= view.dim(1) &&
-              seq_len >= 0 && seq_len <= view.dim(2) &&
-              seq_len >= 0 && seq_len <= view.dim(3),
-          std::string(label) + " inference shape mismatch");
+  const Validator &v = validator();
+  const int64_t n_heads = static_cast<int64_t>(cfg_.model.n_heads);
+  v.validate_dims(view, {n_heads, -1, -1, -1}, label);
+  v.validate_prefix(view, Shape{n_heads, batch_size, seq_len, seq_len},
+                    label);
   return view.slice(1, 0, batch_size).slice(2, 0, seq_len).slice(3, 0, seq_len);
 }
 
@@ -761,9 +703,8 @@ TensorView TensorStore::TempTensorSubStore::temp_ds_ids(int64_t rows) const {
 TensorView TensorStore::TempTensorSubStore::temp_ds_ids() const { return ds_ids_; }
 
 TensorView TensorStore::TempTensorSubStore::temp_ds_ids(int64_t batch_size, int64_t seq_len) const {
-  require(ds_ids_.rank() == 2 && ds_ids_.dim(0) == batch_size &&
-              ds_ids_.dim(1) == seq_len,
-          "temp_ds_ids shape mismatch");
+  validator().validate_dims(ds_ids_, {batch_size, seq_len},
+                            "TensorStore temp_ds_ids");
   return ds_ids_;
 }
 
@@ -778,9 +719,8 @@ TensorView TensorStore::TempTensorSubStore::temp_ds_targets() const { return ds_
 
 TensorView TensorStore::TempTensorSubStore::temp_ds_targets(int64_t batch_size,
                                           int64_t seq_len) const {
-  require(ds_targets_.rank() == 2 && ds_targets_.dim(0) == batch_size &&
-              ds_targets_.dim(1) == seq_len,
-          "temp_ds_targets shape mismatch");
+  validator().validate_dims(ds_targets_, {batch_size, seq_len},
+                            "TensorStore temp_ds_targets");
   return ds_targets_;
 }
 
@@ -789,22 +729,25 @@ bool TensorStore::TempTensorSubStore::has_inference_io_temps() const {
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_infer_ids(int64_t rows) const {
-  require(has_inference_io_temps(),
-          "temp_infer_ids unavailable for this temp layout");
-  require(infer_ids_.rank() == 2 && infer_ids_.dim(0) == 1 &&
-              rows >= 0 && rows <= infer_ids_.dim(1),
-          "temp_infer_ids shape mismatch");
+  const Validator &v = validator();
+  v.validate(Check::Capability, has_inference_io_temps(),
+             "TensorStore temp_infer_ids",
+             "unavailable for this temp layout");
+  v.validate_dims(infer_ids_, {1, -1}, "TensorStore temp_infer_ids");
+  v.validate_prefix(infer_ids_, Shape{1, rows}, "TensorStore temp_infer_ids");
   return infer_ids_.subcols(0, rows);
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_infer_logits(int64_t rows) const {
-  require(has_inference_io_temps(),
-          "temp_infer_logits unavailable for this temp layout");
-  require(infer_logits_.rank() == 3 && infer_logits_.dim(0) == 1 &&
-              rows >= 0 && rows <= infer_logits_.dim(1) &&
-              infer_logits_.dim(2) ==
-                  static_cast<int64_t>(cfg_.model.vocab_size),
-          "temp_infer_logits shape mismatch");
+  const Validator &v = validator();
+  v.validate(Check::Capability, has_inference_io_temps(),
+             "TensorStore temp_infer_logits",
+             "unavailable for this temp layout");
+  v.validate_bsd(infer_logits_, 1, -1,
+                 static_cast<int64_t>(cfg_.model.vocab_size),
+                 "TensorStore temp_infer_logits");
+  v.validate_prefix(infer_logits_, Shape{1, rows},
+                    "TensorStore temp_infer_logits");
   return infer_logits_.slice(1, 0, rows);
 }
 
@@ -899,10 +842,9 @@ TensorView TensorStore::TempTensorSubStore::temp_bw_d_xn(int64_t rows) const {
 
 TensorView TensorStore::TempTensorSubStore::temp_bw_d_xn(int64_t batch_size,
                                        int64_t seq_len) const {
-  require(bw_d_xn_.rank() == 3 && bw_d_xn_.dim(0) == batch_size &&
-              bw_d_xn_.dim(1) == seq_len &&
-              bw_d_xn_.dim(2) == static_cast<int64_t>(cfg_.model.d_model),
-          "temp_bw_d_xn shape mismatch");
+  validator().validate_bsd(bw_d_xn_, batch_size, seq_len,
+                           static_cast<int64_t>(cfg_.model.d_model),
+                           "TensorStore temp_bw_d_xn");
   return bw_d_xn_;
 }
 
@@ -918,10 +860,9 @@ TensorView TensorStore::TempTensorSubStore::temp_bw_d_xlast(int64_t rows) const 
 
 TensorView TensorStore::TempTensorSubStore::temp_bw_d_xlast(int64_t batch_size,
                                           int64_t seq_len) const {
-  require(bw_d_xlast_.rank() == 3 && bw_d_xlast_.dim(0) == batch_size &&
-              bw_d_xlast_.dim(1) == seq_len &&
-              bw_d_xlast_.dim(2) == static_cast<int64_t>(cfg_.model.d_model),
-          "temp_bw_d_xlast shape mismatch");
+  validator().validate_bsd(bw_d_xlast_, batch_size, seq_len,
+                           static_cast<int64_t>(cfg_.model.d_model),
+                           "TensorStore temp_bw_d_xlast");
   return bw_d_xlast_;
 }
 
@@ -989,8 +930,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_bw_d_prev(int layer, int6
                                                int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].bw_d_prev;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_bw_d_prev shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_bw_d_prev");
   return t;
 }
 
@@ -1010,8 +951,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dln2(int layer, int64_t b
                                           int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln2;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_dln2 shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_dln2");
   return t;
 }
 
@@ -1031,8 +972,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dy_ln2(int layer, int64_t
                                             int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_ln2;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_dy_ln2 shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_dy_ln2");
   return t;
 }
 
@@ -1052,8 +993,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dy_total(int layer, int64
                                               int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dy_total;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_dy_total shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_dy_total");
   return t;
 }
 
@@ -1073,8 +1014,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dln1(int layer, int64_t b
                                           int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dln1;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_dln1 shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_dln1");
   return t;
 }
 
@@ -1094,8 +1035,8 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dx_ln1(int layer, int64_t
                                             int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].dx_ln1;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len,
-          "temp_layer_dx_ln1 shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, -1,
+                           "TensorStore temp_layer_dx_ln1");
   return t;
 }
 
@@ -1168,9 +1109,11 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t
   const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_weights;
-  require(t.data() != nullptr,
-          "temp_attn_weights is not allocated for model_algo.attention=" +
-              cfg_.model_algo.attention);
+  validator().validate(Check::Capability, t.data() != nullptr,
+                       "TensorStore temp_attn_weights", [&] {
+                         return "not allocated for model_algo.attention=" +
+                                cfg_.model_algo.attention;
+                       });
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -1182,10 +1125,13 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t
 TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   check_layer(layer);
-  require(layer_temp_views_[static_cast<size_t>(layer)]
-              .attn_weights.data() != nullptr,
-          "temp_attn_weights is not allocated for model_algo.attention=" +
-              cfg_.model_algo.attention);
+  validator().validate(Check::Capability,
+                       layer_temp_views_[static_cast<size_t>(layer)]
+                               .attn_weights.data() != nullptr,
+                       "TensorStore temp_attn_weights", [&] {
+                         return "not allocated for model_algo.attention=" +
+                                cfg_.model_algo.attention;
+                       });
   return prefix_batch_seq_square(
       layer_temp_views_[static_cast<size_t>(layer)].attn_weights, batch_size,
       seq_len, "temp_attn_weights");
@@ -1250,9 +1196,9 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_dcontext(int layer, int64_
   check_layer(layer);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_dcontext;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == static_cast<int64_t>(cfg_.model.d_model),
-          "temp_attn_dcontext shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len,
+                           static_cast<int64_t>(cfg_.model.d_model),
+                           "TensorStore temp_attn_dcontext");
   return t;
 }
 
@@ -1272,9 +1218,9 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_dqkv(int layer, int64_t ba
                                          int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_dqkv;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == 3 * static_cast<int64_t>(cfg_.model.d_model),
-          "temp_attn_dqkv shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len,
+                           3 * static_cast<int64_t>(cfg_.model.d_model),
+                           "TensorStore temp_attn_dqkv");
   return t;
 }
 
@@ -1310,9 +1256,8 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_dweights(int layer, int64_
   check_layer(layer);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_dweights;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == seq_len,
-          "temp_attn_dweights shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, seq_len,
+                           "TensorStore temp_attn_dweights");
   return t;
 }
 
@@ -1347,9 +1292,8 @@ TensorView TensorStore::TempTensorSubStore::temp_attn_dscores(int layer, int64_t
   check_layer(layer);
   const TensorView &t =
       layer_temp_views_[static_cast<size_t>(layer)].attn_dscores;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == seq_len,
-          "temp_attn_dscores shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len, seq_len,
+                           "TensorStore temp_attn_dscores");
   return t;
 }
 
@@ -1400,9 +1344,11 @@ TensorView TensorStore::TempTensorSubStore::temp_ffn_h(int layer, int64_t batch_
 TensorView TensorStore::TempTensorSubStore::temp_ffn_a(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_a;
-  require(t.data() != nullptr,
-          "temp_ffn_a is not allocated for model_algo.ffn=" +
-              cfg_.model_algo.ffn);
+  validator().validate(Check::Capability, t.data() != nullptr,
+                       "TensorStore temp_ffn_a", [&] {
+                         return "not allocated for model_algo.ffn=" +
+                                cfg_.model_algo.ffn;
+                       });
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -1415,9 +1361,13 @@ TensorView TensorStore::TempTensorSubStore::temp_ffn_a(int layer, int64_t rows) 
 TensorView TensorStore::TempTensorSubStore::temp_ffn_a(int layer, int64_t batch_size,
                                      int64_t seq_len) const {
   check_layer(layer);
-  require(layer_temp_views_[static_cast<size_t>(layer)].ffn_a.data() != nullptr,
-          "temp_ffn_a is not allocated for model_algo.ffn=" +
-              cfg_.model_algo.ffn);
+  validator().validate(Check::Capability,
+                       layer_temp_views_[static_cast<size_t>(layer)]
+                               .ffn_a.data() != nullptr,
+                       "TensorStore temp_ffn_a", [&] {
+                         return "not allocated for model_algo.ffn=" +
+                                cfg_.model_algo.ffn;
+                       });
   return prefix_batch_seq(layer_temp_views_[static_cast<size_t>(layer)].ffn_a,
                           batch_size, seq_len, "temp_ffn_a",
                           static_cast<int64_t>(cfg_.model.d_ff));
@@ -1450,18 +1400,20 @@ TensorView TensorStore::TempTensorSubStore::temp_ffn_da(int layer, int64_t batch
                                       int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_da;
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == static_cast<int64_t>(cfg_.model.d_ff),
-          "temp_ffn_da shape mismatch");
+  validator().validate_bsd(t, batch_size, seq_len,
+                           static_cast<int64_t>(cfg_.model.d_ff),
+                           "TensorStore temp_ffn_da");
   return t;
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_ffn_dh(int layer, int64_t rows) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_dh;
-  require(t.data() != nullptr,
-          "temp_ffn_dh is not allocated for model_algo.ffn=" +
-              cfg_.model_algo.ffn);
+  validator().validate(Check::Capability, t.data() != nullptr,
+                       "TensorStore temp_ffn_dh", [&] {
+                         return "not allocated for model_algo.ffn=" +
+                                cfg_.model_algo.ffn;
+                       });
   return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
                                    Shape{static_cast<int64_t>(
                                              t.numel() /
@@ -1475,12 +1427,14 @@ TensorView TensorStore::TempTensorSubStore::temp_ffn_dh(int layer, int64_t batch
                                       int64_t seq_len) const {
   check_layer(layer);
   const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].ffn_dh;
-  require(t.data() != nullptr,
-          "temp_ffn_dh is not allocated for model_algo.ffn=" +
-              cfg_.model_algo.ffn);
-  require(t.rank() == 3 && t.dim(0) == batch_size && t.dim(1) == seq_len &&
-              t.dim(2) == static_cast<int64_t>(cfg_.model.d_ff),
-          "temp_ffn_dh shape mismatch");
+  validator().validate(Check::Capability, t.data() != nullptr,
+                       "TensorStore temp_ffn_dh", [&] {
+                         return "not allocated for model_algo.ffn=" +
+                                cfg_.model_algo.ffn;
+                       });
+  validator().validate_bsd(t, batch_size, seq_len,
+                           static_cast<int64_t>(cfg_.model.d_ff),
+                           "TensorStore temp_ffn_dh");
   return t;
 }
 
@@ -1930,9 +1884,12 @@ const TensorView &TensorStore::param_ln2_beta(int layer) const {
 }
 const TensorView &TensorStore::param_tok_embedding() const { return tok_embedding_; }
 const TensorView &TensorStore::param_pos_embedding() const {
-  require(has_pos_embedding(),
-          "pos_embedding is not allocated for position encoding " +
-              cfg_.model_algo.position_encoding);
+  validator().validate(Check::Capability, has_pos_embedding(), "TensorStore",
+                       [&] {
+                         return "pos_embedding is not allocated for "
+                                "position encoding " +
+                                cfg_.model_algo.position_encoding;
+                       });
   return pos_embedding_;
 }
 bool TensorStore::has_pos_embedding() const {
@@ -1950,19 +1907,19 @@ void TensorStore::initialize_parameters_deterministic(
 
   auto offset_floats = [&](const TensorView &view) -> uint64_t {
     auto *ptr = reinterpret_cast<uint8_t *>(view.data());
-    require(ptr >= base_ && ptr < base_ + bytes_,
-            "parameter view pointer outside arena");
+    validator().validate(Check::Layout, ptr >= base_ && ptr < base_ + bytes_,
+                         "TensorStore", "parameter view pointer outside arena");
     const uint64_t offset = static_cast<uint64_t>(ptr - base_);
-    require((offset % sizeof(float)) == 0,
-            "parameter view pointer is not float-aligned");
+    validator().validate_aligned(offset, sizeof(float), "TensorStore",
+                                 "parameter view offset");
     return offset / sizeof(float);
   };
 
   auto fill_view = [&](const TensorView &view, float value) {
     const uint64_t offset = offset_floats(view);
     const uint64_t count = view.numel();
-    require(offset + count <= staging.size(),
-            "parameter view exceeds staging buffer");
+    validator().validate_in_bounds(offset, count, staging.size(),
+                                   "TensorStore", "parameter view in staging");
     std::fill(staging.begin() + static_cast<std::ptrdiff_t>(offset),
               staging.begin() + static_cast<std::ptrdiff_t>(offset + count),
               value);
@@ -1971,8 +1928,8 @@ void TensorStore::initialize_parameters_deterministic(
   auto init_weight = [&](const TensorView &view, float scale) {
     const uint64_t offset = offset_floats(view);
     const uint64_t count = view.numel();
-    require(offset + count <= staging.size(),
-            "parameter view exceeds staging buffer");
+    validator().validate_in_bounds(offset, count, staging.size(),
+                                   "TensorStore", "parameter view in staging");
     for (uint64_t i = 0; i < count; ++i) {
       const uint64_t bits = splitmix64(offset + i);
       const int64_t centered =
@@ -2009,4 +1966,3 @@ void TensorStore::initialize_parameters_deterministic(
   device_backend.copy_host2device(base_, staging.data(), bytes_);
 }
 
-#undef require

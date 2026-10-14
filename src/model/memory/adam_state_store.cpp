@@ -1,42 +1,10 @@
 #include "adam_state_store.hpp"
+#include "layout_cursor.hpp"
 #include "model_algo_factory.hpp"
 
-#include <litnicelm_utils/assert.hpp>
+#include <litnicelm_utils/validation.hpp>
 
 #include <stdexcept>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("AdamStateStore: ") + std::string(msg);                \
-  })
-
-namespace {
-class LayoutCursor {
-public:
-  LayoutCursor(const std::vector<LayoutSlice> &slices, const char *label)
-      : slices_(slices), label_(label) {}
-
-  const LayoutSlice &next(const std::string &expected) {
-    require(index_ < slices_.size(),
-            std::string(label_) + " layout ended before slice " + expected);
-    const LayoutSlice &slice = slices_[index_++];
-    require(slice.name == expected,
-            std::string(label_) + " layout mismatch: expected " + expected +
-                " got " + slice.name);
-    return slice;
-  }
-
-  void finish() const {
-    require(index_ == slices_.size(),
-            std::string(label_) + " layout has unexpected extra slices");
-  }
-
-private:
-  const std::vector<LayoutSlice> &slices_;
-  const char *label_;
-  size_t index_ = 0;
-};
-} // namespace
 
 AdamStateStore::AdamStateStore(const Config &cfg,
                                const ModelAlgoFactory &algo,
@@ -53,13 +21,15 @@ AdamStateStore::AdamStateStore(const Config &cfg,
       device_(adam_state.device),
       optimizer_layout_(optimizer_layout),
       v_offset_(optimizer_layout.total_bytes()) {
-  require(params_base_ != nullptr, "params_base is null");
-  require(params_bytes_ > 0, "params_bytes must be > 0");
-  require(param_bytes_ <= params_bytes_,
-          "param_layout.total_bytes() exceeds provided params_bytes");
-  require(adam_base_ != nullptr, "adam_base is null");
-  require(adam_bytes_ >= arena_bytes(optimizer_layout),
-          "adam state must hold both m and v buffers");
+  const Validator &v = validator();
+  v.validate_not_null(params_base_, "AdamStateStore", "params_base");
+  v.validate_positive(static_cast<double>(params_bytes_), "AdamStateStore",
+                      "params_bytes");
+  v.validate_in_bounds(0, param_bytes_, params_bytes_, "AdamStateStore",
+                       "parameter layout");
+  v.validate_not_null(adam_base_, "AdamStateStore", "adam_base");
+  v.validate_in_bounds(0, arena_bytes(optimizer_layout), adam_bytes_,
+                       "AdamStateStore", "m and v state");
   for (const LayoutSlice &s : optimizer_layout.slices()) {
     state_slice_by_name_.emplace(s.name, s);
   }
@@ -77,8 +47,9 @@ std::optional<TensorView> AdamStateStore::v_zone_view(DecayZone zone) const {
 const AdamStateStore::StatePair &
 AdamStateStore::state_for_param(const TensorView &param) const {
   const auto it = state_by_param_data_.find(param.data());
-  require(it != state_by_param_data_.end(),
-          "missing optimizer state for parameter");
+  validator().validate(Check::Contract, it != state_by_param_data_.end(),
+                       "AdamStateStore",
+                       "missing optimizer state for parameter");
   return it->second;
 }
 
@@ -167,9 +138,8 @@ const AdamStateStore::StatePair &AdamStateStore::param_ln2_beta(int layer) const
 }
 
 void AdamStateStore::check_layer(int layer) const {
-  require(layer >= 0, "layer < 0");
-  require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
-          "layer out of range");
+  validator().validate_index(layer, cfg_.model.n_layers, "AdamStateStore",
+                             "layer");
 }
 
 void AdamStateStore::build_state_views(
@@ -181,7 +151,7 @@ void AdamStateStore::build_state_views(
       static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t qkv_dim = 3 * model_dim;
 
-  LayoutCursor cursor(param_layout.slices(), "parameter");
+  LayoutCursor cursor(param_layout.slices(), "AdamStateStore parameter layout");
 
   const LayoutSlice &tok_embedding_slice = cursor.next("tok_embedding");
   tok_embedding_ =
@@ -306,17 +276,7 @@ void AdamStateStore::register_state(const TensorView &param,
 
 TensorView AdamStateStore::make_param_view(const LayoutSlice &s,
                                                  Shape shape) const {
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(s.offset + s.bytes <= params_bytes_, "slice out of bounds: " + s.name);
-  require(s.offset + s.bytes <= param_bytes_,
-          "slice exceeds parameter layout: " + s.name);
-  require((s.offset % dtype_size(s.dtype)) == 0,
-          "slice offset not aligned to its element size: " + s.name);
-  require((s.bytes % dtype_size(s.dtype)) == 0,
-          "slice bytes not a multiple of its element size: " + s.name);
+  validator().validate_slice(s, shape, param_bytes_, "AdamStateStore");
   void *ptr = params_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -325,15 +285,14 @@ TensorView AdamStateStore::make_state_view(const LayoutSlice &param_slice,
                                            Shape shape,
                                            uint64_t state_base_offset) const {
   const auto it = state_slice_by_name_.find(param_slice.name);
-  require(it != state_slice_by_name_.end(),
-          "no optimizer-state slice for " + param_slice.name);
+  validator().validate(Check::Layout, it != state_slice_by_name_.end(),
+                       "AdamStateStore", [&] {
+                         return "no optimizer-state slice for " +
+                                param_slice.name;
+                       });
   const LayoutSlice &s = it->second;
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "state shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(state_base_offset + s.offset + s.bytes <= adam_bytes_,
-          "state slice out of bounds: " + s.name);
+  // m and v each span v_offset_ bytes; the slice must lie in one of them.
+  validator().validate_slice(s, shape, v_offset_, "AdamStateStore");
   void *ptr = adam_base_ + state_base_offset + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -348,4 +307,3 @@ std::string AdamStateStore::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
 }
 
-#undef require

@@ -1,45 +1,13 @@
 #include "gradient_store.hpp"
+#include "layout_cursor.hpp"
 #include "model_algo_factory.hpp"
 
-#include <litnicelm_utils/assert.hpp>
+#include <litnicelm_utils/validation.hpp>
 
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond), [&]() {                                                 \
-    return std::string("GradientStore: ") + std::string(msg);                 \
-  })
-
-namespace {
-class LayoutCursor {
-public:
-  LayoutCursor(const std::vector<LayoutSlice> &slices, const char *label)
-      : slices_(slices), label_(label) {}
-
-  const LayoutSlice &next(const std::string &expected) {
-    require(index_ < slices_.size(),
-            std::string(label_) + " layout ended before slice " + expected);
-    const LayoutSlice &slice = slices_[index_++];
-    require(slice.name == expected,
-            std::string(label_) + " layout mismatch: expected " + expected +
-                " got " + slice.name);
-    return slice;
-  }
-
-  void finish() const {
-    require(index_ == slices_.size(),
-            std::string(label_) + " layout has unexpected extra slices");
-  }
-
-private:
-  const std::vector<LayoutSlice> &slices_;
-  const char *label_;
-  size_t index_ = 0;
-};
-} // namespace
 
 GradientStore::GradientStore(const Config &cfg,
                              const ModelAlgoFactory &algo,
@@ -59,13 +27,16 @@ GradientStore::GradientStore(const Config &cfg,
           Shape{static_cast<int64_t>(grad_layout.total_bytes() /
                                      dtype_size(grad_layout.uniform_dtype())),
                 1}) {
-  require(params_base_ != nullptr, "params_base is null");
-  require(params_bytes_ > 0, "params_bytes must be > 0");
-  require(grad_base_ != nullptr, "grad_arena.base is null");
-  require(grad_bytes_ >= grad_layout.total_bytes(),
-          "grad arena must cover the gradient layout");
-  require((grad_layout.total_bytes() % dtype_size(grad_layout.uniform_dtype())) == 0,
-          "gradient layout bytes must be a multiple of the element size");
+  const Validator &v = validator();
+  v.validate_not_null(params_base_, "GradientStore", "params_base");
+  v.validate_positive(static_cast<double>(params_bytes_), "GradientStore",
+                      "params_bytes");
+  v.validate_not_null(grad_base_, "GradientStore", "grad_arena.base");
+  v.validate_in_bounds(0, grad_layout.total_bytes(), grad_bytes_,
+                       "GradientStore", "gradient layout");
+  v.validate_aligned(grad_layout.total_bytes(),
+                     dtype_size(grad_layout.uniform_dtype()), "GradientStore",
+                     "gradient layout bytes");
   for (const LayoutSlice &s : grad_layout.slices()) {
     grad_slice_by_name_.emplace(s.name, s);
   }
@@ -78,8 +49,8 @@ std::optional<TensorView> GradientStore::zone_view(DecayZone zone) const {
 
 TensorView GradientStore::grad_for_param(const TensorView &param) const {
   const auto it = grad_by_param_data_.find(param.data());
-  require(it != grad_by_param_data_.end(),
-          "missing gradient slot for parameter");
+  validator().validate(Check::Contract, it != grad_by_param_data_.end(),
+                       "GradientStore", "missing gradient slot for parameter");
   return it->second;
 }
 
@@ -96,7 +67,7 @@ void GradientStore::build_gradient_views(
       static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t qkv_dim = 3 * model_dim;
 
-  LayoutCursor cursor(param_layout.slices(), "parameter");
+  LayoutCursor cursor(param_layout.slices(), "GradientStore parameter layout");
 
   const LayoutSlice &tok_embedding_slice = cursor.next("tok_embedding");
   register_gradient_slot(
@@ -234,11 +205,7 @@ std::string GradientStore::first_nonfinite_diagnostic(
 
 TensorView GradientStore::make_param_view(const LayoutSlice &s,
                                          Shape shape) const {
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(s.offset + s.bytes <= params_bytes_, "slice out of bounds: " + s.name);
+  validator().validate_slice(s, shape, params_bytes_, "GradientStore");
   void *ptr = params_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
@@ -246,27 +213,22 @@ TensorView GradientStore::make_param_view(const LayoutSlice &s,
 TensorView GradientStore::make_grad_view(const LayoutSlice &param_slice,
                                         Shape shape) const {
   const auto it = grad_slice_by_name_.find(param_slice.name);
-  require(it != grad_slice_by_name_.end(),
-          "no gradient slice for " + param_slice.name);
+  validator().validate(Check::Layout, it != grad_slice_by_name_.end(),
+                       "GradientStore", [&] {
+                         return "no gradient slice for " + param_slice.name;
+                       });
   const LayoutSlice &s = it->second;
-  const uint64_t expected = nbytes(shape, s.dtype);
-  require(expected == s.bytes,
-          "gradient shape bytes mismatch for " + s.name + ": expected " +
-              std::to_string(expected) + " got " + std::to_string(s.bytes));
-  require(s.offset + s.bytes <= grad_bytes_,
-          "gradient slice out of bounds: " + s.name);
+  validator().validate_slice(s, shape, grad_bytes_, "GradientStore");
   void *ptr = grad_base_ + s.offset;
   return TensorView(device_, s.dtype, ptr, shape);
 }
 
 void GradientStore::check_layer(int layer) const {
-  require(layer >= 0, "layer < 0");
-  require(static_cast<uint32_t>(layer) < cfg_.model.n_layers,
-          "layer out of range");
+  validator().validate_index(layer, cfg_.model.n_layers, "GradientStore",
+                             "layer");
 }
 
 std::string GradientStore::lname(int layer, const char *suffix) const {
   return "layer" + std::to_string(layer) + "." + suffix;
 }
 
-#undef require
