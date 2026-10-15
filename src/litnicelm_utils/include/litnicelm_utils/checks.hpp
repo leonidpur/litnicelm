@@ -3,13 +3,16 @@
 // Checks on the program's inputs and internal agreements. Tensor checks take
 // the ABI form, TensorViewStruct, so any view can be checked: a TensorView
 // is one. One choke point: every failing check goes through
-// Checker::report(), which logs a check_failed event and throws. Each check belongs to a category, which a
-// future policy will use to decide how a failure is handled.
+// Checker::report(), which logs a check_failed event and throws. Each check
+// belongs to a category, which a future policy will use to decide how a
+// failure is handled.
+//
+// checker(), check() and check_index() are inline: they run on per-element
+// paths (TensorView, Shape), where a passing check must cost only a compare.
 
 #include "litnicelm_utils/device.hpp"
 #include "litnicelm_utils/dtype.hpp"
 #include "litnicelm_utils/layout_slice.hpp"
-#include "litnicelm_utils/shape.hpp"
 #include "litnicelm_utils/tensor_view_struct.h"
 
 #include <cstdint>
@@ -39,17 +42,24 @@ enum class MatmulKind : uint8_t {
 // Which ends of an interval belong to it.
 enum class Interval : uint8_t { Closed, ClosedOpen, Open };
 
+// Only referred to here; shape.hpp itself uses the checker.
+class Shape;
+
 class Checker {
 public:
   // --- any condition that fits no named check; the message is built only
-  // on failure.
+  // on failure. Static, like check_index: a passing check reads no state.
   template <typename MessageFn>
-  void check(CheckKind category, bool ok, std::string_view who, MessageFn &&message) const {
+  static void check(CheckKind category, bool ok, std::string_view who, MessageFn &&message) {
     if (!ok) [[unlikely]] {
       report(category, who, std::string(message()));
     }
   }
-  void check(CheckKind category, bool ok, std::string_view who, const char *message) const;
+  static void check(CheckKind category, bool ok, std::string_view who, const char *message) {
+    if (!ok) [[unlikely]] {
+      report(category, who, message);
+    }
+  }
 
   // --- Layout
   void check_not_null(const void *ptr, std::string_view who, std::string_view what) const;
@@ -60,8 +70,12 @@ public:
   void check_aligned(uint64_t value, uint64_t alignment, std::string_view who,
                      std::string_view what) const;
   // 0 <= index < size.
-  void check_index(int64_t index, uint64_t size, std::string_view who,
-                   std::string_view what) const;
+  static void check_index(int64_t index, uint64_t size, std::string_view who,
+                          std::string_view what) {
+    if (index < 0 || static_cast<uint64_t>(index) >= size) [[unlikely]] {
+      report_index(index, size, who, what);
+    }
+  }
   // The slice holds exactly `shape` of its dtype, aligned, inside the arena.
   void check_slice(const LayoutSlice &slice, const Shape &shape, uint64_t arena_bytes,
                    std::string_view who) const;
@@ -99,12 +113,20 @@ public:
 private:
   // The one place a failure goes: logs it, then throws std::runtime_error
   // with "<who>: <message>".
-  void report(CheckKind category, std::string_view who, const std::string &message) const;
+  [[noreturn]] static void report(CheckKind category, std::string_view who,
+                                  const std::string &message);
+  [[noreturn]] static void report_index(int64_t index, uint64_t size, std::string_view who,
+                                        std::string_view what);
 };
+
+namespace checks_detail {
+// The installed checker; points at a default Checker from the start.
+extern Checker *installed;
+}  // namespace checks_detail
 
 // The process-wide checker. Until set_checker() is called it is a default
 // Checker.
-Checker &checker();
+inline Checker &checker() { return *checks_detail::installed; }
 // Installs checker, which must stay alive while installed.
 void set_checker(Checker &checker);
 

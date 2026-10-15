@@ -47,9 +47,7 @@ Tensor Tensor::make_cpu(DType dt, Shape shape) {
 
 Tensor Tensor::wrap(Device dev, DType dt, void *data, Shape shape,
                     int64_t stride_c_bytes) {
-  if (!data) {
-    throw std::runtime_error("Tensor::wrap null data");
-  }
+  checker().check_not_null(data, "Tensor wrap", "data");
   Tensor t;
   t.owns_ = false;
   t.view_ = TensorView(dev, dt, data, shape, stride_c_bytes, 0);

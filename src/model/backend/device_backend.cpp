@@ -64,9 +64,8 @@ struct CpuMemOperations {
     int64_t offset = 0;
     for (size_t axis = axis_count; axis > 0; --axis) {
       const int64_t dim = t.dim(axis - 1);
-      if (dim <= 0) {
-        throw std::runtime_error("DeviceBackend: invalid non-positive dimension");
-      }
+      checker().check(CheckKind::Layout, dim > 0,
+                      "DeviceBackend", "invalid non-positive dimension");
       const uint64_t coord = linear_index % static_cast<uint64_t>(dim);
       linear_index /= static_cast<uint64_t>(dim);
       offset += static_cast<int64_t>(coord) * t.stride_bytes(axis - 1);
@@ -92,9 +91,8 @@ struct CpuMemOperations {
   }
 
   static uint64_t logical_prefix_count(const TensorView &t, size_t suffix_rank) {
-    if (t.rank() < suffix_rank) {
-      throw std::runtime_error("DeviceBackend: tensor rank smaller than suffix rank");
-    }
+    checker().check(CheckKind::Layout, t.rank() >= suffix_rank,
+                    "DeviceBackend", "tensor rank smaller than suffix rank");
     uint64_t count = 1;
     for (size_t axis = 0; axis + suffix_rank < t.rank(); ++axis) {
       count *= static_cast<uint64_t>(t.dim(axis));
@@ -569,9 +567,9 @@ void DefaultCpuBackend::copy_host2device(void *dst, const void *src, uint64_t by
   if (bytes == 0) {
     return;
   }
-  if (dst == nullptr || src == nullptr) {
-    throw std::invalid_argument("DefaultCpuBackend::copy_host2device: null pointer");
-  }
+  checker().check(CheckKind::Layout,
+                  dst != nullptr && src != nullptr,
+                  "DefaultCpuBackend copy_host2device", "null pointer");
   std::memcpy(dst, src, static_cast<size_t>(bytes));
 }
 
@@ -579,9 +577,9 @@ void DefaultCpuBackend::copy_device2host(void *dst, const void *src, uint64_t by
   if (bytes == 0) {
     return;
   }
-  if (dst == nullptr || src == nullptr) {
-    throw std::invalid_argument("DefaultCpuBackend::copy_device2host: null pointer");
-  }
+  checker().check(CheckKind::Layout,
+                  dst != nullptr && src != nullptr,
+                  "DefaultCpuBackend copy_device2host", "null pointer");
   std::memcpy(dst, src, static_cast<size_t>(bytes));
 }
 
@@ -589,9 +587,8 @@ void DefaultCpuBackend::copy(const TensorView &src, TensorView &dst) {
   if (src.is_contiguous() && dst.is_contiguous() && src.dtype() == DType::F32 &&
       dst.dtype() == DType::F32) {
     const uint64_t n = src.numel();
-    if (n != dst.numel()) {
-      throw std::runtime_error("DefaultCpuBackend::copy: numel mismatch");
-    }
+    checker().check(CheckKind::Contract, n == dst.numel(),
+                    "DefaultCpuBackend copy", "numel mismatch");
     std::memcpy(dst.data(), src.data(), static_cast<size_t>(src.bytes()));
     return;
   }
@@ -671,9 +668,9 @@ void DefaultCpuBackend::add(const TensorView &a, const TensorView &b, TensorView
     return;
   }
   const uint64_t an = a.numel();
-  if (an != b.numel() || an != out.numel()) {
-    throw std::runtime_error("DefaultCpuBackend::add: numel mismatch");
-  }
+  checker().check(CheckKind::Contract,
+                  an == b.numel() && an == out.numel(),
+                  "DefaultCpuBackend add", "numel mismatch");
   const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 1);
   const int64_t col_count = a.dim(a.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
@@ -689,9 +686,8 @@ void DefaultCpuBackend::add_inplace(TensorView &a, const TensorView &b) {
   if (a.is_contiguous() && b.is_contiguous() && a.dtype() == DType::F32 &&
       b.dtype() == DType::F32) {
     const uint64_t n = a.numel();
-    if (n != b.numel()) {
-      throw std::runtime_error("DefaultCpuBackend::add_inplace: numel mismatch");
-    }
+    checker().check(CheckKind::Contract, n == b.numel(),
+                    "DefaultCpuBackend add_inplace", "numel mismatch");
     float *ap = reinterpret_cast<float *>(a.data());
     const float *bp = reinterpret_cast<const float *>(b.data());
     for (uint64_t i = 0; i < n; ++i) {
@@ -718,12 +714,13 @@ void DefaultCpuBackend::add_bias_rowwise(const TensorView &x,
       out.dtype() == DType::F32) {
     const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
     const uint64_t total = x.numel();
-    if (col_count <= 0 ||
-        total % static_cast<uint64_t>(col_count) != 0 ||
-        bias_1xC.numel() != static_cast<uint64_t>(col_count) ||
-        out.numel() != total) {
-      throw std::runtime_error("DefaultCpuBackend::add_bias_rowwise: semantic shape mismatch");
-    }
+    checker().check(CheckKind::Contract,
+                    col_count > 0 &&
+                        total % static_cast<uint64_t>(col_count) == 0 &&
+                        bias_1xC.numel() == static_cast<uint64_t>(col_count) &&
+                        out.numel() == total,
+                    "DefaultCpuBackend add_bias_rowwise",
+                    "semantic shape mismatch");
     const float *xp = reinterpret_cast<const float *>(x.data());
     const float *bp = reinterpret_cast<const float *>(bias_1xC.data());
     float *op = reinterpret_cast<float *>(out.data());
@@ -752,13 +749,13 @@ void DefaultCpuBackend::add_bias_relu_rowwise(const TensorView &x,
       out.dtype() == DType::F32) {
     const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
     const uint64_t total = x.numel();
-    if (col_count <= 0 ||
-        total % static_cast<uint64_t>(col_count) != 0 ||
-        bias_1xC.numel() != static_cast<uint64_t>(col_count) ||
-        out.numel() != total) {
-      throw std::runtime_error(
-          "DefaultCpuBackend::add_bias_relu_rowwise: semantic shape mismatch");
-    }
+    checker().check(CheckKind::Contract,
+                    col_count > 0 &&
+                        total % static_cast<uint64_t>(col_count) == 0 &&
+                        bias_1xC.numel() == static_cast<uint64_t>(col_count) &&
+                        out.numel() == total,
+                    "DefaultCpuBackend add_bias_relu_rowwise",
+                    "semantic shape mismatch");
     const float *xp = reinterpret_cast<const float *>(x.data());
     const float *bp = reinterpret_cast<const float *>(bias_1xC.data());
     float *op = reinterpret_cast<float *>(out.data());
@@ -786,12 +783,12 @@ void DefaultCpuBackend::add_bias_relu_rowwise_inplace(
       x.dtype() == DType::F32 && bias_1xC.dtype() == DType::F32) {
     const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
     const uint64_t total = x.numel();
-    if (col_count <= 0 ||
-        total % static_cast<uint64_t>(col_count) != 0 ||
-        bias_1xC.numel() != static_cast<uint64_t>(col_count)) {
-      throw std::runtime_error(
-          "DefaultCpuBackend::add_bias_relu_rowwise_inplace: semantic shape mismatch");
-    }
+    checker().check(CheckKind::Contract,
+                    col_count > 0 &&
+                        total % static_cast<uint64_t>(col_count) == 0 &&
+                        bias_1xC.numel() == static_cast<uint64_t>(col_count),
+                    "DefaultCpuBackend add_bias_relu_rowwise_inplace",
+                    "semantic shape mismatch");
     float *xp = reinterpret_cast<float *>(x.data());
     const float *bp = reinterpret_cast<const float *>(bias_1xC.data());
     for (uint64_t i = 0; i < total; ++i) {
@@ -816,9 +813,8 @@ void DefaultCpuBackend::mul_scalar(const TensorView &x, float s, TensorView &out
   if (x.is_contiguous() && out.is_contiguous() && x.dtype() == DType::F32 &&
       out.dtype() == DType::F32) {
     const uint64_t n = x.numel();
-    if (n != out.numel()) {
-      throw std::runtime_error("DefaultCpuBackend::mul_scalar: numel mismatch");
-    }
+    checker().check(CheckKind::Contract, n == out.numel(),
+                    "DefaultCpuBackend mul_scalar", "numel mismatch");
     const float *xp = reinterpret_cast<const float *>(x.data());
     float *op = reinterpret_cast<float *>(out.data());
     for (uint64_t i = 0; i < n; ++i) {
@@ -853,9 +849,8 @@ void DefaultCpuBackend::relu(const TensorView &x, TensorView &out) {
   if (x.is_contiguous() && out.is_contiguous() && x.dtype() == DType::F32 &&
       out.dtype() == DType::F32) {
     const uint64_t n = x.numel();
-    if (n != out.numel()) {
-      throw std::runtime_error("DefaultCpuBackend::relu: numel mismatch");
-    }
+    checker().check(CheckKind::Contract, n == out.numel(),
+                    "DefaultCpuBackend relu", "numel mismatch");
     const float *xp = reinterpret_cast<const float *>(x.data());
     float *op = reinterpret_cast<float *>(out.data());
     for (uint64_t i = 0; i < n; ++i) {
@@ -880,9 +875,9 @@ void DefaultCpuBackend::relu_backward(const TensorView &preact, const TensorView
       preact.dtype() == DType::F32 && dout.dtype() == DType::F32 &&
       dx.dtype() == DType::F32) {
     const uint64_t n = preact.numel();
-    if (n != dout.numel() || n != dx.numel()) {
-      throw std::runtime_error("DefaultCpuBackend::relu_backward: numel mismatch");
-    }
+    checker().check(CheckKind::Contract,
+                    n == dout.numel() && n == dx.numel(),
+                    "DefaultCpuBackend relu_backward", "numel mismatch");
     const float *pp = reinterpret_cast<const float *>(preact.data());
     const float *dp = reinterpret_cast<const float *>(dout.data());
     float *xp = reinterpret_cast<float *>(dx.data());
@@ -908,10 +903,9 @@ void DefaultCpuBackend::relu_backward_inplace(const TensorView &preact,
   if (preact.is_contiguous() && dout_dx.is_contiguous() &&
       preact.dtype() == DType::F32 && dout_dx.dtype() == DType::F32) {
     const uint64_t n = preact.numel();
-    if (n != dout_dx.numel()) {
-      throw std::runtime_error(
-          "DefaultCpuBackend::relu_backward_inplace: numel mismatch");
-    }
+    checker().check(CheckKind::Contract, n == dout_dx.numel(),
+                    "DefaultCpuBackend relu_backward_inplace",
+                    "numel mismatch");
     const float *pp = reinterpret_cast<const float *>(preact.data());
     float *dp = reinterpret_cast<float *>(dout_dx.data());
     for (uint64_t i = 0; i < n; ++i) {
@@ -938,11 +932,11 @@ void DefaultCpuBackend::row_sum(const TensorView &x, TensorView &out_1xC) {
       out_1xC.dtype() == DType::F32) {
     const int64_t col_count = x.rank() == 0 ? 1 : x.dim(x.rank() - 1);
     const uint64_t total = x.numel();
-    if (col_count <= 0 ||
-        total % static_cast<uint64_t>(col_count) != 0 ||
-        out_1xC.numel() != static_cast<uint64_t>(col_count)) {
-      throw std::runtime_error("DefaultCpuBackend::row_sum: semantic shape mismatch");
-    }
+    checker().check(CheckKind::Contract,
+                    col_count > 0 &&
+                        total % static_cast<uint64_t>(col_count) == 0 &&
+                        out_1xC.numel() == static_cast<uint64_t>(col_count),
+                    "DefaultCpuBackend row_sum", "semantic shape mismatch");
     const uint64_t prefix_count = total / static_cast<uint64_t>(col_count);
     const float *xp = reinterpret_cast<const float *>(x.data());
     float *op = reinterpret_cast<float *>(out_1xC.data());
@@ -1666,9 +1660,8 @@ void DefaultCpuBackend::read_file2device(const std::string &path, void *dst,
   if (size == 0) {
     return;
   }
-  if (dst == nullptr) {
-    throw std::invalid_argument("DefaultCpuBackend::read_file2device: null destination");
-  }
+  checker().check(CheckKind::Layout, dst != nullptr,
+                  "DefaultCpuBackend read_file2device", "null destination");
 
   std::ifstream in(path, std::ios::binary);
   if (!in) {

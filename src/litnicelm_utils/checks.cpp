@@ -1,6 +1,7 @@
 #include "litnicelm_utils/checks.hpp"
 
 #include "litnicelm_utils/log.hpp"
+#include "litnicelm_utils/shape.hpp"
 #include "litnicelm_utils_events.hpp"
 
 #include <cmath>
@@ -9,11 +10,7 @@
 
 namespace {
 
-Checker *&installed_checker() {
-  static Checker fallback;
-  static Checker *installed = &fallback;
-  return installed;
-}
+Checker fallback_checker;
 
 std::string text(std::string_view s) { return std::string(s); }
 
@@ -111,18 +108,11 @@ std::string shape_text(const Shape &shape) {
 }
 
 void Checker::report(CheckKind category, std::string_view who,
-                     const std::string &message) const {
+                     const std::string &message) {
   const std::string full = text(who) + ": " + message;
   logger().log(litnicelm_utils_events::kCheckFailed, full,
                LogFields().str("category", check_name(category)).str("who", text(who)));
   throw std::runtime_error(full);
-}
-
-void Checker::check(CheckKind category, bool ok, std::string_view who,
-                    const char *message) const {
-  if (!ok) [[unlikely]] {
-    report(category, who, message);
-  }
 }
 
 // --- Layout
@@ -152,13 +142,11 @@ void Checker::check_aligned(uint64_t value, uint64_t alignment, std::string_view
   }
 }
 
-void Checker::check_index(int64_t index, uint64_t size, std::string_view who,
-                          std::string_view what) const {
-  if (index < 0 || static_cast<uint64_t>(index) >= size) [[unlikely]] {
-    report(CheckKind::Layout, who,
-           text(what) + " " + std::to_string(index) + " out of range [0, " +
-               std::to_string(size) + ")");
-  }
+void Checker::report_index(int64_t index, uint64_t size, std::string_view who,
+                           std::string_view what) {
+  report(CheckKind::Layout, who,
+         text(what) + " " + std::to_string(index) + " out of range [0, " +
+             std::to_string(size) + ")");
 }
 
 void Checker::check_slice(const LayoutSlice &slice, const Shape &shape,
@@ -352,9 +340,10 @@ void Checker::check_finite(double value, std::string_view who,
 
 // --- access
 
-Checker &checker() { return *installed_checker(); }
+// Constant-initialized, so it is valid before any dynamic initialization.
+Checker *checks_detail::installed = &fallback_checker;
 
-void set_checker(Checker &checker) { installed_checker() = &checker; }
+void set_checker(Checker &checker) { checks_detail::installed = &checker; }
 
 ScopedChecker::ScopedChecker(Checker &checker) : previous_(::checker()) {
   set_checker(checker);

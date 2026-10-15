@@ -3,6 +3,8 @@
 #include <config.hpp>
 #include "model_algo_factory.hpp"
 
+#include <litnicelm_utils/checks.hpp>
+
 #include <algorithm>
 #include <stdexcept>
 
@@ -29,15 +31,15 @@ void append_param_spec(std::vector<ParamSliceSpec> &out, const std::string &name
 }
 
 DType NamedLayout::uniform_dtype() const {
-  if (slices_.empty()) {
-    throw std::runtime_error("NamedLayout::uniform_dtype: empty layout");
-  }
+  checker().check(CheckKind::Contract, !slices_.empty(),
+                  "NamedLayout uniform_dtype", "empty layout");
   const DType dtype = slices_.front().dtype;
   for (const LayoutSlice &s : slices_) {
-    if (s.dtype != dtype) {
-      throw std::runtime_error("NamedLayout::uniform_dtype: mixed dtypes (" +
-                               slices_.front().name + " vs " + s.name + ")");
-    }
+    checker().check(CheckKind::Contract, s.dtype == dtype,
+                    "NamedLayout uniform_dtype", [&] {
+                      return "mixed dtypes (" + slices_.front().name + " vs " +
+                             s.name + ")";
+                    });
   }
   return dtype;
 }
@@ -52,9 +54,8 @@ std::optional<TensorView> NamedLayout::zone_view(void *base, Device device,
   }
   const DType dtype = uniform_dtype();
   const uint64_t elem = dtype_size(dtype);
-  if ((offset % elem) != 0 || (bytes % elem) != 0) {
-    throw std::runtime_error("NamedLayout::zone_view: zone not aligned to the element size");
-  }
+  checker().check_aligned(offset, elem, "NamedLayout zone_view", "zone offset");
+  checker().check_aligned(bytes, elem, "NamedLayout zone_view", "zone bytes");
   return TensorView(device, dtype, reinterpret_cast<uint8_t *>(base) + offset,
                     Shape{1, static_cast<int64_t>(bytes / elem)});
 }

@@ -1,12 +1,12 @@
 #pragma once
 
+#include "litnicelm_utils/checks.hpp"
 #include "litnicelm_utils/dtype.hpp"
 #include "litnicelm_utils/tensor_view_struct.h"
 
 #include <array>
 #include <cstdint>
 #include <initializer_list>
-#include <stdexcept>
 #include <vector>
 
 constexpr size_t kMaxTensorRank = LITNICELM_MAX_TENSOR_RANK;
@@ -29,9 +29,8 @@ public:
 private:
   template <typename Iter>
   void init_(Iter begin, size_t size) {
-    if (size > kMaxTensorRank) {
-      throw std::runtime_error("Shape rank exceeds kMaxTensorRank");
-    }
+    checker().check(CheckKind::Layout, size <= kMaxTensorRank, "Shape",
+                    "rank exceeds kMaxTensorRank");
     rank_ = static_cast<uint8_t>(size);
     size_t i = 0;
     for (Iter it = begin; i < size; ++it) {
@@ -45,18 +44,15 @@ public:
   size_t rank() const { return rank_; }
 
   int64_t dim(size_t axis) const {
-    if (axis >= rank_) {
-      throw std::out_of_range("Shape::dim axis out of range");
-    }
+    checker().check_index(static_cast<int64_t>(axis), rank_, "Shape", "axis");
     return dims_[axis];
   }
 
   uint64_t numel() const {
     uint64_t out = 1;
     for (size_t i = 0; i < rank_; ++i) {
-      if (dims_[i] < 0) {
-        throw std::runtime_error("Shape has negative dimension");
-      }
+      checker().check(CheckKind::Contract, dims_[i] >= 0, "Shape",
+                      "negative dimension");
       out *= static_cast<uint64_t>(dims_[i]);
     }
     return out;
@@ -73,11 +69,8 @@ inline uint64_t numel(const Shape &s) { return s.numel(); }
 inline uint64_t nbytes(const Shape &s, DType dt) {
   const uint64_t elems = numel(s);
   const uint64_t esz = static_cast<uint64_t>(dtype_size(dt));
-  if (esz == 0) {
-    throw std::runtime_error("Unknown dtype");
-  }
-  if (elems != 0 && esz > (UINT64_MAX / elems)) {
-    throw std::overflow_error("nbytes overflow");
-  }
+  checker().check(CheckKind::Contract, esz != 0, "nbytes", "unknown dtype");
+  checker().check(CheckKind::Layout, elems == 0 || esz <= UINT64_MAX / elems,
+                  "nbytes", "size overflows 64 bits");
   return elems * esz;
 }
