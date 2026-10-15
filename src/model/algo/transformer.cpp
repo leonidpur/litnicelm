@@ -2,17 +2,12 @@
 #include "tensor_contracts.hpp"
 #include "tensor_probe.hpp"
 #include "training_diagnostics_controller.hpp"
-#include <litnicelm_utils/assert.hpp>
 #include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
 #include <string>
-
-#define require(cond, msg)                                                      \
-  REQUIRE_DEBUG((cond),                                                         \
-                [&]() { return std::string("Transformer: ") + std::string(msg); })
 
 Transformer::Transformer(const Config &cfg,
                          const ModelAlgoFactory &algo,
@@ -103,9 +98,10 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
 void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
                            const RuntimeFlags::ProbeFlags &probe) {
   observer_->on_backward_start();
-  require(ids.device() == dlogits.device(), "ids/dlogits device mismatch");
-  require(ids.dtype() == DType::I32 || ids.dtype() == DType::F32,
-          "ids must be I32/F32");
+  const Checker &c = checker();
+  c.check(CheckKind::Contract, ids.device() == dlogits.device(), "Transformer",
+          "ids/dlogits device mismatch");
+  c.check_dtype_one_of(ids, {DType::I32, DType::F32}, "Transformer ids");
 
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
   const TensorContracts::BatchSeqDims dims =
@@ -116,7 +112,7 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   const int64_t token_rows = static_cast<int64_t>(dlogits.numel() /
       static_cast<uint64_t>(cfg_.model.vocab_size));
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
-  require(ids_token_rows == token_rows,
+  c.check(CheckKind::Contract, ids_token_rows == token_rows, "Transformer",
           "backward ids/dlogits token-row mismatch");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
@@ -152,5 +148,3 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   }
   observer_->on_backward_end();
 }
-
-#undef require

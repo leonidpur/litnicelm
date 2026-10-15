@@ -3,24 +3,20 @@
 #include "backend/device_backend.hpp"
 #include "tensor.hpp"
 
+#include <litnicelm_utils/checks.hpp>
+
 #include <cstring>
-#include <stdexcept>
-#include <string>
 
 namespace host_tensor_stage {
 
-inline void require_row_dense(const TensorView &t, const char *who) {
+inline void check_row_dense(const TensorView &t, const char *who) {
   const int64_t elem = static_cast<int64_t>(dtype_size(t.dtype()));
-  if (elem <= 0) {
-    throw std::runtime_error(std::string(who) + ": invalid dtype");
-  }
+  checker().check(CheckKind::Layout, elem > 0, who, "invalid dtype");
   if (t.rank() == 0) {
     return;
   }
-  if (t.stride_bytes(t.rank() - 1) != elem) {
-    throw std::runtime_error(std::string(who) +
-                             ": requires row-dense tensor view");
-  }
+  checker().check(CheckKind::Layout, t.stride_bytes(t.rank() - 1) == elem,
+                  who, "requires row-dense tensor view");
 }
 
 inline uint64_t logical_prefix_count_last1(const TensorView &t) {
@@ -52,34 +48,29 @@ inline int64_t prefix_last1_byte_offset(const TensorView &t, uint64_t prefix) {
 
 inline uint64_t dense_row_bytes(const TensorView &t, const char *who) {
   const uint64_t elem = dtype_size(t.dtype());
-  if (elem == 0) {
-    throw std::runtime_error(std::string(who) + ": invalid dtype size");
-  }
+  checker().check(CheckKind::Layout, elem != 0, who, "invalid dtype size");
   if (t.rank() == 0) {
     return elem;
   }
   return static_cast<uint64_t>(t.dim(t.rank() - 1)) * elem;
 }
 
-inline void require_copy_compatible(const TensorView &src, const TensorView &dst,
-                                    const char *who) {
-  if (src.dtype() != dst.dtype()) {
-    throw std::runtime_error(std::string(who) + ": dtype mismatch");
-  }
-  if (src.numel() != dst.numel()) {
-    throw std::runtime_error(std::string(who) + ": shape mismatch");
-  }
-  require_row_dense(src, who);
-  require_row_dense(dst, who);
+inline void check_copy_compatible(const TensorView &src, const TensorView &dst,
+                                  const char *who) {
+  checker().check(CheckKind::Contract, src.dtype() == dst.dtype(), who,
+                  "dtype mismatch");
+  checker().check(CheckKind::Contract, src.numel() == dst.numel(), who,
+                  "shape mismatch");
+  check_row_dense(src, who);
+  check_row_dense(dst, who);
 }
 
 inline void copy_tensor_cpu_to_cpu(const TensorView &src, TensorView &dst,
                                    const char *who) {
-  require_copy_compatible(src, dst, who);
-  if (src.device() != Device::CPU || dst.device() != Device::CPU) {
-    throw std::runtime_error(std::string(who) +
-                             ": copy_tensor_cpu_to_cpu requires CPU tensors");
-  }
+  check_copy_compatible(src, dst, who);
+  checker().check(CheckKind::Capability,
+                  src.device() == Device::CPU && dst.device() == Device::CPU,
+                  who, "copy_tensor_cpu_to_cpu requires CPU tensors");
   if (src.numel() == 0) {
     return;
   }
@@ -100,11 +91,9 @@ inline void copy_tensor_cpu_to_cpu(const TensorView &src, TensorView &dst,
 
 inline void copy_to_cpu(DeviceBackend &backend, const TensorView &src,
                         TensorView &dst_cpu, const char *who) {
-  require_copy_compatible(src, dst_cpu, who);
-  if (dst_cpu.device() != Device::CPU) {
-    throw std::runtime_error(std::string(who) +
-                             ": destination must be CPU");
-  }
+  check_copy_compatible(src, dst_cpu, who);
+  checker().check(CheckKind::Capability, dst_cpu.device() == Device::CPU, who,
+                  "destination must be CPU");
   if (src.numel() == 0) {
     return;
   }
@@ -126,10 +115,9 @@ inline void copy_to_cpu(DeviceBackend &backend, const TensorView &src,
 
 inline void copy_from_cpu(DeviceBackend &backend, const TensorView &src_cpu,
                           TensorView &dst, const char *who) {
-  require_copy_compatible(src_cpu, dst, who);
-  if (src_cpu.device() != Device::CPU) {
-    throw std::runtime_error(std::string(who) + ": source must be CPU");
-  }
+  check_copy_compatible(src_cpu, dst, who);
+  checker().check(CheckKind::Capability, src_cpu.device() == Device::CPU, who,
+                  "source must be CPU");
   if (src_cpu.numel() == 0) {
     return;
   }

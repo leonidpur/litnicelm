@@ -2,6 +2,7 @@
 #include "backend_plugin_api.hpp"
 #include "backend_events.hpp"
 
+#include <litnicelm_utils/checks.hpp>
 #include <litnicelm_utils/log.hpp>
 
 #include <cerrno>
@@ -19,12 +20,6 @@
 
 namespace {
 bool is_power_of_two(uint32_t x) { return x != 0 && (x & (x - 1)) == 0; }
-
-void require_backend(bool cond, const std::string &msg) {
-  if (!cond) {
-    throw std::runtime_error(msg);
-  }
-}
 
 struct AllocationHeader {
   void *base = nullptr;
@@ -155,14 +150,6 @@ struct CpuMemOperations {
   }
 };
 
-void require_f32_cpu_contig(const TensorView &t, const char *who) {
-  require_backend(t.device() == Device::CPU,
-                  std::string(who) + " requires CPU tensor");
-  require_backend(t.dtype() == DType::F32,
-                  std::string(who) + " requires f32 tensor");
-  require_backend(t.is_contiguous(),
-                  std::string(who) + " requires contiguous tensor");
-}
 
 class DynamicLibraryBackend final : public DeviceBackend {
 public:
@@ -850,7 +837,8 @@ void DefaultCpuBackend::mul_scalar(const TensorView &x, float s, TensorView &out
 }
 
 float DefaultCpuBackend::sum_squares_f32(const TensorView &x) {
-  require_f32_cpu_contig(x, "DefaultCpuBackend::sum_squares_f32(x)");
+  checker().check_supported(x, Device::CPU, DType::F32, true,
+                            "DefaultCpuBackend sum_squares_f32 x");
   const float *p = reinterpret_cast<const float *>(x.data());
   const uint64_t n = x.numel();
   double sum_sq = 0.0;
@@ -1559,8 +1547,9 @@ void DefaultCpuBackend::apply_causal_mask_inplace(TensorView &scores, float neg_
     const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(scores, 2);
     const int64_t token_rows = scores.dim(scores.rank() - 2);
     const int64_t token_cols = scores.dim(scores.rank() - 1);
-    require_backend(token_rows == token_cols,
-                    "DefaultCpuBackend::apply_causal_mask_inplace: scores must end with [T,T]");
+    checker().check(CheckKind::Contract, token_rows == token_cols,
+                    "DefaultCpuBackend apply_causal_mask_inplace",
+                    "scores must end with [T,T]");
     for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
       for (int64_t i = 0; i < token_rows; ++i) {
         for (int64_t j = i + 1; j < token_cols; ++j) {
@@ -1581,15 +1570,17 @@ void DefaultCpuBackend::apply_causal_mask_inplace(TensorView &scores, float neg_
 void DefaultCpuBackend::rotary_embedding_inplace(TensorView &x,
                                                  int64_t n_heads, float base,
                                                  bool inverse) {
-  require_backend(x.rank() >= 2,
-                  "DefaultCpuBackend::rotary_embedding_inplace: x must be [..., S, D]");
+  const Checker &checks = checker();
+  const char *who = "DefaultCpuBackend rotary_embedding_inplace";
+  checks.check(CheckKind::Contract, x.rank() >= 2, who,
+               "x must be [..., S, D]");
   const int64_t seq_len = x.dim(x.rank() - 2);
   const int64_t model_dim = x.dim(x.rank() - 1);
-  require_backend(n_heads > 0 && model_dim % n_heads == 0,
-                  "DefaultCpuBackend::rotary_embedding_inplace: D must divide by n_heads");
+  checks.check(CheckKind::Contract, n_heads > 0 && model_dim % n_heads == 0,
+               who, "D must divide by n_heads");
   const int64_t head_dim = model_dim / n_heads;
-  require_backend(head_dim % 2 == 0,
-                  "DefaultCpuBackend::rotary_embedding_inplace: head_dim must be even");
+  checks.check(CheckKind::Contract, head_dim % 2 == 0, who,
+               "head_dim must be even");
   const int64_t half = head_dim / 2;
   std::vector<float> inv_freq(static_cast<size_t>(half));
   for (int64_t i = 0; i < half; ++i) {
@@ -1622,27 +1613,24 @@ void DefaultCpuBackend::adamw_step(TensorView &params, const TensorView &grads,
                             TensorView &m, TensorView &v, uint64_t step,
                             float learning_rate, float beta1, float beta2,
                             float weight_decay, bool apply_weight_decay) {
-  require_backend(step >= 1, "DefaultCpuBackend::adamw_step: step must be >= 1");
-  require_f32_cpu_contig(params, "DefaultCpuBackend::adamw_step(params)");
-  require_f32_cpu_contig(grads, "DefaultCpuBackend::adamw_step(grads)");
-  require_f32_cpu_contig(m, "DefaultCpuBackend::adamw_step(m)");
-  require_f32_cpu_contig(v, "DefaultCpuBackend::adamw_step(v)");
+  const Checker &checks = checker();
+  const char *who = "DefaultCpuBackend adamw_step";
+  checks.check(CheckKind::Contract, step >= 1, who, "step must be >= 1");
+  checks.check_supported(params, Device::CPU, DType::F32, true,
+                         "DefaultCpuBackend adamw_step params");
+  checks.check_supported(grads, Device::CPU, DType::F32, true,
+                         "DefaultCpuBackend adamw_step grads");
+  checks.check_supported(m, Device::CPU, DType::F32, true,
+                         "DefaultCpuBackend adamw_step m");
+  checks.check_supported(v, Device::CPU, DType::F32, true,
+                         "DefaultCpuBackend adamw_step v");
 
-  require_backend(params.shape().dim(0) == grads.shape().dim(0) &&
-                      params.shape().dim(1) == grads.shape().dim(1),
-                  "DefaultCpuBackend::adamw_step: params/grads shape mismatch");
-  require_backend(params.shape().dim(0) == m.shape().dim(0) &&
-                      params.shape().dim(1) == m.shape().dim(1),
-                  "DefaultCpuBackend::adamw_step: params/m shape mismatch");
-  require_backend(params.shape().dim(0) == v.shape().dim(0) &&
-                      params.shape().dim(1) == v.shape().dim(1),
-                  "DefaultCpuBackend::adamw_step: params/v shape mismatch");
-  require_backend(learning_rate > 0.0f,
-                  "DefaultCpuBackend::adamw_step: learning_rate must be > 0");
-  require_backend(beta1 >= 0.0f && beta1 < 1.0f,
-                  "DefaultCpuBackend::adamw_step: beta1 must be in [0,1)");
-  require_backend(beta2 >= 0.0f && beta2 < 1.0f,
-                  "DefaultCpuBackend::adamw_step: beta2 must be in [0,1)");
+  checks.check_same_shape(params, grads, "DefaultCpuBackend adamw_step grads");
+  checks.check_same_shape(params, m, "DefaultCpuBackend adamw_step m");
+  checks.check_same_shape(params, v, "DefaultCpuBackend adamw_step v");
+  checks.check_positive(learning_rate, who, "learning_rate");
+  checks.check_range(beta1, 0.0, 1.0, Interval::ClosedOpen, who, "beta1");
+  checks.check_range(beta2, 0.0, 1.0, Interval::ClosedOpen, who, "beta2");
 
   const int64_t n = params.shape().dim(0) * params.shape().dim(1);
   const double t = static_cast<double>(step);
@@ -1650,8 +1638,8 @@ void DefaultCpuBackend::adamw_step(TensorView &params, const TensorView &grads,
       1.0f - static_cast<float>(std::pow(static_cast<double>(beta1), t));
   const float b2_corr =
       1.0f - static_cast<float>(std::pow(static_cast<double>(beta2), t));
-  require_backend(b1_corr > 0.0f && b2_corr > 0.0f,
-                  "DefaultCpuBackend::adamw_step: invalid bias correction");
+  checks.check(CheckKind::Numeric, b1_corr > 0.0f && b2_corr > 0.0f, who,
+               "invalid bias correction");
 
   float *p = params.f32();
   const float *g = grads.f32();

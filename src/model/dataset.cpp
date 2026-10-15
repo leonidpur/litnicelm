@@ -4,6 +4,7 @@
 #include "model_events.hpp"
 #include <config.hpp>
 #include <litnicelm_utils/assert.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -363,9 +364,9 @@ bool TextDataset::next_impl(TrainBatch &out) {
   const uint64_t first_start = block_starts_[static_cast<size_t>(first_window_index)];
   for (uint32_t b = 0; b < batch_size_; ++b) {
     const uint64_t start = block_starts_[static_cast<size_t>(first_window_index + b)];
-    REQUIRE_DEBUG(start + static_cast<uint64_t>(seq_len_) < num_tokens_, [&]() {
-      return "TextDataset::next: mapped token read would exceed dataset size";
-    });
+    // seq_len_ inputs plus the one-token-shifted target.
+    checker().check_in_bounds(start, static_cast<uint64_t>(seq_len_) + 1,
+                              num_tokens_, "TextDataset next", "token window");
   }
   block_index_ += batch_size_;
 
