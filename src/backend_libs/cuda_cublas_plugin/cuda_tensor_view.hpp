@@ -73,53 +73,19 @@ __device__ inline int64_t kernel_prefix_offset_bytes(const KernelTensorView &t,
   return offset;
 }
 
-__device__ inline const char *tensor_ptr(const KernelTensorView &t, int64_t r,
-                                         int64_t c) {
+// Byte address of row r, rows running over all leading dims. The elements
+// of a row are contiguous (check_cuda_row_major), so a kernel indexes the
+// row through a pointer of the tensor's element type.
+__device__ inline const char *row_ptr(const KernelTensorView &t, int64_t r) {
   if (t.rank >= 2) {
-    const int32_t last_axis = t.rank - 1;
-    const int64_t prefix_offset =
-        kernel_prefix_offset_bytes(t, r, last_axis);
-    return reinterpret_cast<const char *>(t.data) + prefix_offset +
-           c * t.strides_bytes[last_axis];
+    return static_cast<const char *>(t.data) +
+           kernel_prefix_offset_bytes(t, r, t.rank - 1);
   }
-  return reinterpret_cast<const char *>(t.data) + r * t.stride_r_bytes +
-         c * t.stride_c_bytes;
+  return static_cast<const char *>(t.data) + r * t.stride_r_bytes;
 }
 
-__device__ inline char *tensor_ptr_mut(const KernelTensorView &t, int64_t r,
-                                       int64_t c) {
-  if (t.rank >= 2) {
-    const int32_t last_axis = t.rank - 1;
-    const int64_t prefix_offset =
-        kernel_prefix_offset_bytes(t, r, last_axis);
-    return reinterpret_cast<char *>(t.data) + prefix_offset +
-           c * t.strides_bytes[last_axis];
-  }
-  return reinterpret_cast<char *>(t.data) + r * t.stride_r_bytes +
-         c * t.stride_c_bytes;
-}
-
-__device__ inline float load_f32(const KernelTensorView &t, int64_t r,
-                                 int64_t c) {
-  return *reinterpret_cast<const float *>(tensor_ptr(t, r, c));
-}
-
-__device__ inline void store_f32(const KernelTensorView &t, int64_t r, int64_t c,
-                                 float value) {
-  *reinterpret_cast<float *>(tensor_ptr_mut(t, r, c)) = value;
-}
-
-__device__ inline int32_t load_i32(const KernelTensorView &t, int64_t r,
-                                   int64_t c) {
-  return *reinterpret_cast<const int32_t *>(tensor_ptr(t, r, c));
-}
-
-__device__ inline int64_t load_index(const KernelTensorView &t, int64_t r,
-                                     int64_t c) {
-  if (t.dtype == DType::I32) {
-    return static_cast<int64_t>(load_i32(t, r, c));
-  }
-  return static_cast<int64_t>(load_f32(t, r, c));
+__device__ inline char *row_ptr_mut(const KernelTensorView &t, int64_t r) {
+  return const_cast<char *>(row_ptr(t, r));
 }
 
 } // namespace cuda_cublas_plugin

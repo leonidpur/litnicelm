@@ -7,22 +7,28 @@ namespace {
 
 constexpr float kLayerNormEps = 1e-5f;
 
-__global__ void layernorm_backward_kernel(KernelTensorView x,
-                                          KernelTensorView gamma,
-                                          KernelTensorView dout,
-                                          KernelTensorView dx,
-                                          KernelTensorView dgamma,
-                                          KernelTensorView dbeta) {
+__global__ void layernorm_backward_f32(KernelTensorView x,
+                                       KernelTensorView gamma,
+                                       KernelTensorView dout,
+                                       KernelTensorView dx,
+                                       KernelTensorView dgamma,
+                                       KernelTensorView dbeta) {
   const int64_t row = blockIdx.x;
   if (row >= x.rows) {
     return;
   }
+  const float *x_row = reinterpret_cast<const float *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *dout_row = reinterpret_cast<const float *>(row_ptr(dout, row));
+  float *dx_row = reinterpret_cast<float *>(row_ptr_mut(dx, row));
+  float *dgamma_row = reinterpret_cast<float *>(row_ptr_mut(dgamma, 0));
+  float *dbeta_row = reinterpret_cast<float *>(row_ptr_mut(dbeta, 0));
 
   extern __shared__ double ln_bw_scratch[];
 
   double local_sum = 0.0;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    local_sum += static_cast<double>(load_f32(x, row, c));
+    local_sum += static_cast<double>(x_row[c]);
   }
   ln_bw_scratch[threadIdx.x] = local_sum;
   __syncthreads();
@@ -37,7 +43,7 @@ __global__ void layernorm_backward_kernel(KernelTensorView x,
 
   double local_var = 0.0;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    const double delta = static_cast<double>(load_f32(x, row, c)) - mean;
+    const double delta = static_cast<double>(x_row[c]) - mean;
     local_var += delta * delta;
   }
   ln_bw_scratch[threadIdx.x] = local_var;
@@ -57,17 +63,14 @@ __global__ void layernorm_backward_kernel(KernelTensorView x,
   double local_sum_dxhat = 0.0;
   double local_sum_dxhat_xhat = 0.0;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    const double xhat =
-        (static_cast<double>(load_f32(x, row, c)) - mean) * inv_std;
-    const double g = static_cast<double>(load_f32(gamma, 0, c));
-    const double dyi = static_cast<double>(load_f32(dout, row, c));
+    const double xhat = (static_cast<double>(x_row[c]) - mean) * inv_std;
+    const double g = static_cast<double>(gamma_row[c]);
+    const double dyi = static_cast<double>(dout_row[c]);
     const double dxhat = dyi * g;
     local_sum_dxhat += dxhat;
     local_sum_dxhat_xhat += dxhat * xhat;
-    atomicAdd(reinterpret_cast<float *>(tensor_ptr_mut(dgamma, 0, c)),
-              static_cast<float>(dyi * xhat));
-    atomicAdd(reinterpret_cast<float *>(tensor_ptr_mut(dbeta, 0, c)),
-              static_cast<float>(dyi));
+    atomicAdd(&dgamma_row[c], static_cast<float>(dyi * xhat));
+    atomicAdd(&dbeta_row[c], static_cast<float>(dyi));
   }
   ln_bw_scratch[threadIdx.x] = local_sum_dxhat;
   __syncthreads();
@@ -93,31 +96,34 @@ __global__ void layernorm_backward_kernel(KernelTensorView x,
   const double n = static_cast<double>(x.cols);
 
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    const double xhat =
-        (static_cast<double>(load_f32(x, row, c)) - mean) * inv_std;
-    const double g = static_cast<double>(load_f32(gamma, 0, c));
-    const double dyi = static_cast<double>(load_f32(dout, row, c));
+    const double xhat = (static_cast<double>(x_row[c]) - mean) * inv_std;
+    const double g = static_cast<double>(gamma_row[c]);
+    const double dyi = static_cast<double>(dout_row[c]);
     const double dxhat = dyi * g;
     const double dxi =
         (inv_std / n) * (n * dxhat - sum_dxhat - xhat * sum_dxhat_xhat);
-    store_f32(dx, row, c, static_cast<float>(dxi));
+    dx_row[c] = static_cast<float>(dxi);
   }
 }
 
-__global__ void layernorm_forward_kernel(KernelTensorView x,
-                                         KernelTensorView gamma,
-                                         KernelTensorView beta,
-                                         KernelTensorView out) {
+__global__ void layernorm_forward_f32(KernelTensorView x,
+                                      KernelTensorView gamma,
+                                      KernelTensorView beta,
+                                      KernelTensorView out) {
   const int64_t row = blockIdx.x;
   if (row >= x.rows) {
     return;
   }
+  const float *x_row = reinterpret_cast<const float *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *beta_row = reinterpret_cast<const float *>(row_ptr(beta, 0));
+  float *out_row = reinterpret_cast<float *>(row_ptr_mut(out, row));
 
   extern __shared__ float scratch[];
 
   float local_sum = 0.0f;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    local_sum += load_f32(x, row, c);
+    local_sum += x_row[c];
   }
   scratch[threadIdx.x] = local_sum;
   __syncthreads();
@@ -132,7 +138,7 @@ __global__ void layernorm_forward_kernel(KernelTensorView x,
 
   float local_var = 0.0f;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    const float delta = load_f32(x, row, c) - mean;
+    const float delta = x_row[c] - mean;
     local_var += delta * delta;
   }
   scratch[threadIdx.x] = local_var;
@@ -148,10 +154,8 @@ __global__ void layernorm_forward_kernel(KernelTensorView x,
       rsqrtf(scratch[0] / static_cast<float>(x.cols) + kLayerNormEps);
 
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
-    const float normalized = (load_f32(x, row, c) - mean) * inv_std;
-    const float value =
-        normalized * load_f32(gamma, 0, c) + load_f32(beta, 0, c);
-    store_f32(out, row, c, value);
+    const float normalized = (x_row[c] - mean) * inv_std;
+    out_row[c] = normalized * gamma_row[c] + beta_row[c];
   }
 }
 
@@ -159,25 +163,25 @@ __global__ void layernorm_forward_kernel(KernelTensorView x,
 
 void launch_layernorm_forward(const TensorView &x, const TensorView &gamma,
                               const TensorView &beta, TensorView &out) {
-  layernorm_forward_kernel<<<static_cast<unsigned int>(tensor_rows(x)),
-                             kThreadsPerBlock,
-                             static_cast<size_t>(kThreadsPerBlock *
-                                                 sizeof(float))>>>(
+  layernorm_forward_f32<<<static_cast<unsigned int>(tensor_rows(x)),
+                          kThreadsPerBlock,
+                          static_cast<size_t>(kThreadsPerBlock *
+                                              sizeof(float))>>>(
       to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
       to_kernel_tensor_view(beta), to_kernel_tensor_view(out));
-  check_kernel_launch("layernorm_forward_kernel");
+  check_kernel_launch("layernorm_forward_f32");
 }
 
 void launch_layernorm_backward(const TensorView &x, const TensorView &gamma,
                                const TensorView &dout, TensorView &dx,
                                TensorView &dgamma, TensorView &dbeta) {
-  layernorm_backward_kernel<<<
+  layernorm_backward_f32<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(kThreadsPerBlock * sizeof(double))>>>(
       to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
       to_kernel_tensor_view(dout), to_kernel_tensor_view(dx),
       to_kernel_tensor_view(dgamma), to_kernel_tensor_view(dbeta));
-  check_kernel_launch("layernorm_backward_kernel");
+  check_kernel_launch("layernorm_backward_f32");
 }
 
 } // namespace cuda_cublas_plugin

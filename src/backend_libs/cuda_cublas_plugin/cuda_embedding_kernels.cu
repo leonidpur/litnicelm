@@ -5,9 +5,9 @@
 namespace cuda_cublas_plugin {
 namespace {
 
-__global__ void embedding_lookup_kernel(KernelTensorView table,
-                                        KernelTensorView ids,
-                                        KernelTensorView out) {
+__global__ void embedding_lookup_f32(KernelTensorView table,
+                                    KernelTensorView ids,
+                                    KernelTensorView out) {
   const int64_t idx =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int64_t total = out.rows * out.cols;
@@ -16,17 +16,18 @@ __global__ void embedding_lookup_kernel(KernelTensorView table,
   }
   const int64_t r = idx / out.cols;
   const int64_t c = idx % out.cols;
-  const int64_t token = load_index(ids, r, 0);
+  const int64_t token = reinterpret_cast<const int32_t *>(row_ptr(ids, r))[0];
+  float *out_row = reinterpret_cast<float *>(row_ptr_mut(out, r));
   if (token < 0 || token >= table.rows) {
-    store_f32(out, r, c, 0.0f);
+    out_row[c] = 0.0f;
     return;
   }
-  store_f32(out, r, c, load_f32(table, token, c));
+  out_row[c] = reinterpret_cast<const float *>(row_ptr(table, token))[c];
 }
 
-__global__ void accumulate_embedding_grads_kernel(KernelTensorView ids,
-                                                  KernelTensorView d_cur,
-                                                  KernelTensorView d_tok) {
+__global__ void accumulate_embedding_grads_f32(KernelTensorView ids,
+                                               KernelTensorView d_cur,
+                                               KernelTensorView d_tok) {
   const int64_t idx =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int64_t total = d_cur.rows * d_cur.cols;
@@ -36,13 +37,13 @@ __global__ void accumulate_embedding_grads_kernel(KernelTensorView ids,
 
   const int64_t t = idx / d_cur.cols;
   const int64_t d = idx % d_cur.cols;
-  const int64_t token = load_index(ids, t, 0);
+  const int64_t token = reinterpret_cast<const int32_t *>(row_ptr(ids, t))[0];
   if (token < 0 || token >= d_tok.rows) {
     return;
   }
 
-  const float g = load_f32(d_cur, t, d);
-  atomicAdd(reinterpret_cast<float *>(tensor_ptr_mut(d_tok, token, d)), g);
+  const float g = reinterpret_cast<const float *>(row_ptr(d_cur, t))[d];
+  atomicAdd(&reinterpret_cast<float *>(row_ptr_mut(d_tok, token))[d], g);
 }
 
 } // namespace
@@ -50,26 +51,26 @@ __global__ void accumulate_embedding_grads_kernel(KernelTensorView ids,
 void launch_embedding_lookup(const TensorView &table, const TensorView &ids,
                              TensorView &out) {
   const int64_t total = tensor_rows(out) * tensor_cols(out);
-  embedding_lookup_kernel<<<
+  embedding_lookup_f32<<<
       static_cast<unsigned int>((total + kThreadsPerBlock - 1) /
                                 kThreadsPerBlock),
       kThreadsPerBlock>>>(to_kernel_tensor_view(table),
                           to_kernel_index_vector_view(ids),
                           to_kernel_tensor_view(out));
-  check_kernel_launch("embedding_lookup_kernel");
+  check_kernel_launch("embedding_lookup_f32");
 }
 
 void launch_accumulate_embedding_grads(const TensorView &ids,
                                        const TensorView &d_cur,
                                        TensorView &d_tok) {
   const int64_t total = tensor_rows(d_cur) * tensor_cols(d_cur);
-  accumulate_embedding_grads_kernel<<<
+  accumulate_embedding_grads_f32<<<
       static_cast<unsigned int>((total + kThreadsPerBlock - 1) /
                                 kThreadsPerBlock),
       kThreadsPerBlock>>>(to_kernel_index_vector_view(ids),
                           to_kernel_tensor_view(d_cur),
                           to_kernel_tensor_view(d_tok));
-  check_kernel_launch("accumulate_embedding_grads_kernel");
+  check_kernel_launch("accumulate_embedding_grads_f32");
 }
 
 } // namespace cuda_cublas_plugin

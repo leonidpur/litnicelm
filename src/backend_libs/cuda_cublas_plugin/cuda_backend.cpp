@@ -335,7 +335,7 @@ public:
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) override {
     check_cuda_row_major(table, {DType::F32}, "embedding_lookup(table)");
-    check_cuda_row_major(ids, "embedding_lookup(ids)");
+    check_cuda_row_major(ids, {DType::I32}, "embedding_lookup(ids)");
     check_cuda_row_major(out, {DType::F32}, "embedding_lookup(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
@@ -346,7 +346,8 @@ public:
   void accumulate_embedding_grads(const TensorView &ids,
                                   const TensorView &d_cur,
                                   TensorView &d_tok) override {
-    check_cuda_row_major(ids, "accumulate_embedding_grads(ids)");
+    check_cuda_row_major(ids, {DType::I32},
+                         "accumulate_embedding_grads(ids)");
     check_cuda_row_major(d_cur, {DType::F32},
                          "accumulate_embedding_grads(d_cur)");
     check_cuda_row_major(d_tok, {DType::F32},
@@ -367,7 +368,7 @@ public:
                                            TensorView &out_loss) override {
     check_cuda_row_major(logits, {DType::F32},
                          "cross_entropy_mean_backward_inplace(logits)");
-    check_cuda_row_major(targets,
+    check_cuda_row_major(targets, {DType::I32},
                          "cross_entropy_mean_backward_inplace(targets)");
     check_cuda_row_major(out_loss, {DType::F32},
                          "cross_entropy_mean_backward_inplace(out_loss)");

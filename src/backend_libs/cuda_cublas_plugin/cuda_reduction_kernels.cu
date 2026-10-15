@@ -7,7 +7,7 @@
 namespace cuda_cublas_plugin {
 namespace {
 
-__global__ void sum_squares_f32_kernel(KernelTensorView x, float *out_sum_sq) {
+__global__ void sum_squares_f32(KernelTensorView x, float *out_sum_sq) {
   const int64_t idx =
       static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   const int64_t total = x.rows * x.cols;
@@ -17,7 +17,7 @@ __global__ void sum_squares_f32_kernel(KernelTensorView x, float *out_sum_sq) {
        i += static_cast<int64_t>(gridDim.x) * blockDim.x) {
     const int64_t r = i / x.cols;
     const int64_t c = i % x.cols;
-    const float v = load_f32(x, r, c);
+    const float v = reinterpret_cast<const float *>(row_ptr(x, r))[c];
     local_sum += v * v;
   }
 
@@ -37,7 +37,7 @@ __global__ void sum_squares_f32_kernel(KernelTensorView x, float *out_sum_sq) {
   }
 }
 
-__global__ void row_sum_kernel(KernelTensorView x, KernelTensorView out_1xC) {
+__global__ void row_sum_f32(KernelTensorView x, KernelTensorView out_1xC) {
   const int64_t col = blockIdx.x;
   if (col >= x.cols) {
     return;
@@ -46,7 +46,7 @@ __global__ void row_sum_kernel(KernelTensorView x, KernelTensorView out_1xC) {
   extern __shared__ float row_sum_scratch[];
   float local_sum = 0.0f;
   for (int64_t row = threadIdx.x; row < x.rows; row += blockDim.x) {
-    local_sum += load_f32(x, row, col);
+    local_sum += reinterpret_cast<const float *>(row_ptr(x, row))[col];
   }
   row_sum_scratch[threadIdx.x] = local_sum;
   __syncthreads();
@@ -59,7 +59,7 @@ __global__ void row_sum_kernel(KernelTensorView x, KernelTensorView out_1xC) {
   }
 
   if (threadIdx.x == 0) {
-    store_f32(out_1xC, 0, col, row_sum_scratch[0]);
+    reinterpret_cast<float *>(row_ptr_mut(out_1xC, 0))[col] = row_sum_scratch[0];
   }
 }
 
@@ -70,18 +70,18 @@ void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq) {
   const unsigned int blocks = static_cast<unsigned int>(
       std::min<int64_t>((total + kThreadsPerBlock - 1) / kThreadsPerBlock,
                         1024));
-  sum_squares_f32_kernel<<<
+  sum_squares_f32<<<
       blocks, kThreadsPerBlock,
       static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
       to_kernel_tensor_view(x), device_sum_sq);
-  check_kernel_launch("sum_squares_f32_kernel");
+  check_kernel_launch("sum_squares_f32");
 }
 
 void launch_row_sum(const TensorView &x, TensorView &out_1xC) {
-  row_sum_kernel<<<static_cast<unsigned int>(tensor_cols(x)), kThreadsPerBlock,
-                   static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
+  row_sum_f32<<<static_cast<unsigned int>(tensor_cols(x)), kThreadsPerBlock,
+                static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
       to_kernel_tensor_view(x), to_kernel_tensor_view(out_1xC));
-  check_kernel_launch("row_sum_kernel");
+  check_kernel_launch("row_sum_f32");
 }
 
 } // namespace cuda_cublas_plugin
