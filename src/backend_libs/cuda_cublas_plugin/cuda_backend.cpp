@@ -6,6 +6,8 @@
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
+#include <litnicelm_utils/checks.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -91,9 +93,8 @@ public:
     if (bytes == 0) {
       return;
     }
-    if (dst == nullptr || src == nullptr) {
-      throw std::invalid_argument("cuda_cublas_plugin: copy_host2device null pointer");
-    }
+    checker().check(CheckKind::Layout, dst != nullptr && src != nullptr,
+                    "cuda_cublas_plugin", "copy_host2device null pointer");
     check_cuda(cudaMemcpy(dst, src, static_cast<size_t>(bytes),
                           cudaMemcpyHostToDevice),
                "cudaMemcpy(host_to_device)");
@@ -103,22 +104,21 @@ public:
     if (bytes == 0) {
       return;
     }
-    if (dst == nullptr || src == nullptr) {
-      throw std::invalid_argument("cuda_cublas_plugin: copy_device2host null pointer");
-    }
+    checker().check(CheckKind::Layout, dst != nullptr && src != nullptr,
+                    "cuda_cublas_plugin", "copy_device2host null pointer");
     check_cuda(cudaMemcpy(dst, src, static_cast<size_t>(bytes),
                           cudaMemcpyDeviceToHost),
                "cudaMemcpy(device_to_host)");
   }
 
   void copy(const TensorView &src, TensorView &dst) override {
-    require_cuda_row_major(src, "copy(src)");
-    require_cuda_row_major(dst, "copy(dst)");
+    check_cuda_row_major(src, "copy(src)");
+    check_cuda_row_major(dst, "copy(dst)");
     copy_tensor_2d(src, dst, cudaMemcpyDeviceToDevice, "cudaMemcpy2D(copy)");
   }
 
   void fill(TensorView &t, float v) override {
-    require_cuda_f32_row_major(t, "fill");
+    check_cuda_row_major(t, {DType::F32}, "fill");
     if (tensor_rows(t) == 0 || tensor_cols(t) == 0) {
       return;
     }
@@ -126,9 +126,9 @@ public:
   }
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) override {
-    require_cuda_f32_row_major(a, "add(a)");
-    require_cuda_f32_row_major(b, "add(b)");
-    require_cuda_f32_row_major(out, "add(out)");
+    check_cuda_row_major(a, {DType::F32}, "add(a)");
+    check_cuda_row_major(b, {DType::F32}, "add(b)");
+    check_cuda_row_major(out, {DType::F32}, "add(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -143,8 +143,8 @@ public:
   }
 
   void add_inplace(TensorView &a, const TensorView &b) override {
-    require_cuda_f32_row_major(a, "add_inplace(a)");
-    require_cuda_f32_row_major(b, "add_inplace(b)");
+    check_cuda_row_major(a, {DType::F32}, "add_inplace(a)");
+    check_cuda_row_major(b, {DType::F32}, "add_inplace(b)");
     if (tensor_rows(a) == 0 || tensor_cols(a) == 0) {
       return;
     }
@@ -153,9 +153,9 @@ public:
 
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) override {
-    require_cuda_f32_row_major(x, "add_bias_rowwise(x)");
-    require_cuda_f32_row_major(bias_1xC, "add_bias_rowwise(bias)");
-    require_cuda_f32_row_major(out, "add_bias_rowwise(out)");
+    check_cuda_row_major(x, {DType::F32}, "add_bias_rowwise(x)");
+    check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_rowwise(bias)");
+    check_cuda_row_major(out, {DType::F32}, "add_bias_rowwise(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -164,9 +164,9 @@ public:
 
   void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
                              TensorView &out) override {
-    require_cuda_f32_row_major(x, "add_bias_relu_rowwise(x)");
-    require_cuda_f32_row_major(bias_1xC, "add_bias_relu_rowwise(bias)");
-    require_cuda_f32_row_major(out, "add_bias_relu_rowwise(out)");
+    check_cuda_row_major(x, {DType::F32}, "add_bias_relu_rowwise(x)");
+    check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_relu_rowwise(bias)");
+    check_cuda_row_major(out, {DType::F32}, "add_bias_relu_rowwise(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -175,9 +175,9 @@ public:
 
   void add_bias_relu_rowwise_inplace(TensorView &x,
                                      const TensorView &bias_1xC) override {
-    require_cuda_f32_row_major(x, "add_bias_relu_rowwise_inplace(x)");
-    require_cuda_f32_row_major(bias_1xC,
-                               "add_bias_relu_rowwise_inplace(bias)");
+    check_cuda_row_major(x, {DType::F32}, "add_bias_relu_rowwise_inplace(x)");
+    check_cuda_row_major(bias_1xC, {DType::F32},
+                         "add_bias_relu_rowwise_inplace(bias)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
@@ -185,8 +185,8 @@ public:
   }
 
   void mul_scalar(const TensorView &x, float s, TensorView &out) override {
-    require_cuda_f32_row_major(x, "mul_scalar(x)");
-    require_cuda_f32_row_major(out, "mul_scalar(out)");
+    check_cuda_row_major(x, {DType::F32}, "mul_scalar(x)");
+    check_cuda_row_major(out, {DType::F32}, "mul_scalar(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -194,7 +194,7 @@ public:
   }
 
   float sum_squares_f32(const TensorView &x) override {
-    require_cuda_f32_row_major(x, "sum_squares_f32(x)");
+    check_cuda_row_major(x, {DType::F32}, "sum_squares_f32(x)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return 0.0f;
     }
@@ -211,8 +211,8 @@ public:
   }
 
   void relu(const TensorView &x, TensorView &out) override {
-    require_cuda_f32_row_major(x, "relu(x)");
-    require_cuda_f32_row_major(out, "relu(out)");
+    check_cuda_row_major(x, {DType::F32}, "relu(x)");
+    check_cuda_row_major(out, {DType::F32}, "relu(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -221,9 +221,9 @@ public:
 
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) override {
-    require_cuda_f32_row_major(preact, "relu_backward(preact)");
-    require_cuda_f32_row_major(dout, "relu_backward(dout)");
-    require_cuda_f32_row_major(dx, "relu_backward(dx)");
+    check_cuda_row_major(preact, {DType::F32}, "relu_backward(preact)");
+    check_cuda_row_major(dout, {DType::F32}, "relu_backward(dout)");
+    check_cuda_row_major(dx, {DType::F32}, "relu_backward(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
@@ -232,8 +232,9 @@ public:
 
   void relu_backward_inplace(const TensorView &preact,
                              TensorView &dout_dx) override {
-    require_cuda_f32_row_major(preact, "relu_backward_inplace(preact)");
-    require_cuda_f32_row_major(dout_dx, "relu_backward_inplace(dout_dx)");
+    check_cuda_row_major(preact, {DType::F32}, "relu_backward_inplace(preact)");
+    check_cuda_row_major(dout_dx, {DType::F32},
+                         "relu_backward_inplace(dout_dx)");
     if (tensor_rows(dout_dx) == 0 || tensor_cols(dout_dx) == 0) {
       return;
     }
@@ -241,8 +242,8 @@ public:
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
-    require_cuda_f32_row_major(x, "row_sum(x)");
-    require_cuda_f32_row_major(out_1xC, "row_sum(out)");
+    check_cuda_row_major(x, {DType::F32}, "row_sum(x)");
+    check_cuda_row_major(out_1xC, {DType::F32}, "row_sum(out)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
@@ -285,12 +286,11 @@ public:
   }
 
   void transpose(const TensorView &x, TensorView &out) override {
-    require_cuda_f32_row_major(x, "transpose(x)");
-    require_cuda_f32_row_major(out, "transpose(out)");
-    if (x.data() == out.data()) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: transpose requires distinct input and output buffers");
-    }
+    check_cuda_row_major(x, {DType::F32}, "transpose(x)");
+    check_cuda_row_major(out, {DType::F32}, "transpose(out)");
+    checker().check(CheckKind::Contract, x.data() != out.data(),
+                    "cuda_cublas_plugin",
+                    "transpose requires distinct input and output buffers");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -299,10 +299,10 @@ public:
 
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override {
-    require_cuda_f32_row_major(x, "layernorm_forward(x)");
-    require_cuda_f32_row_major(gamma_1xC, "layernorm_forward(gamma)");
-    require_cuda_f32_row_major(beta_1xC, "layernorm_forward(beta)");
-    require_cuda_f32_row_major(out, "layernorm_forward(out)");
+    check_cuda_row_major(x, {DType::F32}, "layernorm_forward(x)");
+    check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_forward(gamma)");
+    check_cuda_row_major(beta_1xC, {DType::F32}, "layernorm_forward(beta)");
+    check_cuda_row_major(out, {DType::F32}, "layernorm_forward(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -313,12 +313,13 @@ public:
                           const TensorView &dout, TensorView &dx,
                           TensorView &dgamma_1xC,
                           TensorView &dbeta_1xC) override {
-    require_cuda_f32_row_major(x, "layernorm_backward(x)");
-    require_cuda_f32_row_major(gamma_1xC, "layernorm_backward(gamma)");
-    require_cuda_f32_row_major(dout, "layernorm_backward(dout)");
-    require_cuda_f32_row_major(dx, "layernorm_backward(dx)");
-    require_cuda_f32_row_major(dgamma_1xC, "layernorm_backward(dgamma)");
-    require_cuda_f32_row_major(dbeta_1xC, "layernorm_backward(dbeta)");
+    check_cuda_row_major(x, {DType::F32}, "layernorm_backward(x)");
+    check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_backward(gamma)");
+    check_cuda_row_major(dout, {DType::F32}, "layernorm_backward(dout)");
+    check_cuda_row_major(dx, {DType::F32}, "layernorm_backward(dx)");
+    check_cuda_row_major(dgamma_1xC, {DType::F32},
+                         "layernorm_backward(dgamma)");
+    check_cuda_row_major(dbeta_1xC, {DType::F32}, "layernorm_backward(dbeta)");
     check_cuda(cudaMemset(dgamma_1xC.data(), 0,
                           static_cast<size_t>(row_bytes(dgamma_1xC))),
                "cudaMemset(layernorm_backward(dgamma))");
@@ -333,9 +334,9 @@ public:
 
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) override {
-    require_cuda_f32_row_major(table, "embedding_lookup(table)");
-    require_cuda_row_major(ids, "embedding_lookup(ids)");
-    require_cuda_f32_row_major(out, "embedding_lookup(out)");
+    check_cuda_row_major(table, {DType::F32}, "embedding_lookup(table)");
+    check_cuda_row_major(ids, "embedding_lookup(ids)");
+    check_cuda_row_major(out, {DType::F32}, "embedding_lookup(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -345,9 +346,11 @@ public:
   void accumulate_embedding_grads(const TensorView &ids,
                                   const TensorView &d_cur,
                                   TensorView &d_tok) override {
-    require_cuda_row_major(ids, "accumulate_embedding_grads(ids)");
-    require_cuda_f32_row_major(d_cur, "accumulate_embedding_grads(d_cur)");
-    require_cuda_f32_row_major(d_tok, "accumulate_embedding_grads(d_tok)");
+    check_cuda_row_major(ids, "accumulate_embedding_grads(ids)");
+    check_cuda_row_major(d_cur, {DType::F32},
+                         "accumulate_embedding_grads(d_cur)");
+    check_cuda_row_major(d_tok, {DType::F32},
+                         "accumulate_embedding_grads(d_tok)");
     if (tensor_rows(d_cur) == 0 || tensor_cols(d_cur) == 0) {
       return;
     }
@@ -362,16 +365,19 @@ public:
   void cross_entropy_mean_backward_inplace(TensorView &logits,
                                            const TensorView &targets,
                                            TensorView &out_loss) override {
-    require_cuda_f32_row_major(logits, "cross_entropy_mean_backward_inplace(logits)");
-    require_cuda_row_major(targets, "cross_entropy_mean_backward_inplace(targets)");
-    require_cuda_f32_row_major(out_loss, "cross_entropy_mean_backward_inplace(out_loss)");
+    check_cuda_row_major(logits, {DType::F32},
+                         "cross_entropy_mean_backward_inplace(logits)");
+    check_cuda_row_major(targets,
+                         "cross_entropy_mean_backward_inplace(targets)");
+    check_cuda_row_major(out_loss, {DType::F32},
+                         "cross_entropy_mean_backward_inplace(out_loss)");
     check_cuda(cudaMemset(out_loss.data(), 0, sizeof(float)),
                "cudaMemset(cross_entropy_mean_backward_inplace(out_loss))");
     launch_cross_entropy_mean_backward_inplace(logits, targets, out_loss);
   }
 
   float read_scalar_f32(const TensorView &x) override {
-    require_cuda_f32_row_major(x, "read_scalar_f32");
+    check_cuda_row_major(x, {DType::F32}, "read_scalar_f32");
     float value = 0.0f;
     copy_device2host(&value, x.data(), sizeof(float));
     return value;
@@ -383,8 +389,8 @@ public:
   }
 
   void softmax_rows(const TensorView &x, TensorView &out) override {
-    require_cuda_f32_row_major(x, "softmax_rows(x)");
-    require_cuda_f32_row_major(out, "softmax_rows(out)");
+    check_cuda_row_major(x, {DType::F32}, "softmax_rows(x)");
+    check_cuda_row_major(out, {DType::F32}, "softmax_rows(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -393,9 +399,10 @@ public:
 
   void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
                              TensorView &dx) override {
-    require_cuda_f32_row_major(softmax, "softmax_backward_rows(softmax)");
-    require_cuda_f32_row_major(dout, "softmax_backward_rows(dout)");
-    require_cuda_f32_row_major(dx, "softmax_backward_rows(dx)");
+    check_cuda_row_major(softmax, {DType::F32},
+                         "softmax_backward_rows(softmax)");
+    check_cuda_row_major(dout, {DType::F32}, "softmax_backward_rows(dout)");
+    check_cuda_row_major(dx, {DType::F32}, "softmax_backward_rows(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
@@ -404,8 +411,9 @@ public:
 
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) override {
-    require_cuda_f32_row_major(scores, "scaled_causal_softmax_rows(scores)");
-    require_cuda_f32_row_major(out, "scaled_causal_softmax_rows(out)");
+    check_cuda_row_major(scores, {DType::F32},
+                         "scaled_causal_softmax_rows(scores)");
+    check_cuda_row_major(out, {DType::F32}, "scaled_causal_softmax_rows(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -431,14 +439,12 @@ public:
   }
 
   void finish_exec_context_iteration() override {
-    if (!in_exec_iteration_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: finish_exec_context_iteration without active iteration");
-    }
-    if (has_active_exec_group_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: finish_exec_context_iteration with active group");
-    }
+    checker().check(CheckKind::Contract, in_exec_iteration_,
+                    "cuda_cublas_plugin",
+                    "finish_exec_context_iteration without active iteration");
+    checker().check(CheckKind::Contract, !has_active_exec_group_,
+                    "cuda_cublas_plugin",
+                    "finish_exec_context_iteration with active group");
     for (size_t lane_index = 0; lane_index < used_exec_lane_count_;
          ++lane_index) {
       CudaExecutionLane &lane = exec_lanes_[lane_index];
@@ -451,17 +457,14 @@ public:
   }
 
   void start_exec_context_group() override {
-    if (!in_exec_iteration_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: start_exec_context_group without active iteration");
-    }
-    if (has_active_exec_group_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: nested exec context groups are not supported");
-    }
-    if (exec_lanes_.empty()) {
-      throw std::runtime_error("cuda_cublas_plugin: no exec context lanes");
-    }
+    checker().check(CheckKind::Contract, in_exec_iteration_,
+                    "cuda_cublas_plugin",
+                    "start_exec_context_group without active iteration");
+    checker().check(CheckKind::Capability, !has_active_exec_group_,
+                    "cuda_cublas_plugin",
+                    "nested exec context groups are not supported");
+    checker().check(CheckKind::Contract, !exec_lanes_.empty(),
+                    "cuda_cublas_plugin", "no exec context lanes");
     active_exec_lane_index_ = exec_lane_index_ % exec_lanes_.size();
     used_exec_lane_count_ =
         std::max(used_exec_lane_count_, active_exec_lane_index_ + 1);
@@ -469,10 +472,9 @@ public:
   }
 
   void finish_exec_context_group() override {
-    if (!has_active_exec_group_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: finish_exec_context_group without active group");
-    }
+    checker().check(CheckKind::Contract, has_active_exec_group_,
+                    "cuda_cublas_plugin",
+                    "finish_exec_context_group without active group");
     has_active_exec_group_ = false;
     ++exec_lane_index_;
   }
@@ -496,10 +498,10 @@ public:
 
   void scaled_causal_softmax_rows_exec_context(
       const TensorView &scores, float scale, TensorView &out) override {
-    require_cuda_f32_row_major(scores,
-                               "scaled_causal_softmax_rows_exec_context(scores)");
-    require_cuda_f32_row_major(out,
-                               "scaled_causal_softmax_rows_exec_context(out)");
+    check_cuda_row_major(scores, {DType::F32},
+                         "scaled_causal_softmax_rows_exec_context(scores)");
+    check_cuda_row_major(out, {DType::F32},
+                         "scaled_causal_softmax_rows_exec_context(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
@@ -511,12 +513,12 @@ public:
   void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
                                                  const TensorView &dout,
                                                  TensorView &dx) override {
-    require_cuda_f32_row_major(
-        softmax, "softmax_backward_causal_rows_exec_context(softmax)");
-    require_cuda_f32_row_major(
-        dout, "softmax_backward_causal_rows_exec_context(dout)");
-    require_cuda_f32_row_major(
-        dx, "softmax_backward_causal_rows_exec_context(dx)");
+    check_cuda_row_major(softmax, {DType::F32},
+                         "softmax_backward_causal_rows_exec_context(softmax)");
+    check_cuda_row_major(dout, {DType::F32},
+                         "softmax_backward_causal_rows_exec_context(dout)");
+    check_cuda_row_major(dx, {DType::F32},
+                         "softmax_backward_causal_rows_exec_context(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
@@ -528,10 +530,11 @@ public:
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
-    require_cuda_f32_row_major(softmax,
-                               "softmax_backward_causal_rows(softmax)");
-    require_cuda_f32_row_major(dout, "softmax_backward_causal_rows(dout)");
-    require_cuda_f32_row_major(dx, "softmax_backward_causal_rows(dx)");
+    check_cuda_row_major(softmax, {DType::F32},
+                         "softmax_backward_causal_rows(softmax)");
+    check_cuda_row_major(dout, {DType::F32},
+                         "softmax_backward_causal_rows(dout)");
+    check_cuda_row_major(dx, {DType::F32}, "softmax_backward_causal_rows(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
@@ -540,7 +543,7 @@ public:
 
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override {
-    require_cuda_f32_row_major(scores, "apply_causal_mask_inplace");
+    check_cuda_row_major(scores, {DType::F32}, "apply_causal_mask_inplace");
     if (tensor_rows(scores) == 0 || tensor_cols(scores) == 0) {
       return;
     }
@@ -549,7 +552,7 @@ public:
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                                 bool inverse) override {
-    require_cuda_f32_row_major(x, "rotary_embedding_inplace");
+    check_cuda_row_major(x, {DType::F32}, "rotary_embedding_inplace");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
@@ -560,31 +563,32 @@ public:
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,
                   bool apply_weight_decay) override {
-    require_cuda_f32_row_major(params, "adamw_step(params)");
-    require_cuda_f32_row_major(grads, "adamw_step(grads)");
-    require_cuda_f32_row_major(m, "adamw_step(m)");
-    require_cuda_f32_row_major(v, "adamw_step(v)");
-    if (step < 1) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step step must be >= 1");
-    }
-    if (tensor_rows(params) != tensor_rows(grads) || tensor_cols(params) != tensor_cols(grads)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step params/grads shape mismatch");
-    }
-    if (tensor_rows(params) != tensor_rows(m) || tensor_cols(params) != tensor_cols(m)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step params/m shape mismatch");
-    }
-    if (tensor_rows(params) != tensor_rows(v) || tensor_cols(params) != tensor_cols(v)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step params/v shape mismatch");
-    }
-    if (learning_rate <= 0.0f) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step learning_rate must be > 0");
-    }
-    if (!(beta1 >= 0.0f && beta1 < 1.0f)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step beta1 must be in [0,1)");
-    }
-    if (!(beta2 >= 0.0f && beta2 < 1.0f)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step beta2 must be in [0,1)");
-    }
+    check_cuda_row_major(params, {DType::F32}, "adamw_step(params)");
+    check_cuda_row_major(grads, {DType::F32}, "adamw_step(grads)");
+    check_cuda_row_major(m, {DType::F32}, "adamw_step(m)");
+    check_cuda_row_major(v, {DType::F32}, "adamw_step(v)");
+    checker().check(CheckKind::Contract, step >= 1,
+                    "cuda_cublas_plugin", "adamw_step step must be >= 1");
+    checker().check(CheckKind::Contract,
+                    tensor_rows(params) == tensor_rows(grads) &&
+                        tensor_cols(params) == tensor_cols(grads),
+                    "cuda_cublas_plugin",
+                    "adamw_step params/grads shape mismatch");
+    checker().check(CheckKind::Contract,
+                    tensor_rows(params) == tensor_rows(m) &&
+                        tensor_cols(params) == tensor_cols(m),
+                    "cuda_cublas_plugin", "adamw_step params/m shape mismatch");
+    checker().check(CheckKind::Contract,
+                    tensor_rows(params) == tensor_rows(v) &&
+                        tensor_cols(params) == tensor_cols(v),
+                    "cuda_cublas_plugin", "adamw_step params/v shape mismatch");
+    checker().check(CheckKind::Contract, learning_rate > 0.0f,
+                    "cuda_cublas_plugin",
+                    "adamw_step learning_rate must be > 0");
+    checker().check(CheckKind::Contract, beta1 >= 0.0f && beta1 < 1.0f,
+                    "cuda_cublas_plugin", "adamw_step beta1 must be in [0,1)");
+    checker().check(CheckKind::Contract, beta2 >= 0.0f && beta2 < 1.0f,
+                    "cuda_cublas_plugin", "adamw_step beta2 must be in [0,1)");
     if (tensor_rows(params) == 0 || tensor_cols(params) == 0) {
       return;
     }
@@ -594,9 +598,8 @@ public:
         1.0f - static_cast<float>(std::pow(static_cast<double>(beta1), t));
     const float b2_corr =
         1.0f - static_cast<float>(std::pow(static_cast<double>(beta2), t));
-    if (!(b1_corr > 0.0f && b2_corr > 0.0f)) {
-      throw std::runtime_error("cuda_cublas_plugin: adamw_step invalid bias correction");
-    }
+    checker().check(CheckKind::Numeric, b1_corr > 0.0f && b2_corr > 0.0f,
+                    "cuda_cublas_plugin", "adamw_step invalid bias correction");
 
     launch_adamw_step(params, grads, m, v, learning_rate, beta1, beta2,
                       weight_decay, 1.0f / b1_corr, 1.0f / b2_corr,
@@ -617,10 +620,9 @@ public:
 
 private:
   CudaExecutionLane &active_exec_lane() {
-    if (!has_active_exec_group_) {
-      throw std::runtime_error(
-          "cuda_cublas_plugin: exec context op without active group");
-    }
+    checker().check(CheckKind::Contract, has_active_exec_group_,
+                    "cuda_cublas_plugin",
+                    "exec context op without active group");
     return exec_lanes_[active_exec_lane_index_];
   }
 
@@ -699,16 +701,15 @@ private:
 } // namespace
 
 DeviceBackend *create_backend(uint32_t device) {
-  if (static_cast<Device>(device) != Device::GPU) {
-    throw std::runtime_error("cuda_cublas_plugin: only gpu device is supported");
-  }
+  checker().check(CheckKind::Capability,
+                  static_cast<Device>(device) == Device::GPU,
+                  "cuda_cublas_plugin", "only gpu device is supported");
   return new CuBlasPluginBackend();
 }
 
 DeviceBackend &backend_from_opaque(void *backend) {
-  if (backend == nullptr) {
-    throw std::runtime_error("cuda_cublas_plugin: null backend instance");
-  }
+  checker().check(CheckKind::Layout, backend != nullptr,
+                  "cuda_cublas_plugin", "null backend instance");
   return *reinterpret_cast<DeviceBackend *>(backend);
 }
 

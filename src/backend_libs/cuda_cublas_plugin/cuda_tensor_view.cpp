@@ -1,7 +1,8 @@
 #include "cuda_tensor_view.hpp"
 
+#include <litnicelm_utils/checks.hpp>
+
 #include <array>
-#include <stdexcept>
 #include <string>
 
 namespace cuda_cublas_plugin {
@@ -99,10 +100,8 @@ bool is_cuda_f32_contiguous_row_major(const TensorView &view) {
 }
 
 uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank) {
-  if (view.rank() < suffix_rank) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: suffix rank exceeds tensor rank");
-  }
+  checker().check(CheckKind::Layout, view.rank() >= suffix_rank,
+                  "cuda_cublas_plugin", "suffix rank exceeds tensor rank");
   uint64_t count = 1;
   for (size_t i = 0; i + suffix_rank < view.rank(); ++i) {
     count *= static_cast<uint64_t>(view.dim(i));
@@ -112,10 +111,8 @@ uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank) {
 
 int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
                                   size_t suffix_rank) {
-  if (view.rank() < suffix_rank) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: suffix rank exceeds tensor rank");
-  }
+  checker().check(CheckKind::Layout, view.rank() >= suffix_rank,
+                  "cuda_cublas_plugin", "suffix rank exceeds tensor rank");
   const size_t prefix_rank = view.rank() - suffix_rank;
   int64_t offset = 0;
   for (size_t axis = prefix_rank; axis-- > 0;) {
@@ -139,18 +136,30 @@ const float *prefix_matrix_ptr(const TensorView &view, uint64_t prefix) {
       base + prefix_matrix_byte_offset(view, prefix, 2));
 }
 
-void require_cuda_row_major(const TensorView &view, const char *what) {
-  if (!is_cuda_row_major(view)) {
-    throw std::runtime_error(std::string("cuda_cublas_plugin: ") + what +
-                             " requires a row-major GPU tensor");
-  }
+void check_cuda_row_major(const TensorView &view, const char *what) {
+  checker().check(CheckKind::Capability, is_cuda_row_major(view),
+                  "cuda_cublas_plugin", [&] {
+                    return std::string(what) +
+                           " requires a row-major GPU tensor";
+                  });
 }
 
-void require_cuda_f32_row_major(const TensorView &view, const char *what) {
-  if (!is_cuda_f32_row_major(view)) {
-    throw std::runtime_error(std::string("cuda_cublas_plugin: ") + what +
-                             " requires a row-major GPU f32 tensor");
+void check_cuda_row_major(const TensorView &view,
+                          std::initializer_list<DType> dtypes,
+                          const char *what) {
+  check_cuda_row_major(view, what);
+  bool supported = false;
+  for (DType dtype : dtypes) {
+    supported = supported || view.dtype() == dtype;
   }
+  checker().check(CheckKind::Capability, supported, "cuda_cublas_plugin", [&] {
+    std::string allowed;
+    for (DType dtype : dtypes) {
+      allowed += (allowed.empty() ? "" : ", ") + std::string(dtype_name(dtype));
+    }
+    return std::string(what) + " requires dtype " + allowed + ", got " +
+           dtype_name(view.dtype());
+  });
 }
 
 int leading_dim_f32(const TensorView &view) {
@@ -159,11 +168,13 @@ int leading_dim_f32(const TensorView &view) {
 
 void copy_tensor_2d(const TensorView &src, const TensorView &dst,
                     cudaMemcpyKind kind, const char *what) {
-  if (tensor_rows(src) != tensor_rows(dst) || tensor_cols(src) != tensor_cols(dst) ||
-      src.dtype() != dst.dtype()) {
-    throw std::runtime_error(std::string("cuda_cublas_plugin: ") + what +
-                             " shape or dtype mismatch");
-  }
+  checker().check(CheckKind::Contract,
+                  tensor_rows(src) == tensor_rows(dst) &&
+                      tensor_cols(src) == tensor_cols(dst) &&
+                      src.dtype() == dst.dtype(),
+                  "cuda_cublas_plugin", [&] {
+                    return std::string(what) + " shape or dtype mismatch";
+                  });
   if (tensor_rows(src) == 0 || tensor_cols(src) == 0) {
     return;
   }

@@ -1,7 +1,8 @@
 #include "cublas_gemm.hpp"
 
+#include <litnicelm_utils/checks.hpp>
+
 #include <cstdint>
-#include <stdexcept>
 
 namespace cuda_cublas_plugin {
 namespace {
@@ -167,13 +168,14 @@ bool regular_prefix_stride_f32(const TensorView &view, uint64_t prefix_count,
 
 void cublas_gemm(cublasHandle_t handle, const TensorView &a,
                  const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm(a)");
-  require_cuda_f32_row_major(b, "gemm(b)");
-  require_cuda_f32_row_major(out, "gemm(out)");
-  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm would return without cublasSgemm for zero-sized tensors");
-  }
+  check_cuda_row_major(a, {DType::F32}, "gemm(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm(out)");
+  checker().check(CheckKind::Contract,
+                  tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
+                      tensor_cols(b) != 0,
+                  "cuda_cublas_plugin",
+                  "gemm would return without cublasSgemm for zero-sized tensors");
   const GemmShape shape = matmul_tensor_shape(a, b);
   run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
            {b.f32(), leading_dim_f32(b), 0},
@@ -183,9 +185,9 @@ void cublas_gemm(cublasHandle_t handle, const TensorView &a,
 
 void cublas_gemm_ranked_matrix_rhs(cublasHandle_t handle, const TensorView &a,
                                    const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_ranked_matrix_rhs(a)");
-  require_cuda_f32_row_major(b, "gemm_ranked_matrix_rhs(b)");
-  require_cuda_f32_row_major(out, "gemm_ranked_matrix_rhs(out)");
+  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_matrix_rhs(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_matrix_rhs(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_ranked_matrix_rhs(out)");
   const GemmShape shape = matmul_ranked_matrix_rhs_shape(a, b);
   run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
            {b.f32(), shape.out_cols, 0},
@@ -196,9 +198,9 @@ void cublas_gemm_ranked_matrix_rhs(cublasHandle_t handle, const TensorView &a,
 void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
                                      const TensorView &a,
                                      const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_ranked_matrix_rhs_t(a)");
-  require_cuda_f32_row_major(b, "gemm_ranked_matrix_rhs_t(b)");
-  require_cuda_f32_row_major(out, "gemm_ranked_matrix_rhs_t(out)");
+  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_matrix_rhs_t(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_matrix_rhs_t(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_ranked_matrix_rhs_t(out)");
   const GemmShape shape = right_transposed_ranked_matrix_rhs_shape(a, b);
   run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
            {b.f32(), shape.shared_dim, 0},
@@ -209,9 +211,9 @@ void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
 void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
                                      const TensorView &a,
                                      const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_ranked_reduce_lhs_t(a)");
-  require_cuda_f32_row_major(b, "gemm_ranked_reduce_lhs_t(b)");
-  require_cuda_f32_row_major(out, "gemm_ranked_reduce_lhs_t(out)");
+  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_reduce_lhs_t(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_reduce_lhs_t(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_ranked_reduce_lhs_t(out)");
   const GemmShape shape = left_transposed_ranked_reduce_shape(a, b);
   run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
            {b.f32(), shape.out_cols, 0}, {a.f32(), shape.out_rows, 0},
@@ -221,13 +223,14 @@ void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
 
 void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                          const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_batched(a)");
-  require_cuda_f32_row_major(b, "gemm_batched(b)");
-  require_cuda_f32_row_major(out, "gemm_batched(out)");
-  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched would return without cublasSgemm for zero-sized tensors");
-  }
+  check_cuda_row_major(a, {DType::F32}, "gemm_batched(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_batched(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_batched(out)");
+  checker().check(CheckKind::Contract,
+                  tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
+                      tensor_cols(b) != 0,
+                  "cuda_cublas_plugin",
+                  "gemm_batched would return without cublasSgemm for zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = matmul_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim_f32(a);
@@ -248,10 +251,9 @@ void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                              "cublasSgemmStridedBatched(gemm_batched)");
     return;
   }
-  if (!fallback_to_prefix_loop) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched irregular ranked layout is not supported");
-  }
+  checker().check(CheckKind::Capability, fallback_to_prefix_loop,
+                  "cuda_cublas_plugin",
+                  "gemm_batched irregular ranked layout is not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
     run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
              {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
@@ -263,13 +265,14 @@ void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
 
 void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_batched_lhs_t(a)");
-  require_cuda_f32_row_major(b, "gemm_batched_lhs_t(b)");
-  require_cuda_f32_row_major(out, "gemm_batched_lhs_t(out)");
-  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_cols(b) == 0) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched_lhs_t would return without cublasSgemm for zero-sized tensors");
-  }
+  check_cuda_row_major(a, {DType::F32}, "gemm_batched_lhs_t(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_batched_lhs_t(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_batched_lhs_t(out)");
+  checker().check(CheckKind::Contract,
+                  tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
+                      tensor_cols(b) != 0,
+                  "cuda_cublas_plugin",
+                  "gemm_batched_lhs_t would return without cublasSgemm for zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim_f32(a);
@@ -290,10 +293,9 @@ void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
                              "cublasSgemmStridedBatched(gemm_batched_lhs_t)");
     return;
   }
-  if (!fallback_to_prefix_loop) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched_lhs_t irregular ranked layout is not supported");
-  }
+  checker().check(CheckKind::Capability, fallback_to_prefix_loop,
+                  "cuda_cublas_plugin",
+                  "gemm_batched_lhs_t irregular ranked layout is not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
     run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
              {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
@@ -305,13 +307,14 @@ void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
 
 void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
-  require_cuda_f32_row_major(a, "gemm_batched_rhs_t(a)");
-  require_cuda_f32_row_major(b, "gemm_batched_rhs_t(b)");
-  require_cuda_f32_row_major(out, "gemm_batched_rhs_t(out)");
-  if (tensor_rows(a) == 0 || tensor_cols(a) == 0 || tensor_rows(b) == 0) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched_rhs_t would return without cublasSgemm for zero-sized tensors");
-  }
+  check_cuda_row_major(a, {DType::F32}, "gemm_batched_rhs_t(a)");
+  check_cuda_row_major(b, {DType::F32}, "gemm_batched_rhs_t(b)");
+  check_cuda_row_major(out, {DType::F32}, "gemm_batched_rhs_t(out)");
+  checker().check(CheckKind::Contract,
+                  tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
+                      tensor_rows(b) != 0,
+                  "cuda_cublas_plugin",
+                  "gemm_batched_rhs_t would return without cublasSgemm for zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim_f32(a);
@@ -332,10 +335,9 @@ void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
                              "cublasSgemmStridedBatched(gemm_batched_rhs_t)");
     return;
   }
-  if (!fallback_to_prefix_loop) {
-    throw std::runtime_error(
-        "cuda_cublas_plugin: gemm_batched_rhs_t irregular ranked layout is not supported");
-  }
+  checker().check(CheckKind::Capability, fallback_to_prefix_loop,
+                  "cuda_cublas_plugin",
+                  "gemm_batched_rhs_t irregular ranked layout is not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
     run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
              {prefix_matrix_ptr(b, prefix), b_leading_dim, 0},
