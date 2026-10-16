@@ -40,6 +40,8 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
     __syncthreads();
   }
   const double mean = ln_bw_scratch[0] / static_cast<double>(x.cols);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   double local_var = 0.0;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
@@ -59,6 +61,8 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
   constexpr double kEps = 1e-5;
   const double inv_std =
       rsqrt(static_cast<double>(ln_bw_scratch[0] / static_cast<double>(x.cols)) + kEps);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   double local_sum_dxhat = 0.0;
   double local_sum_dxhat_xhat = 0.0;
@@ -82,6 +86,8 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
     __syncthreads();
   }
   const double sum_dxhat = ln_bw_scratch[0];
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   ln_bw_scratch[threadIdx.x] = local_sum_dxhat_xhat;
   __syncthreads();
@@ -135,6 +141,8 @@ __global__ void layernorm_forward_f32(KernelTensorView x,
     __syncthreads();
   }
   const float mean = scratch[0] / static_cast<float>(x.cols);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   float local_var = 0.0f;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {

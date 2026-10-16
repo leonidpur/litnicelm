@@ -32,6 +32,8 @@ __global__ void softmax_rows_f32(KernelTensorView x, KernelTensorView out) {
     __syncthreads();
   }
   const float row_max = scratch[0];
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   float local_sum = 0.0f;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
@@ -116,6 +118,8 @@ __global__ void scaled_causal_softmax_rows_f32(KernelTensorView scores,
     __syncthreads();
   }
   const float row_max = scratch[0];
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
 
   float local_sum = 0.0f;
   for (int64_t c = threadIdx.x; c < scores.cols; c += blockDim.x) {

@@ -49,6 +49,8 @@ __global__ void cross_entropy_mean_backward_inplace_f32(
     __syncthreads();
   }
   const float row_max = scratch[0];
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
   if (!isfinite(row_max)) {
     for (int64_t c = threadIdx.x; c < logits.cols; c += blockDim.x) {
       logits_row[c] = NAN;
