@@ -148,6 +148,23 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
   endif()
 endforeach()
 
+# Every backend op, through the plugin API, against DefaultCpuBackend.
+add_executable(litnice_backend_ops_test tests/backend_ops_test.cpp)
+target_include_directories(litnice_backend_ops_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/memory
+)
+target_link_libraries(litnice_backend_ops_test PRIVATE litnice_core)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    add_test(NAME backend_ops_${plugin}
+             COMMAND litnice_backend_ops_test $<TARGET_FILE:${plugin}>)
+  endif()
+endforeach()
+
 # Resolved-config YAML dump must load back to the same config.
 add_executable(litnice_config_yaml_test tests/config_yaml_roundtrip_test.cpp)
 target_include_directories(litnice_config_yaml_test PRIVATE
