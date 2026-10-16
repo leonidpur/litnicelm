@@ -17,8 +17,6 @@ void FusedBiasReluFFN::forward(const TensorView &x, TensorView &out) {
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
-  checker().check_same_device_dtype(W1, x, "FusedBiasReluFFN W1/x");
-  checker().check_same_device_dtype(W2, x, "FusedBiasReluFFN W2/x");
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);

@@ -65,15 +65,10 @@ inline void check_copy_compatible(const TensorView &src, const TensorView &dst,
   check_row_dense(dst, who);
 }
 
-inline void copy_tensor_cpu_to_cpu(const TensorView &src, TensorView &dst,
-                                   const char *who) {
-  check_copy_compatible(src, dst, who);
-  checker().check(CheckKind::Capability,
-                  src.device() == Device::CPU && dst.device() == Device::CPU,
-                  who, "copy_tensor_cpu_to_cpu requires CPU tensors");
-  if (src.numel() == 0) {
-    return;
-  }
+// Host-to-host copy for copy_to_cpu / copy_from_cpu, which have already
+// checked the operands (compatible, both on the CPU, not empty).
+inline void copy_rows_cpu_to_cpu(const TensorView &src, TensorView &dst,
+                                 const char *who) {
   if (src.is_contiguous() && dst.is_contiguous()) {
     std::memcpy(dst.data(), src.data(), static_cast<size_t>(src.bytes()));
     return;
@@ -98,7 +93,7 @@ inline void copy_to_cpu(DeviceBackend &backend, const TensorView &src,
     return;
   }
   if (src.device() == Device::CPU) {
-    copy_tensor_cpu_to_cpu(src, dst_cpu, who);
+    copy_rows_cpu_to_cpu(src, dst_cpu, who);
     return;
   }
 
@@ -122,7 +117,7 @@ inline void copy_from_cpu(DeviceBackend &backend, const TensorView &src_cpu,
     return;
   }
   if (dst.device() == Device::CPU) {
-    copy_tensor_cpu_to_cpu(src_cpu, dst, who);
+    copy_rows_cpu_to_cpu(src_cpu, dst, who);
     return;
   }
 

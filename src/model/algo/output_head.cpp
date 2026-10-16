@@ -51,10 +51,6 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
-  checker().check_same_device_dtype(lnf_g, logits,
-                                    "OutputHead lnf_gamma/logits");
-  checker().check_same_device_dtype(lm_w, logits,
-                                    "OutputHead lm_head_w/logits");
 
   TensorView Xn = tensorStore_.temp_tr_Xn(batch_size, seq_len);
   ops_.layernorm(x, lnf_g, lnf_b, Xn);

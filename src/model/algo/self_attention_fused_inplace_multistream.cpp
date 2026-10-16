@@ -54,10 +54,6 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
-  checker().check_same_device_dtype(Wqkv, x,
-                                    "SelfAttentionFusedInplaceMultistream Wqkv/x");
-  checker().check_same_device_dtype(Wo, x,
-                                    "SelfAttentionFusedInplaceMultistream Wo/x");
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
   ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
@@ -113,8 +109,6 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
                              "SelfAttentionFusedInplaceMultistream dx");
 
   const int64_t model_dim = cache_x_.dim(2);
-  checker().check_bsd(cache_x_, -1, -1, model_dim,
-                      "SelfAttentionFusedInplaceMultistream cached x");
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);

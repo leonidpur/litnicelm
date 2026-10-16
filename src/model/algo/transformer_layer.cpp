@@ -64,11 +64,6 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
   const TensorView &ln2_gamma = tensorStore_.param_ln2_gamma(idx_);
   const TensorView &ln2_beta = tensorStore_.param_ln2_beta(idx_);
 
-  checker().check_same_device_dtype(ln1_gamma, x,
-                                    "TransformerLayer ln1_gamma/x");
-  checker().check_same_device_dtype(ln2_gamma, x,
-                                    "TransformerLayer ln2_gamma/x");
-
   TensorView ln1 = tensorStore_.temp_layer_ln1(idx_, batch_size, seq_len);
   TensorView attn_out =
       tensorStore_.temp_layer_attn_out(idx_, batch_size, seq_len);

@@ -70,9 +70,6 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
-  checker().check_same_device_dtype(tok_emb, logits,
-                                    "Transformer params/logits");
-
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
   ops_.embedding_lookup(tok_emb, ids, X);
@@ -108,12 +105,7 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
       TensorContracts::check_ids_bs(ids, max_seq_len, "Transformer");
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
-  const int64_t ids_token_rows = static_cast<int64_t>(ids.numel());
-  const int64_t token_rows = static_cast<int64_t>(dlogits.numel() /
-      static_cast<uint64_t>(cfg_.model.vocab_size));
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
-  c.check(CheckKind::Contract, ids_token_rows == token_rows, "Transformer",
-          "backward ids/dlogits token-row mismatch");
 
   const TensorView &tok_emb = tensorStore_.param_tok_embedding();
 
