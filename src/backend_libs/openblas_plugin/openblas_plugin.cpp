@@ -139,6 +139,10 @@ public:
     cpu_backend_.copy(src, dst);
   }
 
+  void cast(const TensorView &src, TensorView &dst) override {
+    cpu_backend_.cast(src, dst);
+  }
+
   void fill(TensorView &t, float v) override { cpu_backend_.fill(t, v); }
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) override {
@@ -911,6 +915,12 @@ uint32_t plugin_precision_variants(void *backend) {
   return to_openblas_backend(backend).precision_variants();
 }
 
+void plugin_cast(void *backend, const TensorViewStruct *src,
+                 const TensorViewStruct *dst) {
+  TensorView dst_view = to_tensor_view(*dst);
+  to_openblas_backend(backend).cast(to_tensor_view(*src), dst_view);
+}
+
 const BackendApiV1 kBackendApi = {
     kBackendApiVersion,
     &plugin_create,
@@ -970,6 +980,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_read_file2device,
     &plugin_memory_info,
     &plugin_precision_variants,
+    &plugin_cast,
 };
 
 } // namespace

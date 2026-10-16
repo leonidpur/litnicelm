@@ -23,6 +23,9 @@ public:
   virtual void copy_host2device(void *dst, const void *src, uint64_t bytes) = 0;
   virtual void copy_device2host(void *dst, const void *src, uint64_t bytes) = 0;
   virtual void copy(const TensorView &src, TensorView &dst) = 0;
+  // Same shape, F32 -> BF16 or BF16 -> F32; F32 -> BF16 rounds to nearest
+  // even and keeps NaN (with its sign) and Inf, like f32_to_bf16_bits.
+  virtual void cast(const TensorView &src, TensorView &dst) = 0;
   virtual void fill(TensorView &t, float v) = 0;
   virtual void add(const TensorView &a, const TensorView &b, TensorView &out) = 0;
   virtual void add_inplace(TensorView &a, const TensorView &b) = 0;
@@ -129,6 +132,7 @@ public:
   void copy_host2device(void *dst, const void *src, uint64_t bytes) override;
   void copy_device2host(void *dst, const void *src, uint64_t bytes) override;
   void copy(const TensorView &src, TensorView &dst) override;
+  void cast(const TensorView &src, TensorView &dst) override;
   void fill(TensorView &t, float v) override;
   void add(const TensorView &a, const TensorView &b, TensorView &out) override;
   void add_inplace(TensorView &a, const TensorView &b) override;

@@ -9,6 +9,10 @@ void Ops::copy(const TensorView &src, TensorView &dst) const {
   checker().check_same_shape(src, dst, "Ops copy");
   device_backend_.copy(src, dst);
 }
+void Ops::cast(const TensorView &src, TensorView &dst) const {
+  checker().check_same_shape(src, dst, "Ops cast");
+  device_backend_.cast(src, dst);
+}
 void Ops::fill(TensorView &t, float v) const { device_backend_.fill(t, v); }
 
 void Ops::add(const TensorView &a, const TensorView &b, TensorView &out) const {

@@ -120,6 +120,26 @@ public:
     copy_tensor_2d(src, dst, cudaMemcpyDeviceToDevice, "cudaMemcpy2D(copy)");
   }
 
+  void cast(const TensorView &src, TensorView &dst) override {
+    check_cuda_row_major(src, {DType::F32, DType::BF16}, "cast(src)");
+    check_cuda_row_major(dst, {DType::F32, DType::BF16}, "cast(dst)");
+    checker().check(CheckKind::Contract,
+                    tensor_rows(src) == tensor_rows(dst) &&
+                        tensor_cols(src) == tensor_cols(dst),
+                    "cuda_cublas_plugin", "cast shape mismatch");
+    if (tensor_rows(dst) == 0 || tensor_cols(dst) == 0) {
+      return;
+    }
+    if (src.dtype() == DType::F32 && dst.dtype() == DType::BF16) {
+      launch_cast_f32_to_bf16(src, dst);
+    } else if (src.dtype() == DType::BF16 && dst.dtype() == DType::F32) {
+      launch_cast_bf16_to_f32(src, dst);
+    } else {
+      checker().check(CheckKind::Capability, false, "cuda_cublas_plugin",
+                      "cast supports F32 -> BF16 and BF16 -> F32");
+    }
+  }
+
   void fill(TensorView &t, float v) override {
     check_cuda_row_major(t, {DType::F32}, "fill");
     if (tensor_rows(t) == 0 || tensor_cols(t) == 0) {

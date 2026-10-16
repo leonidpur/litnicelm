@@ -2,6 +2,7 @@
 #include "backend_plugin_api.hpp"
 #include "backend_events.hpp"
 
+#include <litnicelm_utils/bf16.hpp>
 #include <litnicelm_utils/checks.hpp>
 #include <litnicelm_utils/log.hpp>
 
@@ -240,6 +241,10 @@ public:
 
   void copy(const TensorView &src, TensorView &dst) override {
     api_->copy(instance_, &src, &dst);
+  }
+
+  void cast(const TensorView &src, TensorView &dst) override {
+    api_->cast(instance_, &src, &dst);
   }
 
   void fill(TensorView &t, float v) override {
@@ -605,6 +610,46 @@ void DefaultCpuBackend::copy(const TensorView &src, TensorView &dst) {
   for (int64_t r = 0; r < row_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
       CpuMemOperations::store_f32(dst, r, c, CpuMemOperations::load_f32(src, r, c));
+    }
+  }
+}
+
+void DefaultCpuBackend::cast(const TensorView &src, TensorView &dst) {
+  const char *who = "DefaultCpuBackend cast";
+  checker().check_same_shape(src, dst, who);
+  const bool to_bf16 = src.dtype() == DType::F32 && dst.dtype() == DType::BF16;
+  const bool to_f32 = src.dtype() == DType::BF16 && dst.dtype() == DType::F32;
+  checker().check(CheckKind::Capability, to_bf16 || to_f32, who,
+                  "supports F32 -> BF16 and BF16 -> F32");
+  if (src.rank() == 0) {
+    return;
+  }
+  const size_t last = src.rank() - 1;
+  const uint64_t rows = CpuMemOperations::logical_prefix_count(src, 1);
+  const int64_t cols = src.dim(last);
+  const auto *src_base = static_cast<const uint8_t *>(src.data());
+  auto *dst_base = static_cast<uint8_t *>(dst.data());
+  for (uint64_t r = 0; r < rows; ++r) {
+    const uint8_t *s =
+        src_base +
+        CpuMemOperations::logical_offset_bytes_for_linear_index(src, r, last);
+    uint8_t *d =
+        dst_base +
+        CpuMemOperations::logical_offset_bytes_for_linear_index(dst, r, last);
+    for (int64_t c = 0; c < cols; ++c) {
+      const uint8_t *from = s + c * src.stride_bytes(last);
+      uint8_t *to = d + c * dst.stride_bytes(last);
+      if (to_bf16) {
+        float value;
+        std::memcpy(&value, from, sizeof(value));
+        const uint16_t bits = f32_to_bf16_bits(value);
+        std::memcpy(to, &bits, sizeof(bits));
+      } else {
+        uint16_t bits;
+        std::memcpy(&bits, from, sizeof(bits));
+        const float value = bf16_bits_to_f32(bits);
+        std::memcpy(to, &value, sizeof(value));
+      }
     }
   }
 }

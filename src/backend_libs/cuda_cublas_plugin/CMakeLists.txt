@@ -20,6 +20,7 @@ add_library(litnice_backend_cublas_plugin SHARED
     cuda_backend.cpp
     cublas_gemm.cpp
     cuda_tensor_view.cpp
+    cuda_cast_kernels.cu
     cuda_elementwise_kernels.cu
     cuda_reduction_kernels.cu
     cuda_softmax_kernels.cu

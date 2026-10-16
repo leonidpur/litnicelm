@@ -8,6 +8,8 @@ public:
   explicit Ops(DeviceBackend &device_backend);
 
   void copy(const TensorView &src, TensorView &dst) const;
+  // F32 -> BF16 or BF16 -> F32, same shape.
+  void cast(const TensorView &src, TensorView &dst) const;
   void fill(TensorView &t, float v) const;
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) const;

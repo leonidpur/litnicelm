@@ -161,9 +161,12 @@ struct BackendApiV1 {
                            uint64_t size, uint64_t file_offset);
   BackendMemoryInfo (*memory_info)(void *backend);
   uint32_t (*precision_variants)(void *backend);
+  // F32 -> BF16 (round to nearest even, NaN and Inf kept) or BF16 -> F32.
+  void (*cast)(void *backend, const TensorViewStruct *src,
+               const TensorViewStruct *dst);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 20;
+inline constexpr uint32_t kBackendApiVersion = 21;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

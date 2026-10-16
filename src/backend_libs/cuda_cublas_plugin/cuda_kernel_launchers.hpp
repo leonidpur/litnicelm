@@ -6,6 +6,11 @@
 
 namespace cuda_cublas_plugin {
 
+// F32 -> BF16 rounds to nearest even and keeps NaN (with its sign) and Inf,
+// bit-for-bit like the host's f32_to_bf16_bits; BF16 -> F32 is exact.
+void launch_cast_f32_to_bf16(const TensorView &src, TensorView &dst);
+void launch_cast_bf16_to_f32(const TensorView &src, TensorView &dst);
+
 void launch_fill(TensorView &t, float value);
 void launch_add(const TensorView &a, const TensorView &b, TensorView &out);
 void launch_add_batch_seq_plus_pos(const TensorView &a, const TensorView &b,

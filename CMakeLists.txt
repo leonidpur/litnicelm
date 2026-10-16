@@ -170,6 +170,25 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
   endif()
 endforeach()
 
+# Every F32 and BF16 bit pattern through the CUDA cast vs the host
+# conversion. Slow: excluded by `ctest -LE slow`.
+if(TARGET litnice_backend_cublas_plugin)
+  add_executable(litnice_cast_exhaustive_test tests/cast_exhaustive_test.cpp)
+  target_include_directories(litnice_cast_exhaustive_test PRIVATE
+      include
+      src/config
+      src/utils
+      src/model
+      src/model/memory
+  )
+  target_link_libraries(litnice_cast_exhaustive_test PRIVATE litnice_core)
+  add_test(NAME cast_exhaustive_litnice_backend_cublas_plugin
+           COMMAND litnice_cast_exhaustive_test
+                   $<TARGET_FILE:litnice_backend_cublas_plugin>)
+  set_tests_properties(cast_exhaustive_litnice_backend_cublas_plugin
+                       PROPERTIES LABELS slow TIMEOUT 1800)
+endif()
+
 # Resolved-config YAML dump must load back to the same config.
 add_executable(litnice_config_yaml_test tests/config_yaml_roundtrip_test.cpp)
 target_include_directories(litnice_config_yaml_test PRIVATE

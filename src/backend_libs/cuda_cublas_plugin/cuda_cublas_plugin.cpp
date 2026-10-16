@@ -396,6 +396,12 @@ uint32_t plugin_precision_variants(void *backend) {
   return backend_from_opaque(backend).precision_variants();
 }
 
+void plugin_cast(void *backend, const TensorViewStruct *src,
+                 const TensorViewStruct *dst) {
+  TensorView dst_view = to_tensor_view(*dst);
+  backend_from_opaque(backend).cast(to_tensor_view(*src), dst_view);
+}
+
 const BackendApiV1 kBackendApi = {
     kBackendApiVersion,
     &plugin_create,
@@ -455,6 +461,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_read_file2device,
     &plugin_memory_info,
     &plugin_precision_variants,
+    &plugin_cast,
 };
 
 } // namespace

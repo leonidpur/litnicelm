@@ -13,6 +13,7 @@
 #include "tensor.hpp"
 
 #include <config.hpp>
+#include <litnicelm_utils/bf16.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -36,7 +37,8 @@ std::string sci(double v) {
   return oss.str();
 }
 
-// A tensor's host values: F32 values, or I32 ids stored as floats.
+// A tensor's host values: F32 values, BF16 values (exactly representable),
+// or I32 ids, all held as floats.
 struct HostTensor {
   DType dtype;
   Shape shape;
@@ -52,6 +54,34 @@ HostTensor random_f32(Shape shape, uint32_t seed, float lo = -1.0f,
     v = dist(rng);
   }
   return t;
+}
+
+// Random values that BF16 represents exactly.
+HostTensor random_bf16(Shape shape, uint32_t seed, float lo = -1.0f,
+                       float hi = 1.0f) {
+  HostTensor t = random_f32(shape, seed, lo, hi);
+  t.dtype = DType::BF16;
+  for (float &v : t.values) {
+    v = round_to_bf16(v);
+  }
+  return t;
+}
+
+float from_bits(uint32_t bits) {
+  float value;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+// F32 values that exercise F32 -> BF16 rounding: NaNs (also with payload
+// only in the low bits), infinities, overflow, ties, subnormals, zeros.
+std::vector<float> cast_special_values() {
+  return {from_bits(0x7FC00000), from_bits(0xFFC00000), from_bits(0x7F800001),
+          from_bits(0xFF80FFFF), from_bits(0x7F800000), from_bits(0xFF800000),
+          from_bits(0x7F7FFFFF), from_bits(0x7F7F0000), from_bits(0x3F808000),
+          from_bits(0x3F818000), from_bits(0x3F808001), from_bits(0x3F807FFF),
+          from_bits(0x00000001), from_bits(0x00010000), from_bits(0x807FFFFF),
+          0.0f, -0.0f};
 }
 
 HostTensor random_ids(Shape shape, int64_t limit, uint32_t seed) {
@@ -76,6 +106,9 @@ public:
       if (dtype_ == DType::I32) {
         const int32_t v = static_cast<int32_t>(host.values[i]);
         std::memcpy(raw.data() + i * sizeof(int32_t), &v, sizeof(v));
+      } else if (dtype_ == DType::BF16) {
+        const uint16_t v = f32_to_bf16_bits(host.values[i]);
+        std::memcpy(raw.data() + i * sizeof(uint16_t), &v, sizeof(v));
       } else {
         std::memcpy(raw.data() + i * sizeof(float), &host.values[i],
                     sizeof(float));
@@ -90,8 +123,17 @@ public:
   TensorView view() const {
     return TensorView(backend_.device(), dtype_, data_, shape_);
   }
+  // Values as floats; I32 tensors are not downloaded by any case.
   std::vector<float> download() const {
     std::vector<float> out(shape_.numel());
+    if (dtype_ == DType::BF16) {
+      std::vector<uint16_t> bits(shape_.numel());
+      backend_.copy_device2host(bits.data(), data_, bytes_);
+      for (size_t i = 0; i < bits.size(); ++i) {
+        out[i] = bf16_bits_to_f32(bits[i]);
+      }
+      return out;
+    }
     backend_.copy_device2host(out.data(), data_, bytes_);
     return out;
   }
@@ -143,8 +185,20 @@ Result execute(DeviceBackend &backend, const OpCase &op, bool reference) {
   return result;
 }
 
+// NaN matches only NaN of the same sign; Inf only the same Inf.
 bool close(double got, double ref, const OpCase &op) {
+  if (std::isnan(ref) || std::isnan(got)) {
+    return std::isnan(ref) && std::isnan(got) &&
+           std::signbit(ref) == std::signbit(got);
+  }
+  if (std::isinf(ref) || std::isinf(got)) {
+    return got == ref;
+  }
   return std::fabs(got - ref) <= op.abs_tol + op.rel_tol * std::fabs(ref);
+}
+
+double abs_diff(double got, double ref) {
+  return std::isfinite(got) && std::isfinite(ref) ? std::fabs(got - ref) : 0.0;
 }
 
 void compare(DeviceBackend &reference, DeviceBackend &plugin, const OpCase &op) {
@@ -164,12 +218,12 @@ void compare(DeviceBackend &reference, DeviceBackend &plugin, const OpCase &op) 
     for (size_t i = 0; i < want.outputs[o].size(); ++i) {
       const double r = want.outputs[o][i];
       const double g = got.outputs[o][i];
-      worst = std::max(worst, std::fabs(g - r));
+      worst = std::max(worst, abs_diff(g, r));
       ok = ok && close(g, r, op);
     }
   }
   for (size_t s = 0; s < want.scalars.size(); ++s) {
-    worst = std::max(worst, std::fabs(got.scalars[s] - want.scalars[s]));
+    worst = std::max(worst, abs_diff(got.scalars[s], want.scalars[s]));
     ok = ok && close(got.scalars[s], want.scalars[s], op);
   }
   std::cout << (ok ? "[PASS] " : "[FAIL] ") << op.name << " (max abs diff "
@@ -195,6 +249,30 @@ std::vector<OpCase> op_cases() {
   cases.push_back({"copy", {random_f32(mat, 1), random_f32(mat, 2)},
                    [](DeviceBackend &b, Views &v) { b.copy(v[0], v[1]); return Scalars{}; },
                    {1}, 0.0, 0.0});
+  {
+    HostTensor src = random_f32(mat, 120, -100.0f, 100.0f);
+    const std::vector<float> special = cast_special_values();
+    std::copy(special.begin(), special.end(), src.values.begin());
+    cases.push_back({"cast F32 -> BF16 (NaN, Inf, ties, subnormals)",
+                     {src, random_bf16(mat, 121)},
+                     [](DeviceBackend &b, Views &v) { b.cast(v[0], v[1]); return Scalars{}; },
+                     {1}, 0.0, 0.0});
+    HostTensor bf = random_bf16(mat, 122, -100.0f, 100.0f);
+    for (size_t i = 0; i < special.size(); ++i) {
+      bf.values[i] = round_to_bf16(special[i]);
+    }
+    cases.push_back({"cast BF16 -> F32", {bf, random_f32(mat, 123)},
+                     [](DeviceBackend &b, Views &v) { b.cast(v[0], v[1]); return Scalars{}; },
+                     {1}, 0.0, 0.0});
+    cases.push_back({"cast F32 -> BF16 on column slices (strided rows)",
+                     {random_f32(Shape{3, 17, 120}, 124), random_bf16(Shape{3, 17, 120}, 125)},
+                     [](DeviceBackend &b, Views &v) {
+                       TensorView out = v[1].subcols(40, 40);
+                       b.cast(v[0].subcols(80, 40), out);
+                       return Scalars{};
+                     },
+                     {1}, 0.0, 0.0});
+  }
   cases.push_back({"fill", {random_f32(mat, 3)},
                    [](DeviceBackend &b, Views &v) { b.fill(v[0], 0.375f); return Scalars{}; },
                    {0}, 0.0, 0.0});
