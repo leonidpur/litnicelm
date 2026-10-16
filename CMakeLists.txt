@@ -148,6 +148,11 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
   endif()
 endforeach()
 
+# Host F32 <-> BF16 conversion.
+add_executable(litnicelm_bf16_test tests/bf16_test.cpp)
+target_link_libraries(litnicelm_bf16_test PRIVATE litnicelm_utils)
+add_test(NAME bf16 COMMAND litnicelm_bf16_test)
+
 # Every backend op, through the plugin API, against DefaultCpuBackend.
 add_executable(litnice_backend_ops_test tests/backend_ops_test.cpp)
 target_include_directories(litnice_backend_ops_test PRIVATE
