@@ -392,6 +392,10 @@ BackendMemoryInfo plugin_memory_info(void *backend) {
                            info.total_bytes};
 }
 
+uint32_t plugin_precision_variants(void *backend) {
+  return backend_from_opaque(backend).precision_variants();
+}
+
 const BackendApiV1 kBackendApi = {
     kBackendApiVersion,
     &plugin_create,
@@ -450,6 +454,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_is_file2device_read_supported,
     &plugin_read_file2device,
     &plugin_memory_info,
+    &plugin_precision_variants,
 };
 
 } // namespace

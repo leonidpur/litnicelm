@@ -226,6 +226,10 @@ public:
                             info.total_bytes};
   }
 
+  uint32_t precision_variants() const override {
+    return api_->precision_variants(instance_);
+  }
+
   void copy_host2device(void *dst, const void *src, uint64_t bytes) override {
     api_->copy_host2device(instance_, dst, src, bytes);
   }
@@ -562,6 +566,10 @@ void DefaultCpuBackend::free(void *ptr) {
 }
 
 DeviceMemoryInfo DefaultCpuBackend::memory_info() const { return {}; }
+
+uint32_t DefaultCpuBackend::precision_variants() const {
+  return kPrecisionVariantF32;
+}
 
 void DefaultCpuBackend::copy_host2device(void *dst, const void *src, uint64_t bytes) {
   if (bytes == 0) {

@@ -12,6 +12,13 @@ struct BackendMemoryInfo {
   uint64_t total_bytes;
 };
 
+// Kernel variants a backend implements, as bits of
+// BackendApiV1::precision_variants.
+inline constexpr uint32_t kPrecisionVariantF32 = 1u << 0;  // <op>_f32: every tensor FP32
+// <op>_bf16act: activations and activation gradients BF16; parameters, their
+// gradients and optimizer state FP32.
+inline constexpr uint32_t kPrecisionVariantBf16Act = 1u << 1;
+
 struct BackendApiV1 {
   uint32_t abi_version;
   void *(*create)(uint32_t device);
@@ -153,9 +160,10 @@ struct BackendApiV1 {
   void (*read_file2device)(void *backend, const char *path, void *dst,
                            uint64_t size, uint64_t file_offset);
   BackendMemoryInfo (*memory_info)(void *backend);
+  uint32_t (*precision_variants)(void *backend);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 19;
+inline constexpr uint32_t kBackendApiVersion = 20;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

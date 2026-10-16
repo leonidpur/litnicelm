@@ -10,7 +10,8 @@ InferenceMemoryManager::InferenceMemoryManager(
     DeviceBackend &backend)
     : cfg_(cfg),
       backend_(backend),
-      precision_(PrecisionPolicy::from_config(cfg)),
+      precision_(PrecisionPolicy::from_config(
+          cfg, backend.precision_variants())),
       param_layout_(NamedLayout::build_param_layout(
           cfg, algo, precision_.dtype(TensorRole::Parameter))),
       temp_layout_(NamedLayout::build_inference_temp_layout(

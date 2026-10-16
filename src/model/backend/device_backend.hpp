@@ -18,6 +18,8 @@ public:
   virtual void *alloc(uint64_t bytes, uint32_t alignment) = 0;
   virtual void free(void *ptr) = 0;
   virtual DeviceMemoryInfo memory_info() const = 0;
+  // The kPrecisionVariant* bits of the kernel variants this backend has.
+  virtual uint32_t precision_variants() const = 0;
   virtual void copy_host2device(void *dst, const void *src, uint64_t bytes) = 0;
   virtual void copy_device2host(void *dst, const void *src, uint64_t bytes) = 0;
   virtual void copy(const TensorView &src, TensorView &dst) = 0;
@@ -123,6 +125,7 @@ public:
   void *alloc(uint64_t bytes, uint32_t alignment) override;
   void free(void *ptr) override;
   DeviceMemoryInfo memory_info() const override;
+  uint32_t precision_variants() const override;
   void copy_host2device(void *dst, const void *src, uint64_t bytes) override;
   void copy_device2host(void *dst, const void *src, uint64_t bytes) override;
   void copy(const TensorView &src, TensorView &dst) override;

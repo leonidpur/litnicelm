@@ -1,8 +1,10 @@
 #pragma once
 
+#include "backend/backend_plugin_api.hpp"
 #include "tensor.hpp"
 
 #include <config.hpp>
+#include <litnicelm_utils/checks.hpp>
 
 #include <array>
 #include <cstddef>
@@ -18,11 +20,17 @@ enum class TensorRole : uint8_t {
 };
 
 // The single place that decides which dtype each tensor role uses; layouts
-// and stores take their dtypes from here. Currently FP32 for every role.
+// and stores take their dtypes from here. Currently FP32 for every role,
+// which runs the backend's _f32 kernels.
 class PrecisionPolicy {
 public:
-  static PrecisionPolicy from_config(const Config &cfg) {
+  // backend_variants: the backend's kPrecisionVariant* bits.
+  static PrecisionPolicy from_config(const Config &cfg,
+                                     uint32_t backend_variants) {
     (void)cfg;
+    checker().check(CheckKind::Capability,
+                    (backend_variants & kPrecisionVariantF32) != 0,
+                    "PrecisionPolicy", "backend has no FP32 (_f32) kernels");
     PrecisionPolicy policy;
     policy.by_role_.fill(DType::F32);
     return policy;

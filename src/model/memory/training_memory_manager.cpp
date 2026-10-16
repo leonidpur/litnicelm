@@ -11,7 +11,8 @@ TrainingMemoryManager::TrainingMemoryManager(
                                              TrainingSessionController &session_controller)
     : cfg_(cfg),
       backend_(backend),
-      precision_(PrecisionPolicy::from_config(cfg)),
+      precision_(PrecisionPolicy::from_config(
+          cfg, backend.precision_variants())),
       param_layout_(NamedLayout::build_param_layout(
           cfg, algo, precision_.dtype(TensorRole::Parameter))),
       grad_layout_(NamedLayout::build_param_layout(
