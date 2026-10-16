@@ -40,8 +40,9 @@ bool is_cuda_f32_contiguous_row_major(const TensorView &view);
 uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank);
 int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
                                   size_t suffix_rank);
-float *prefix_matrix_ptr(TensorView &view, uint64_t prefix);
-const float *prefix_matrix_ptr(const TensorView &view, uint64_t prefix);
+// Address of the prefix-th matrix (last two dims) of view.
+void *prefix_matrix_ptr(TensorView &view, uint64_t prefix);
+const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix);
 // Capability: a GPU tensor with storage whose rows hold contiguous elements
 // (rank >= 2). what names the operand, e.g. "gemm(a)".
 void check_cuda_row_major(const TensorView &view, const char *what);
@@ -49,7 +50,8 @@ void check_cuda_row_major(const TensorView &view, const char *what);
 void check_cuda_row_major(const TensorView &view,
                           std::initializer_list<DType> dtypes,
                           const char *what);
-int leading_dim_f32(const TensorView &view);
+// Row stride in elements of the view's dtype.
+int leading_dim(const TensorView &view);
 void copy_tensor_2d(const TensorView &src, const TensorView &dst,
                     cudaMemcpyKind kind, const char *what);
 

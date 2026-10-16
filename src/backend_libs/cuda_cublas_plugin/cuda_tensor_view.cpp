@@ -124,16 +124,14 @@ int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
   return offset;
 }
 
-float *prefix_matrix_ptr(TensorView &view, uint64_t prefix) {
-  auto *base = reinterpret_cast<uint8_t *>(view.data());
-  return reinterpret_cast<float *>(
-      base + prefix_matrix_byte_offset(view, prefix, 2));
+void *prefix_matrix_ptr(TensorView &view, uint64_t prefix) {
+  return static_cast<uint8_t *>(view.data()) +
+         prefix_matrix_byte_offset(view, prefix, 2);
 }
 
-const float *prefix_matrix_ptr(const TensorView &view, uint64_t prefix) {
-  auto *base = reinterpret_cast<const uint8_t *>(view.data());
-  return reinterpret_cast<const float *>(
-      base + prefix_matrix_byte_offset(view, prefix, 2));
+const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix) {
+  return static_cast<const uint8_t *>(view.data()) +
+         prefix_matrix_byte_offset(view, prefix, 2);
 }
 
 void check_cuda_row_major(const TensorView &view, const char *what) {
@@ -162,8 +160,9 @@ void check_cuda_row_major(const TensorView &view,
   });
 }
 
-int leading_dim_f32(const TensorView &view) {
-  return static_cast<int>(view.stride_bytes(view.rank() - 2) / sizeof(float));
+int leading_dim(const TensorView &view) {
+  return static_cast<int>(view.stride_bytes(view.rank() - 2) /
+                          static_cast<int64_t>(dtype_size(view.dtype())));
 }
 
 void copy_tensor_2d(const TensorView &src, const TensorView &dst,
