@@ -15,6 +15,7 @@
 //
 // Usage: litnice_backend_ops_test <path to backend plugin .so> [--bf16act]
 
+#include "backend/backend_plugin_api.hpp"
 #include "backend/device_backend.hpp"
 #include "tensor.hpp"
 
@@ -723,6 +724,14 @@ int main(int argc, char **argv) {
     std::cout << "[SKIP] exec-context ops (not supported by this backend)\n";
   }
   if (bf16act) {
+    // The variants compared below are what the plugin reports.
+    const bool reported =
+        (plugin->precision_variants() & kPrecisionVariantBf16Act) != 0;
+    std::cout << (reported ? "[PASS] " : "[FAIL] ")
+              << "plugin reports the _bf16act variant\n";
+    if (!reported) {
+      ++g_failures;
+    }
     std::vector<OpCase> cases = op_cases();
     if (plugin->supports_exec_context_iteration()) {
       for (OpCase &op : exec_context_cases()) {

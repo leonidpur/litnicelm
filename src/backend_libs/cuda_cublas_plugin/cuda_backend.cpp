@@ -100,8 +100,11 @@ public:
                             static_cast<uint64_t>(total_bytes)};
   }
 
-  // _bf16act joins when its kernels exist.
-  uint32_t precision_variants() const override { return kPrecisionVariantF32; }
+  // Every op that takes activations has an <op>_bf16act kernel (the op
+  // test's --bf16act run covers each one).
+  uint32_t precision_variants() const override {
+    return kPrecisionVariantF32 | kPrecisionVariantBf16Act;
+  }
 
   void copy_host2device(void *dst, const void *src, uint64_t bytes) override {
     if (bytes == 0) {
