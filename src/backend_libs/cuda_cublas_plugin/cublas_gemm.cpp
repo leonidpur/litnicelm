@@ -3,6 +3,7 @@
 #include <litnicelm_utils/checks.hpp>
 
 #include <cstdint>
+#include <string>
 
 namespace cuda_cublas_plugin {
 namespace {
@@ -21,46 +22,61 @@ struct GemmStrides {
   long long int out;
 };
 
-// A matrix as cuBLAS sees it: data, row stride and batch stride in
-// elements.
+// A matrix as cuBLAS sees it: data, element type, row stride and batch
+// stride in elements.
 struct CublasInputMatrix {
   const void *data;
+  cudaDataType_t type;
   int leading_dim;
   long long int stride;
 };
 
 struct CublasOutputMatrix {
   void *data;
+  cudaDataType_t type;
   int leading_dim;
   long long int stride;
 };
 
+// The cuBLAS element type of a view: F32 or BF16.
+cudaDataType_t cuda_data_type(const TensorView &view) {
+  checker().check(CheckKind::Capability,
+                  view.dtype() == DType::F32 || view.dtype() == DType::BF16,
+                  "cuda_cublas_plugin", [&] {
+                    return std::string("GEMM does not take dtype ") +
+                           dtype_name(view.dtype());
+                  });
+  return view.dtype() == DType::BF16 ? CUDA_R_16BF : CUDA_R_32F;
+}
+
 // The whole view as one matrix with the given row stride in elements.
 CublasInputMatrix input_matrix(const TensorView &view, int leading_dim) {
-  return {view.data(), leading_dim, 0};
+  return {view.data(), cuda_data_type(view), leading_dim, 0};
 }
 
 CublasOutputMatrix output_matrix(TensorView &view, int leading_dim) {
-  return {view.data(), leading_dim, 0};
+  return {view.data(), cuda_data_type(view), leading_dim, 0};
 }
 
 // The prefix-th matrix of view; batches are stride elements apart.
 CublasInputMatrix input_matrix(const TensorView &view, uint64_t prefix,
                                int leading_dim, long long int stride) {
-  return {prefix_matrix_ptr(view, prefix), leading_dim, stride};
+  return {prefix_matrix_ptr(view, prefix), cuda_data_type(view), leading_dim,
+          stride};
 }
 
 CublasOutputMatrix output_matrix(TensorView &view, uint64_t prefix,
                                  int leading_dim, long long int stride) {
-  return {prefix_matrix_ptr(view, prefix), leading_dim, stride};
+  return {prefix_matrix_ptr(view, prefix), cuda_data_type(view), leading_dim,
+          stride};
 }
 
 // The _f32 GEMM: FP32 matrices, FP32 math (the handles use
 // CUBLAS_DEFAULT_MATH, so no TF32).
-void run_gemm(cublasHandle_t handle, cublasOperation_t op_a,
-              cublasOperation_t op_b, const GemmShape &shape,
-              const CublasInputMatrix &a, const CublasInputMatrix &b,
-              const CublasOutputMatrix &out, const char *what) {
+void run_gemm_f32(cublasHandle_t handle, cublasOperation_t op_a,
+                  cublasOperation_t op_b, const GemmShape &shape,
+                  const CublasInputMatrix &a, const CublasInputMatrix &b,
+                  const CublasOutputMatrix &out, const char *what) {
   const float alpha = 1.0f;
   const float beta = 0.0f;
   check_cublas(cublasSgemm(handle, op_a, op_b, shape.out_cols, shape.out_rows,
@@ -72,12 +88,14 @@ void run_gemm(cublasHandle_t handle, cublasOperation_t op_a,
                what);
 }
 
-void run_strided_batched_gemm(cublasHandle_t handle, cublasOperation_t op_a,
-                              cublasOperation_t op_b, const GemmShape &shape,
-                              const CublasInputMatrix &a,
-                              const CublasInputMatrix &b,
-                              const CublasOutputMatrix &out, int batch_count,
-                              const char *what) {
+void run_strided_batched_gemm_f32(cublasHandle_t handle,
+                                  cublasOperation_t op_a,
+                                  cublasOperation_t op_b,
+                                  const GemmShape &shape,
+                                  const CublasInputMatrix &a,
+                                  const CublasInputMatrix &b,
+                                  const CublasOutputMatrix &out,
+                                  int batch_count, const char *what) {
   const float alpha = 1.0f;
   const float beta = 0.0f;
   check_cublas(cublasSgemmStridedBatched(
@@ -88,6 +106,65 @@ void run_strided_batched_gemm(cublasHandle_t handle, cublasOperation_t op_a,
                    &beta, static_cast<float *>(out.data), out.leading_dim,
                    out.stride, batch_count),
                what);
+}
+
+// The _bf16act GEMM: BF16 inputs (activations and the BF16 weight copy),
+// FP32 accumulation, BF16 output or F32 for weight gradients; tensor cores
+// via cublasGemmEx.
+void run_gemm_bf16act(cublasHandle_t handle, cublasOperation_t op_a,
+                      cublasOperation_t op_b, const GemmShape &shape,
+                      const CublasInputMatrix &a, const CublasInputMatrix &b,
+                      const CublasOutputMatrix &out, const char *what) {
+  const float alpha = 1.0f;
+  const float beta = 0.0f;
+  check_cublas(cublasGemmEx(handle, op_a, op_b, shape.out_cols, shape.out_rows,
+                            shape.shared_dim, &alpha, a.data, a.type,
+                            a.leading_dim, b.data, b.type, b.leading_dim,
+                            &beta, out.data, out.type, out.leading_dim,
+                            CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT),
+               what);
+}
+
+void run_strided_batched_gemm_bf16act(cublasHandle_t handle,
+                                      cublasOperation_t op_a,
+                                      cublasOperation_t op_b,
+                                      const GemmShape &shape,
+                                      const CublasInputMatrix &a,
+                                      const CublasInputMatrix &b,
+                                      const CublasOutputMatrix &out,
+                                      int batch_count, const char *what) {
+  const float alpha = 1.0f;
+  const float beta = 0.0f;
+  check_cublas(cublasGemmStridedBatchedEx(
+                   handle, op_a, op_b, shape.out_cols, shape.out_rows,
+                   shape.shared_dim, &alpha, a.data, a.type, a.leading_dim,
+                   a.stride, b.data, b.type, b.leading_dim, b.stride, &beta,
+                   out.data, out.type, out.leading_dim, out.stride,
+                   batch_count, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT),
+               what);
+}
+
+void run_gemm(Variant variant, cublasHandle_t handle, cublasOperation_t op_a,
+              cublasOperation_t op_b, const GemmShape &shape,
+              const CublasInputMatrix &a, const CublasInputMatrix &b,
+              const CublasOutputMatrix &out, const char *what) {
+  variant == Variant::Bf16Act
+      ? run_gemm_bf16act(handle, op_a, op_b, shape, a, b, out, what)
+      : run_gemm_f32(handle, op_a, op_b, shape, a, b, out, what);
+}
+
+void run_strided_batched_gemm(Variant variant, cublasHandle_t handle,
+                              cublasOperation_t op_a, cublasOperation_t op_b,
+                              const GemmShape &shape,
+                              const CublasInputMatrix &a,
+                              const CublasInputMatrix &b,
+                              const CublasOutputMatrix &out, int batch_count,
+                              const char *what) {
+  variant == Variant::Bf16Act
+      ? run_strided_batched_gemm_bf16act(handle, op_a, op_b, shape, a, b, out,
+                                         batch_count, what)
+      : run_strided_batched_gemm_f32(handle, op_a, op_b, shape, a, b, out,
+                                     batch_count, what);
 }
 
 GemmShape matmul_ranked_matrix_rhs_shape(const TensorView &a,
@@ -206,61 +283,79 @@ void cublas_gemm(cublasHandle_t handle, const TensorView &a,
                   tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
                       tensor_cols(b) != 0,
                   "cuda_cublas_plugin",
-                  "gemm would return without cublasSgemm for zero-sized tensors");
+                  "gemm would run no GEMM for "
+                  "zero-sized tensors");
   const GemmShape shape = matmul_tensor_shape(a, b);
-  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+  run_gemm(Variant::F32, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
            input_matrix(b, leading_dim(b)), input_matrix(a, leading_dim(a)),
-           output_matrix(out, leading_dim(out)), "cublasSgemm(gemm)");
+           output_matrix(out, leading_dim(out)), "GEMM (gemm)");
 }
 
 void cublas_gemm_ranked_matrix_rhs(cublasHandle_t handle, const TensorView &a,
                                    const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_matrix_rhs(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_matrix_rhs(b)");
-  check_cuda_row_major(out, {DType::F32}, "gemm_ranked_matrix_rhs(out)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_ranked_matrix_rhs(a)");
+  check_cuda_row_major(b, {act}, "gemm_ranked_matrix_rhs(b)");
+  check_cuda_row_major(out, {act}, "gemm_ranked_matrix_rhs(out)");
   const GemmShape shape = matmul_ranked_matrix_rhs_shape(a, b);
-  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+  run_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
            input_matrix(b, shape.out_cols), input_matrix(a, shape.shared_dim),
            output_matrix(out, shape.out_cols),
-           "cublasSgemm(gemm_ranked_matrix_rhs)");
+           "GEMM (gemm_ranked_matrix_rhs)");
 }
 
 void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
                                      const TensorView &a,
                                      const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_matrix_rhs_t(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_matrix_rhs_t(b)");
-  check_cuda_row_major(out, {DType::F32}, "gemm_ranked_matrix_rhs_t(out)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_ranked_matrix_rhs_t(a)");
+  check_cuda_row_major(b, {act}, "gemm_ranked_matrix_rhs_t(b)");
+  check_cuda_row_major(out, {act}, "gemm_ranked_matrix_rhs_t(out)");
   const GemmShape shape = right_transposed_ranked_matrix_rhs_shape(a, b);
-  run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+  run_gemm(variant, handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
            input_matrix(b, shape.shared_dim), input_matrix(a, shape.shared_dim),
            output_matrix(out, shape.out_cols),
-           "cublasSgemm(gemm_ranked_matrix_rhs_t)");
+           "GEMM (gemm_ranked_matrix_rhs_t)");
 }
 
 void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
                                      const TensorView &a,
                                      const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_ranked_reduce_lhs_t(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_ranked_reduce_lhs_t(b)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_ranked_reduce_lhs_t(a)");
+  check_cuda_row_major(b, {act}, "gemm_ranked_reduce_lhs_t(b)");
   check_cuda_row_major(out, {DType::F32}, "gemm_ranked_reduce_lhs_t(out)");
   const GemmShape shape = left_transposed_ranked_reduce_shape(a, b);
-  run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+  run_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
            input_matrix(b, shape.out_cols), input_matrix(a, shape.out_rows),
            output_matrix(out, shape.out_cols),
-           "cublasSgemm(gemm_ranked_reduce_lhs_t)");
+           "GEMM (gemm_ranked_reduce_lhs_t)");
 }
 
 void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                          const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_batched(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_batched(b)");
-  check_cuda_row_major(out, {DType::F32}, "gemm_batched(out)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_batched(a)");
+  check_cuda_row_major(b, {act}, "gemm_batched(b)");
+  check_cuda_row_major(out, {act}, "gemm_batched(out)");
   checker().check(CheckKind::Contract,
                   tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
                       tensor_cols(b) != 0,
                   "cuda_cublas_plugin",
-                  "gemm_batched would return without cublasSgemm for zero-sized tensors");
+                  "gemm_batched would run no GEMM for "
+                  "zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = matmul_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
@@ -272,36 +367,42 @@ void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
   if (regular_prefix_stride(a, prefix_count, stride_a) &&
       regular_prefix_stride(b, prefix_count, stride_b) &&
       regular_prefix_stride(out, prefix_count, stride_out)) {
-    run_strided_batched_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+    run_strided_batched_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
                              input_matrix(b, 0, b_leading_dim, stride_b),
                              input_matrix(a, 0, a_leading_dim, stride_a),
                              output_matrix(out, 0, out_leading_dim, stride_out),
                              static_cast<int>(prefix_count),
-                             "cublasSgemmStridedBatched(gemm_batched)");
+                             "GEMM (gemm_batched)");
     return;
   }
   checker().check(CheckKind::Capability, fallback_to_prefix_loop,
                   "cuda_cublas_plugin",
-                  "gemm_batched irregular ranked layout is not supported");
+                  "gemm_batched irregular ranked layout is "
+                  "not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+    run_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
              input_matrix(b, prefix, b_leading_dim, 0),
              input_matrix(a, prefix, a_leading_dim, 0),
              output_matrix(out, prefix, out_leading_dim, 0),
-             "cublasSgemm(gemm_batched prefix)");
+             "GEMM (gemm_batched prefix)");
   }
 }
 
 void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_batched_lhs_t(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_batched_lhs_t(b)");
-  check_cuda_row_major(out, {DType::F32}, "gemm_batched_lhs_t(out)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_batched_lhs_t(a)");
+  check_cuda_row_major(b, {act}, "gemm_batched_lhs_t(b)");
+  check_cuda_row_major(out, {act}, "gemm_batched_lhs_t(out)");
   checker().check(CheckKind::Contract,
                   tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
                       tensor_cols(b) != 0,
                   "cuda_cublas_plugin",
-                  "gemm_batched_lhs_t would return without cublasSgemm for zero-sized tensors");
+                  "gemm_batched_lhs_t would run no GEMM for "
+                  "zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
@@ -313,36 +414,42 @@ void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
   if (regular_prefix_stride(a, prefix_count, stride_a) &&
       regular_prefix_stride(b, prefix_count, stride_b) &&
       regular_prefix_stride(out, prefix_count, stride_out)) {
-    run_strided_batched_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+    run_strided_batched_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
                              input_matrix(b, 0, b_leading_dim, stride_b),
                              input_matrix(a, 0, a_leading_dim, stride_a),
                              output_matrix(out, 0, out_leading_dim, stride_out),
                              static_cast<int>(prefix_count),
-                             "cublasSgemmStridedBatched(gemm_batched_lhs_t)");
+                             "GEMM (gemm_batched_lhs_t)");
     return;
   }
   checker().check(CheckKind::Capability, fallback_to_prefix_loop,
                   "cuda_cublas_plugin",
-                  "gemm_batched_lhs_t irregular ranked layout is not supported");
+                  "gemm_batched_lhs_t irregular ranked layout is "
+                  "not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    run_gemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
+    run_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
              input_matrix(b, prefix, b_leading_dim, 0),
              input_matrix(a, prefix, a_leading_dim, 0),
              output_matrix(out, prefix, out_leading_dim, 0),
-             "cublasSgemm(gemm_batched_lhs_t prefix)");
+             "GEMM (gemm_batched_lhs_t prefix)");
   }
 }
 
 void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
-  check_cuda_row_major(a, {DType::F32}, "gemm_batched_rhs_t(a)");
-  check_cuda_row_major(b, {DType::F32}, "gemm_batched_rhs_t(b)");
-  check_cuda_row_major(out, {DType::F32}, "gemm_batched_rhs_t(out)");
+  // The variant follows the activation operand a; b is an activation or,
+  // in _bf16act, the BF16 weight copy.
+  const Variant variant = variant_of(a);
+  const DType act = activation_dtype(variant);
+  check_cuda_row_major(a, {act}, "gemm_batched_rhs_t(a)");
+  check_cuda_row_major(b, {act}, "gemm_batched_rhs_t(b)");
+  check_cuda_row_major(out, {act}, "gemm_batched_rhs_t(out)");
   checker().check(CheckKind::Contract,
                   tensor_rows(a) != 0 && tensor_cols(a) != 0 &&
                       tensor_rows(b) != 0,
                   "cuda_cublas_plugin",
-                  "gemm_batched_rhs_t would return without cublasSgemm for zero-sized tensors");
+                  "gemm_batched_rhs_t would run no GEMM for "
+                  "zero-sized tensors");
   const uint64_t prefix_count = logical_prefix_count(a, 2);
   const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
@@ -354,23 +461,24 @@ void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
   if (regular_prefix_stride(a, prefix_count, stride_a) &&
       regular_prefix_stride(b, prefix_count, stride_b) &&
       regular_prefix_stride(out, prefix_count, stride_out)) {
-    run_strided_batched_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+    run_strided_batched_gemm(variant, handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
                              input_matrix(b, 0, b_leading_dim, stride_b),
                              input_matrix(a, 0, a_leading_dim, stride_a),
                              output_matrix(out, 0, out_leading_dim, stride_out),
                              static_cast<int>(prefix_count),
-                             "cublasSgemmStridedBatched(gemm_batched_rhs_t)");
+                             "GEMM (gemm_batched_rhs_t)");
     return;
   }
   checker().check(CheckKind::Capability, fallback_to_prefix_loop,
                   "cuda_cublas_plugin",
-                  "gemm_batched_rhs_t irregular ranked layout is not supported");
+                  "gemm_batched_rhs_t irregular ranked layout is "
+                  "not supported");
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    run_gemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
+    run_gemm(variant, handle, CUBLAS_OP_T, CUBLAS_OP_N, shape,
              input_matrix(b, prefix, b_leading_dim, 0),
              input_matrix(a, prefix, a_leading_dim, 0),
              output_matrix(out, prefix, out_leading_dim, 0),
-             "cublasSgemm(gemm_batched_rhs_t prefix)");
+             "GEMM (gemm_batched_rhs_t prefix)");
   }
 }
 

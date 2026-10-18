@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -359,6 +360,12 @@ std::vector<OpCase> op_cases() {
                    {random_f32(Shape{3, 17, 24}, 43), random_f32(Shape{24, 29}, 44), random_f32(Shape{3, 17, 29}, 45)},
                    [](DeviceBackend &b, Views &v) { b.gemm_ranked_matrix_rhs(v[0], v[1], v[2]); return Scalars{}; },
                    {2}, kReduce, kReduce});
+  // Dimensions in multiples of 8, so BF16 GEMMs can use tensor cores.
+  cases.push_back({"gemm_ranked_matrix_rhs, tensor-core shape",
+                   {random_f32(Shape{4, 64, 128}, 61000), random_f32(Shape{128, 192}, 61001),
+                    random_f32(Shape{4, 64, 192}, 61002)},
+                   [](DeviceBackend &b, Views &v) { b.gemm_ranked_matrix_rhs(v[0], v[1], v[2]); return Scalars{}; },
+                   {2}, kReduce, kReduce});
   cases.push_back({"gemm_ranked_matrix_rhs_t",
                    {random_f32(Shape{3, 17, 24}, 46), random_f32(Shape{29, 24}, 47), random_f32(Shape{3, 17, 29}, 48)},
                    [](DeviceBackend &b, Views &v) { b.gemm_ranked_matrix_rhs_t(v[0], v[1], v[2]); return Scalars{}; },
@@ -524,39 +531,69 @@ std::vector<OpCase> exec_context_cases() {
 
 // --- _f32 vs _bf16act
 
+// How a _bf16act result is judged against the _f32 one on the same inputs.
+enum class VariantCheck {
+  // BF16 outputs equal the _f32 result rounded to BF16 (NaN only as NaN);
+  // F32 outputs equal it exactly.
+  Exact,
+  // GEMMs: per output element, within one BF16 rounding of the output
+  // (2^-8 relative, BF16 outputs only) plus 1e-5 * sum|a*b| for the order
+  // of FP32 accumulation.
+  Gemm,
+};
+
 // A tensor's role in the _bf16act variant: A = activation or activation
-// gradient (BF16), P = parameter, parameter gradient or optimizer state
-// (F32), I = ids (I32), L = loss scalar (F32).
-// The roles of each op's tensors, in the order its case lists them, for
-// every op that has a _bf16act kernel.
-const std::vector<std::pair<std::string, std::string>> &bf16act_roles() {
-  static const std::vector<std::pair<std::string, std::string>> roles = {
-      {"copy", "AA"},
-      {"fill", "A"},
-      {"add, odd width", "AAA"},
-      {"add on odd column slices of an odd width", "AA"},
-      {"add_bias_rowwise, odd width", "APA"},
-      {"add", "AAA"},
-      {"add [B,S,D] + [S,D] (position broadcast)", "APA"},
-      {"add on column slices (strided rows)", "AA"},
-      {"add_inplace", "PA"},
-      {"add_bias_rowwise", "APA"},
-      {"add_bias_relu_rowwise", "APA"},
-      {"add_bias_relu_rowwise_inplace", "AP"},
-      {"mul_scalar", "AA"},
-      {"relu", "AA"},
-      {"relu_backward", "AAA"},
-      {"relu_backward_inplace", "AA"},
-      {"apply_causal_mask_inplace", "A"},
-      {"rotary_embedding_inplace", "A"},
-      {"rotary_embedding_inplace (inverse)", "A"},
+// gradient (BF16), W = weight copy for a GEMM (BF16), P = parameter,
+// parameter gradient or optimizer state (F32), I = ids (I32), L = loss
+// scalar (F32).
+struct VariantCase {
+  std::string name;   // of the op case
+  std::string roles;  // one per tensor, in the case's order
+  VariantCheck check;
+};
+
+// Every op that has a _bf16act kernel.
+const std::vector<VariantCase> &bf16act_cases() {
+  using C = VariantCheck;
+  static const std::vector<VariantCase> cases = {
+      {"copy", "AA", C::Exact},
+      {"fill", "A", C::Exact},
+      {"add, odd width", "AAA", C::Exact},
+      {"add on odd column slices of an odd width", "AA", C::Exact},
+      {"add_bias_rowwise, odd width", "APA", C::Exact},
+      {"add", "AAA", C::Exact},
+      {"add [B,S,D] + [S,D] (position broadcast)", "APA", C::Exact},
+      {"add on column slices (strided rows)", "AA", C::Exact},
+      {"add_inplace", "PA", C::Exact},
+      {"add_bias_rowwise", "APA", C::Exact},
+      {"add_bias_relu_rowwise", "APA", C::Exact},
+      {"add_bias_relu_rowwise_inplace", "AP", C::Exact},
+      {"mul_scalar", "AA", C::Exact},
+      {"relu", "AA", C::Exact},
+      {"relu_backward", "AAA", C::Exact},
+      {"relu_backward_inplace", "AA", C::Exact},
+      {"apply_causal_mask_inplace", "A", C::Exact},
+      {"rotary_embedding_inplace", "A", C::Exact},
+      {"rotary_embedding_inplace (inverse)", "A", C::Exact},
+      {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
+      {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
+      {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},
+      {"gemm_ranked_reduce_lhs_t", "AAP", C::Gemm},
+      {"gemm_batched", "AAA", C::Gemm},
+      {"gemm_batched_lhs_t", "AAA", C::Gemm},
+      {"gemm_batched_rhs_t", "AAA", C::Gemm},
+      {"gemm_batched_exec_context", "AAA", C::Gemm},
+      {"gemm_batched_lhs_t_exec_context", "AAA", C::Gemm},
+      {"gemm_batched_rhs_t_exec_context", "AAA", C::Gemm},
   };
-  return roles;
+  return cases;
 }
 
 // The case with its float values rounded to BF16, stored as F32 (the _f32
-// run) or by role (the _bf16act run).
-OpCase as_variant(const OpCase &op, const std::string &roles, bool bf16act) {
+// run) or by role (the _bf16act run); with magnitudes, every float value
+// replaced by its absolute value.
+OpCase as_variant(const OpCase &op, const std::string &roles, bool bf16act,
+                  bool magnitudes = false) {
   OpCase out = op;
   for (size_t i = 0; i < out.tensors.size(); ++i) {
     HostTensor &t = out.tensors[i];
@@ -565,8 +602,12 @@ OpCase as_variant(const OpCase &op, const std::string &roles, bool bf16act) {
     }
     for (float &v : t.values) {
       v = round_to_bf16(v);
+      if (magnitudes) {
+        v = std::fabs(v);
+      }
     }
-    t.dtype = bf16act && roles[i] == 'A' ? DType::BF16 : DType::F32;
+    const bool bf16 = roles[i] == 'A' || roles[i] == 'W';
+    t.dtype = bf16act && bf16 ? DType::BF16 : DType::F32;
   }
   return out;
 }
@@ -579,30 +620,51 @@ bool same_bf16(double got, double want_f32) {
   return got == want;
 }
 
-void compare_variants(DeviceBackend &plugin, const OpCase &op,
-                      const std::string &roles) {
+void compare_variants(DeviceBackend &reference, DeviceBackend &plugin,
+                      const OpCase &op, const VariantCase &variant) {
+  const std::string &roles = variant.roles;
   Result f32;
   Result bf16;
+  Result magnitude;
   try {
     f32 = execute(plugin, as_variant(op, roles, false), false);
     bf16 = execute(plugin, as_variant(op, roles, true), false);
+    if (variant.check == VariantCheck::Gemm) {
+      // The same product on |a| and |b|: sum|a*b| per output element.
+      magnitude = execute(reference, as_variant(op, roles, false, true), true);
+    }
   } catch (const std::exception &e) {
     std::cout << "[FAIL] " << op.name << " _f32 vs _bf16act: " << e.what() << "\n";
     ++g_failures;
     return;
   }
   bool ok = true;
+  double worst = 0.0;  // largest |error| / tolerance (GEMM)
   for (size_t o = 0; o < op.outputs.size(); ++o) {
-    const bool activation = roles[op.outputs[o]] == 'A';
+    const bool bf16_output = roles[op.outputs[o]] == 'A';
     for (size_t i = 0; i < f32.outputs[o].size(); ++i) {
       const double want = f32.outputs[o][i];
       const double got = bf16.outputs[o][i];
-      ok = ok && (activation ? same_bf16(got, want)
-                             : (std::isnan(want) ? std::isnan(got) : got == want));
+      if (variant.check == VariantCheck::Exact) {
+        ok = ok && (bf16_output ? same_bf16(got, want)
+                                : (std::isnan(want) ? std::isnan(got) : got == want));
+        continue;
+      }
+      const double tol = (bf16_output ? std::ldexp(std::fabs(want), -8) : 0.0) +
+                         1e-5 * magnitude.outputs[o][i];
+      const double err = std::fabs(got - want);
+      ok = ok && std::isfinite(got) && err <= tol;
+      worst = std::max(worst, tol > 0.0 ? err / tol : (err > 0.0 ? 1e9 : 0.0));
     }
   }
-  std::cout << (ok ? "[PASS] " : "[FAIL] ") << op.name
-            << " _bf16act == round(_f32)\n";
+  std::cout << (ok ? "[PASS] " : "[FAIL] ") << op.name;
+  if (variant.check == VariantCheck::Exact) {
+    std::cout << " _bf16act == round(_f32)\n";
+  } else {
+    std::cout << " _bf16act ~ _f32 (worst error " << std::fixed
+              << std::setprecision(2) << worst << " of tolerance)\n"
+              << std::defaultfloat;
+  }
   if (!ok) {
     ++g_failures;
   }
@@ -634,17 +696,23 @@ int main(int argc, char **argv) {
     std::cout << "[SKIP] exec-context ops (not supported by this backend)\n";
   }
   if (bf16act) {
-    const std::vector<OpCase> cases = op_cases();
-    for (const auto &[name, roles] : bf16act_roles()) {
-      const auto it = std::find_if(cases.begin(), cases.end(),
-                                   [&](const OpCase &op) { return op.name == name; });
-      if (it == cases.end() || roles.size() != it->tensors.size()) {
-        std::cout << "[FAIL] " << name << ": no case with " << roles.size()
-                  << " tensors\n";
+    std::vector<OpCase> cases = op_cases();
+    if (plugin->supports_exec_context_iteration()) {
+      for (OpCase &op : exec_context_cases()) {
+        cases.push_back(std::move(op));
+      }
+    }
+    for (const VariantCase &variant : bf16act_cases()) {
+      const auto it = std::find_if(cases.begin(), cases.end(), [&](const OpCase &op) {
+        return op.name == variant.name;
+      });
+      if (it == cases.end() || variant.roles.size() != it->tensors.size()) {
+        std::cout << "[FAIL] " << variant.name << ": no case with "
+                  << variant.roles.size() << " tensors\n";
         ++g_failures;
         continue;
       }
-      compare_variants(*plugin, *it, roles);
+      compare_variants(reference, *plugin, *it, variant);
     }
   }
 

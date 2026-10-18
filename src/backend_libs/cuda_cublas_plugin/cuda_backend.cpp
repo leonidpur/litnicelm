@@ -16,6 +16,14 @@
 #include <vector>
 
 namespace cuda_cublas_plugin {
+
+// The math mode of every cuBLAS handle: FP32 math for FP32 GEMMs (no TF32),
+// and every reduction in the compute type (FP32) even when the output is
+// BF16; by default cuBLAS may reduce split-K partials in the output type,
+// which put unaligned BF16 GEMMs ~40x outside their FP32-accumulation error.
+inline constexpr cublasMath_t kCublasMathMode = static_cast<cublasMath_t>(
+    CUBLAS_DEFAULT_MATH | CUBLAS_MATH_DISALLOW_REDUCED_PRECISION_REDUCTION);
+
 namespace {
 
 class CuBlasPluginBackend final : public DeviceBackend {
@@ -29,7 +37,7 @@ public:
   CuBlasPluginBackend() {
     check_cublas(cublasCreate(&handle_), "cublasCreate");
     const cublasStatus_t math_status =
-        cublasSetMathMode(handle_, CUBLAS_DEFAULT_MATH);
+        cublasSetMathMode(handle_, kCublasMathMode);
     if (math_status != CUBLAS_STATUS_SUCCESS) {
       cublasDestroy(handle_);
       handle_ = nullptr;
@@ -710,7 +718,7 @@ private:
       check_cuda(cudaStreamCreateWithFlags(&lane.stream, cudaStreamNonBlocking),
                  "cudaStreamCreate(exec context)");
       check_cublas(cublasCreate(&lane.cublas), "cublasCreate(exec context)");
-      check_cublas(cublasSetMathMode(lane.cublas, CUBLAS_DEFAULT_MATH),
+      check_cublas(cublasSetMathMode(lane.cublas, kCublasMathMode),
                    "cublasSetMathMode(exec context)");
       check_cublas(cublasSetStream(lane.cublas, lane.stream),
                    "cublasSetStream(exec context)");

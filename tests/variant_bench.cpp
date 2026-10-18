@@ -100,7 +100,9 @@ void bench(DeviceBackend &backend, const BenchCase &c) {
     std::vector<std::unique_ptr<BenchTensor>> tensors;
     std::vector<TensorView> views;
     for (size_t i = 0; i < c.shapes.size(); ++i) {
-      const DType dtype = variant == 1 && c.roles[i] == 'A' ? DType::BF16 : DType::F32;
+      // A = activation, W = weight copy: BF16 in _bf16act; P stays F32.
+      const bool bf16 = c.roles[i] == 'A' || c.roles[i] == 'W';
+      const DType dtype = variant == 1 && bf16 ? DType::BF16 : DType::F32;
       tensors.push_back(std::make_unique<BenchTensor>(backend, dtype, c.shapes[i],
                                                       static_cast<uint32_t>(i + 1)));
       views.push_back(tensors.back()->view());
@@ -186,6 +188,30 @@ int main(int argc, char **argv) {
                    [](DeviceBackend &b, std::vector<TensorView> &v) { b.fill(v[0], 0.0f); }});
   bench(*backend, {"mul_scalar gradient arena [14M,1] (F32)", {arena, arena}, "PP", 1.0,
                    [](DeviceBackend &b, std::vector<TensorView> &v) { b.mul_scalar(v[0], 0.5f, v[1]); }});
+  // GEMMs of the 512-wide model at batch 16 x 128: FP32 SIMT vs BF16 tensor
+  // cores (FP32 accumulation).
+  std::cout << "-- GEMMs, batch 16 x 128\n";
+  const Shape x{16, 128, 512};
+  const Shape h{16, 128, 2048};
+  const Shape qkv{16, 128, 1536};
+  for (const BenchCase &c : std::vector<BenchCase>{
+           {"x @ Wqkv [2048,512]x[512,1536]", {x, Shape{512, 1536}, qkv}, "AWA", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_ranked_matrix_rhs(v[0], v[1], v[2]); }},
+           {"h @ W2 [2048,2048]x[2048,512]", {h, Shape{2048, 512}, x}, "AWA", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_ranked_matrix_rhs(v[0], v[1], v[2]); }},
+           {"dqkv @ Wqkv^T (rhs_t)", {qkv, Shape{512, 1536}, x}, "AWA", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_ranked_matrix_rhs_t(v[0], v[1], v[2]); }},
+           {"x^T @ dqkv -> dW F32 (reduce_lhs_t)", {x, qkv, Shape{512, 1536}}, "AAP", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_ranked_reduce_lhs_t(v[0], v[1], v[2]); }},
+           {"Q @ K^T, 128 heads x [128,64]", {Shape{128, 128, 64}, Shape{128, 128, 64}, Shape{128, 128, 128}},
+            "AAA", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_batched_rhs_t(v[0], v[1], v[2]); }},
+           {"P @ V, 128 heads x [128,128]", {Shape{128, 128, 128}, Shape{128, 128, 64}, Shape{128, 128, 64}},
+            "AAA", 3.0,
+            [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_batched(v[0], v[1], v[2]); }},
+       }) {
+    bench(*backend, c);
+  }
   for (const int64_t batch : {16, 64}) {
     std::cout << (batch == 16 ? "-- batch 16: working sets within a 32 MB L2\n"
                               : "-- batch 64: 4x larger, streaming from DRAM\n");
