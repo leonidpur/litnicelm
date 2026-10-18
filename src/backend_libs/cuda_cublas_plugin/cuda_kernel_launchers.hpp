@@ -67,21 +67,30 @@ void launch_row_sum_f32(const TensorView &x, TensorView &out_1xC);
 // x BF16 (an activation gradient), out_1xC F32.
 void launch_row_sum_bf16act(const TensorView &x, TensorView &out_1xC);
 
-void launch_softmax_rows(const TensorView &x, TensorView &out);
-void launch_softmax_backward_rows(const TensorView &softmax,
-                                  const TensorView &dout, TensorView &dx);
-void launch_scaled_causal_softmax_rows(const TensorView &scores, float scale,
-                                       TensorView &out);
-void launch_scaled_causal_softmax_rows_on_stream(const TensorView &scores,
-                                                 float scale, TensorView &out,
-                                                 cudaStream_t stream);
-void launch_softmax_backward_causal_rows(const TensorView &softmax,
-                                         const TensorView &dout,
-                                         TensorView &dx);
-void launch_softmax_backward_causal_rows_on_stream(const TensorView &softmax,
-                                                   const TensorView &dout,
-                                                   TensorView &dx,
-                                                   cudaStream_t stream);
+// Softmax: <op>_f32 / <op>_bf16act (BF16 scores, probabilities and
+// gradients; FP32 max, sums and dots). The causal ones take the stream of
+// an exec-context lane (0 = the default stream).
+void launch_softmax_rows_f32(const TensorView &x, TensorView &out);
+void launch_softmax_rows_bf16act(const TensorView &x, TensorView &out);
+void launch_softmax_backward_rows_f32(const TensorView &softmax,
+                                      const TensorView &dout, TensorView &dx);
+void launch_softmax_backward_rows_bf16act(const TensorView &softmax,
+                                          const TensorView &dout,
+                                          TensorView &dx);
+void launch_scaled_causal_softmax_rows_f32(const TensorView &scores,
+                                           float scale, TensorView &out,
+                                           cudaStream_t stream = 0);
+void launch_scaled_causal_softmax_rows_bf16act(const TensorView &scores,
+                                               float scale, TensorView &out,
+                                               cudaStream_t stream = 0);
+void launch_softmax_backward_causal_rows_f32(const TensorView &softmax,
+                                             const TensorView &dout,
+                                             TensorView &dx,
+                                             cudaStream_t stream = 0);
+void launch_softmax_backward_causal_rows_bf16act(const TensorView &softmax,
+                                                 const TensorView &dout,
+                                                 TensorView &dx,
+                                                 cudaStream_t stream = 0);
 
 void launch_cross_entropy_mean_backward_inplace(TensorView &logits,
                                                 const TensorView &targets,

@@ -577,6 +577,13 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"rotary_embedding_inplace (inverse)", "A", C::Exact},
       // Same reduction order in both variants: the F32 sums match exactly.
       {"row_sum", "AP", C::Exact},
+      // Same FP32 reductions in both; each BF16 output is rounded once.
+      {"softmax_rows", "AA", C::Exact},
+      {"softmax_backward_rows", "AAA", C::Exact},
+      {"scaled_causal_softmax_rows", "AA", C::Exact},
+      {"softmax_backward_causal_rows", "AAA", C::Exact},
+      {"scaled_causal_softmax_rows_exec_context", "AA", C::Exact},
+      {"softmax_backward_causal_rows_exec_context", "AAA", C::Exact},
       {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},

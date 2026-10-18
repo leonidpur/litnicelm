@@ -465,35 +465,46 @@ public:
   }
 
   void softmax_rows(const TensorView &x, TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "softmax_rows(x)");
-    check_cuda_row_major(out, {DType::F32}, "softmax_rows(out)");
+    const Variant variant = variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "softmax_rows(x)");
+    check_cuda_row_major(out, {act}, "softmax_rows(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_softmax_rows(x, out);
+    variant == Variant::Bf16Act ? launch_softmax_rows_bf16act(x, out)
+                                : launch_softmax_rows_f32(x, out);
   }
 
   void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
                              TensorView &dx) override {
-    check_cuda_row_major(softmax, {DType::F32},
+    const Variant variant = variant_of(softmax);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(softmax, {act},
                          "softmax_backward_rows(softmax)");
-    check_cuda_row_major(dout, {DType::F32}, "softmax_backward_rows(dout)");
-    check_cuda_row_major(dx, {DType::F32}, "softmax_backward_rows(dx)");
+    check_cuda_row_major(dout, {act}, "softmax_backward_rows(dout)");
+    check_cuda_row_major(dx, {act}, "softmax_backward_rows(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    launch_softmax_backward_rows(softmax, dout, dx);
+    variant == Variant::Bf16Act
+        ? launch_softmax_backward_rows_bf16act(softmax, dout, dx)
+        : launch_softmax_backward_rows_f32(softmax, dout, dx);
   }
 
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) override {
-    check_cuda_row_major(scores, {DType::F32},
+    const Variant variant = variant_of(scores);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(scores, {act},
                          "scaled_causal_softmax_rows(scores)");
-    check_cuda_row_major(out, {DType::F32}, "scaled_causal_softmax_rows(out)");
+    check_cuda_row_major(out, {act}, "scaled_causal_softmax_rows(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_scaled_causal_softmax_rows(scores, scale, out);
+    variant == Variant::Bf16Act
+        ? launch_scaled_causal_softmax_rows_bf16act(scores, scale, out)
+        : launch_scaled_causal_softmax_rows_f32(scores, scale, out);
   }
 
   bool supports_exec_context_iteration() const override { return true; }
@@ -574,47 +585,61 @@ public:
 
   void scaled_causal_softmax_rows_exec_context(
       const TensorView &scores, float scale, TensorView &out) override {
-    check_cuda_row_major(scores, {DType::F32},
+    const Variant variant = variant_of(scores);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(scores, {act},
                          "scaled_causal_softmax_rows_exec_context(scores)");
-    check_cuda_row_major(out, {DType::F32},
+    check_cuda_row_major(out, {act},
                          "scaled_causal_softmax_rows_exec_context(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
     CudaExecutionLane &lane = active_exec_lane();
-    launch_scaled_causal_softmax_rows_on_stream(scores, scale, out,
-                                                lane.stream);
+    variant == Variant::Bf16Act
+        ? launch_scaled_causal_softmax_rows_bf16act(
+              scores, scale, out, lane.stream)
+        : launch_scaled_causal_softmax_rows_f32(
+              scores, scale, out, lane.stream);
   }
 
   void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
                                                  const TensorView &dout,
                                                  TensorView &dx) override {
-    check_cuda_row_major(softmax, {DType::F32},
+    const Variant variant = variant_of(softmax);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(softmax, {act},
                          "softmax_backward_causal_rows_exec_context(softmax)");
-    check_cuda_row_major(dout, {DType::F32},
+    check_cuda_row_major(dout, {act},
                          "softmax_backward_causal_rows_exec_context(dout)");
-    check_cuda_row_major(dx, {DType::F32},
+    check_cuda_row_major(dx, {act},
                          "softmax_backward_causal_rows_exec_context(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
     CudaExecutionLane &lane = active_exec_lane();
-    launch_softmax_backward_causal_rows_on_stream(softmax, dout, dx,
-                                                  lane.stream);
+    variant == Variant::Bf16Act
+        ? launch_softmax_backward_causal_rows_bf16act(
+              softmax, dout, dx, lane.stream)
+        : launch_softmax_backward_causal_rows_f32(
+              softmax, dout, dx, lane.stream);
   }
 
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
-    check_cuda_row_major(softmax, {DType::F32},
+    const Variant variant = variant_of(softmax);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(softmax, {act},
                          "softmax_backward_causal_rows(softmax)");
-    check_cuda_row_major(dout, {DType::F32},
+    check_cuda_row_major(dout, {act},
                          "softmax_backward_causal_rows(dout)");
-    check_cuda_row_major(dx, {DType::F32}, "softmax_backward_causal_rows(dx)");
+    check_cuda_row_major(dx, {act}, "softmax_backward_causal_rows(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    launch_softmax_backward_causal_rows(softmax, dout, dx);
+    variant == Variant::Bf16Act
+        ? launch_softmax_backward_causal_rows_bf16act(softmax, dout, dx)
+        : launch_softmax_backward_causal_rows_f32(softmax, dout, dx);
   }
 
   void apply_causal_mask_inplace(TensorView &scores,
