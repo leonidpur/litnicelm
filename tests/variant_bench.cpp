@@ -179,6 +179,13 @@ int main(int argc, char **argv) {
   bench(*backend, {"add [1,1,64] (per-call floor)",
                    {Shape{1, 1, 64}, Shape{1, 1, 64}, Shape{1, 1, 64}}, "AAA", 1.0,
                    [](DeviceBackend &b, std::vector<TensorView> &v) { b.add(v[0], v[1], v[2]); }});
+  // The F32 gradient arena as the trainer sees it: one N x 1 view, zeroed
+  // and scaled every step (a _f32-only path; the "bf16" column runs F32).
+  const Shape arena{14 * 1024 * 1024, 1};
+  bench(*backend, {"fill gradient arena [14M,1] (F32)", {arena}, "P", 1.0,
+                   [](DeviceBackend &b, std::vector<TensorView> &v) { b.fill(v[0], 0.0f); }});
+  bench(*backend, {"mul_scalar gradient arena [14M,1] (F32)", {arena, arena}, "PP", 1.0,
+                   [](DeviceBackend &b, std::vector<TensorView> &v) { b.mul_scalar(v[0], 0.5f, v[1]); }});
   for (const int64_t batch : {16, 64}) {
     std::cout << (batch == 16 ? "-- batch 16: working sets within a 32 MB L2\n"
                               : "-- batch 64: 4x larger, streaming from DRAM\n");
