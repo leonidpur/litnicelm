@@ -2,6 +2,8 @@
 #include "cuda_checks.hpp"
 #include "cuda_kernel_config.hpp"
 
+#include <cuda_bf16.h>
+
 namespace cuda_cublas_plugin {
 namespace {
 
@@ -46,7 +48,7 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
   double local_var = 0.0;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
     const double delta = static_cast<double>(x_row[c]) - mean;
-    local_var += delta * delta;
+    local_var = __fma_rn(delta, delta, local_var);
   }
   ln_bw_scratch[threadIdx.x] = local_var;
   __syncthreads();
@@ -60,7 +62,7 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
 
   constexpr double kEps = 1e-5;
   const double inv_std =
-      rsqrt(static_cast<double>(ln_bw_scratch[0] / static_cast<double>(x.cols)) + kEps);
+      rsqrt(ln_bw_scratch[0] / static_cast<double>(x.cols) + kEps);
   // Every thread has read the result before scratch is reused.
   __syncthreads();
 
@@ -72,7 +74,7 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
     const double dyi = static_cast<double>(dout_row[c]);
     const double dxhat = dyi * g;
     local_sum_dxhat += dxhat;
-    local_sum_dxhat_xhat += dxhat * xhat;
+    local_sum_dxhat_xhat = __fma_rn(dxhat, xhat, local_sum_dxhat_xhat);
     atomicAdd(&dgamma_row[c], static_cast<float>(dyi * xhat));
     atomicAdd(&dbeta_row[c], static_cast<float>(dyi));
   }
@@ -106,8 +108,9 @@ __global__ void layernorm_backward_f32(KernelTensorView x,
     const double g = static_cast<double>(gamma_row[c]);
     const double dyi = static_cast<double>(dout_row[c]);
     const double dxhat = dyi * g;
-    const double dxi =
-        (inv_std / n) * (n * dxhat - sum_dxhat - xhat * sum_dxhat_xhat);
+    const double dxi = (inv_std / n) *
+                       __fma_rn(-xhat, sum_dxhat_xhat,
+                                __fma_rn(n, dxhat, -sum_dxhat));
     dx_row[c] = static_cast<float>(dxi);
   }
 }
@@ -147,7 +150,7 @@ __global__ void layernorm_forward_f32(KernelTensorView x,
   float local_var = 0.0f;
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
     const float delta = x_row[c] - mean;
-    local_var += delta * delta;
+    local_var = __fmaf_rn(delta, delta, local_var);
   }
   scratch[threadIdx.x] = local_var;
   __syncthreads();
@@ -163,26 +166,199 @@ __global__ void layernorm_forward_f32(KernelTensorView x,
 
   for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
     const float normalized = (x_row[c] - mean) * inv_std;
-    out_row[c] = normalized * gamma_row[c] + beta_row[c];
+    out_row[c] = __fmaf_rn(normalized, gamma_row[c], beta_row[c]);
   }
 }
 
+// _bf16act: x, out, dout and dx BF16; gamma, beta, dgamma and dbeta F32.
+// The same arithmetic as the _f32 kernels (the backward one still in FP64),
+// with one rounding per BF16 output.
+__global__ void layernorm_backward_bf16act(KernelTensorView x,
+                                       KernelTensorView gamma,
+                                       KernelTensorView dout,
+                                       KernelTensorView dx,
+                                       KernelTensorView dgamma,
+                                       KernelTensorView dbeta) {
+  const int64_t row = blockIdx.x;
+  if (row >= x.rows) {
+    return;
+  }
+  const __nv_bfloat16 *x_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const __nv_bfloat16 *dout_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(dout, row));
+  __nv_bfloat16 *dx_row =
+      reinterpret_cast<__nv_bfloat16 *>(row_ptr_mut(dx, row));
+  float *dgamma_row = reinterpret_cast<float *>(row_ptr_mut(dgamma, 0));
+  float *dbeta_row = reinterpret_cast<float *>(row_ptr_mut(dbeta, 0));
+
+  extern __shared__ double ln_bw16[];
+
+  double local_sum = 0.0;
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    local_sum += static_cast<double>(__bfloat162float(x_row[c]));
+  }
+  ln_bw16[threadIdx.x] = local_sum;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      ln_bw16[threadIdx.x] += ln_bw16[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const double mean = ln_bw16[0] / static_cast<double>(x.cols);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
+
+  double local_var = 0.0;
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    const double delta = static_cast<double>(__bfloat162float(x_row[c])) - mean;
+    local_var = __fma_rn(delta, delta, local_var);
+  }
+  ln_bw16[threadIdx.x] = local_var;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      ln_bw16[threadIdx.x] += ln_bw16[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+
+  constexpr double kEps = 1e-5;
+  const double inv_std =
+      rsqrt(ln_bw16[0] / static_cast<double>(x.cols) + kEps);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
+
+  double local_sum_dxhat = 0.0;
+  double local_sum_dxhat_xhat = 0.0;
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    const double xhat =
+        (static_cast<double>(__bfloat162float(x_row[c])) - mean) * inv_std;
+    const double g = static_cast<double>(gamma_row[c]);
+    const double dyi = static_cast<double>(__bfloat162float(dout_row[c]));
+    const double dxhat = dyi * g;
+    local_sum_dxhat += dxhat;
+    local_sum_dxhat_xhat = __fma_rn(dxhat, xhat, local_sum_dxhat_xhat);
+    atomicAdd(&dgamma_row[c], static_cast<float>(dyi * xhat));
+    atomicAdd(&dbeta_row[c], static_cast<float>(dyi));
+  }
+  ln_bw16[threadIdx.x] = local_sum_dxhat;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      ln_bw16[threadIdx.x] += ln_bw16[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const double sum_dxhat = ln_bw16[0];
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
+
+  ln_bw16[threadIdx.x] = local_sum_dxhat_xhat;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      ln_bw16[threadIdx.x] += ln_bw16[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const double sum_dxhat_xhat = ln_bw16[0];
+  const double n = static_cast<double>(x.cols);
+
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    const double xhat =
+        (static_cast<double>(__bfloat162float(x_row[c])) - mean) * inv_std;
+    const double g = static_cast<double>(gamma_row[c]);
+    const double dyi = static_cast<double>(__bfloat162float(dout_row[c]));
+    const double dxhat = dyi * g;
+    const double dxi = (inv_std / n) *
+                       __fma_rn(-xhat, sum_dxhat_xhat,
+                                __fma_rn(n, dxhat, -sum_dxhat));
+    dx_row[c] = __float2bfloat16(static_cast<float>(dxi));
+  }
+}
+
+__global__ void layernorm_forward_bf16act(KernelTensorView x,
+                                      KernelTensorView gamma,
+                                      KernelTensorView beta,
+                                      KernelTensorView out) {
+  const int64_t row = blockIdx.x;
+  if (row >= x.rows) {
+    return;
+  }
+  const __nv_bfloat16 *x_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *beta_row = reinterpret_cast<const float *>(row_ptr(beta, 0));
+  __nv_bfloat16 *out_row =
+      reinterpret_cast<__nv_bfloat16 *>(row_ptr_mut(out, row));
+
+  extern __shared__ float ln_fw_bf16_scratch[];
+  float *scratch = ln_fw_bf16_scratch;
+
+  float local_sum = 0.0f;
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    local_sum += __bfloat162float(x_row[c]);
+  }
+  scratch[threadIdx.x] = local_sum;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      scratch[threadIdx.x] += scratch[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float mean = scratch[0] / static_cast<float>(x.cols);
+  // Every thread has read the result before scratch is reused.
+  __syncthreads();
+
+  float local_var = 0.0f;
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    const float delta = __bfloat162float(x_row[c]) - mean;
+    local_var = __fmaf_rn(delta, delta, local_var);
+  }
+  scratch[threadIdx.x] = local_var;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      scratch[threadIdx.x] += scratch[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  const float inv_std =
+      rsqrtf(scratch[0] / static_cast<float>(x.cols) + kLayerNormEps);
+
+  for (int64_t c = threadIdx.x; c < x.cols; c += blockDim.x) {
+    const float normalized = (__bfloat162float(x_row[c]) - mean) * inv_std;
+    out_row[c] =
+        __float2bfloat16(__fmaf_rn(normalized, gamma_row[c], beta_row[c]));
+  }
+}
 } // namespace
 
-void launch_layernorm_forward(const TensorView &x, const TensorView &gamma,
-                              const TensorView &beta, TensorView &out) {
-  layernorm_forward_f32<<<static_cast<unsigned int>(tensor_rows(x)),
-                          kThreadsPerBlock,
-                          static_cast<size_t>(kThreadsPerBlock *
-                                              sizeof(float))>>>(
+void launch_layernorm_forward_f32(const TensorView &x,
+                                     const TensorView &gamma,
+                                     const TensorView &beta, TensorView &out) {
+  layernorm_forward_f32<<<
+      static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
+      static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
       to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
       to_kernel_tensor_view(beta), to_kernel_tensor_view(out));
   check_kernel_launch("layernorm_forward_f32");
 }
 
-void launch_layernorm_backward(const TensorView &x, const TensorView &gamma,
-                               const TensorView &dout, TensorView &dx,
-                               TensorView &dgamma, TensorView &dbeta) {
+void launch_layernorm_backward_f32(const TensorView &x,
+                                      const TensorView &gamma,
+                                      const TensorView &dout, TensorView &dx,
+                                      TensorView &dgamma, TensorView &dbeta) {
   layernorm_backward_f32<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(kThreadsPerBlock * sizeof(double))>>>(
@@ -190,6 +366,30 @@ void launch_layernorm_backward(const TensorView &x, const TensorView &gamma,
       to_kernel_tensor_view(dout), to_kernel_tensor_view(dx),
       to_kernel_tensor_view(dgamma), to_kernel_tensor_view(dbeta));
   check_kernel_launch("layernorm_backward_f32");
+}
+
+void launch_layernorm_forward_bf16act(const TensorView &x,
+                                      const TensorView &gamma,
+                                      const TensorView &beta, TensorView &out) {
+  layernorm_forward_bf16act<<<
+      static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
+      static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
+      to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+      to_kernel_tensor_view(beta), to_kernel_tensor_view(out));
+  check_kernel_launch("layernorm_forward_bf16act");
+}
+
+void launch_layernorm_backward_bf16act(const TensorView &x,
+                                       const TensorView &gamma,
+                                       const TensorView &dout, TensorView &dx,
+                                       TensorView &dgamma, TensorView &dbeta) {
+  layernorm_backward_bf16act<<<
+      static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
+      static_cast<size_t>(kThreadsPerBlock * sizeof(double))>>>(
+      to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+      to_kernel_tensor_view(dout), to_kernel_tensor_view(dx),
+      to_kernel_tensor_view(dgamma), to_kernel_tensor_view(dbeta));
+  check_kernel_launch("layernorm_backward_bf16act");
 }
 
 } // namespace cuda_cublas_plugin

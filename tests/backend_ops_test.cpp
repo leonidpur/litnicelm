@@ -536,6 +536,9 @@ enum class VariantCheck {
   // BF16 outputs equal the _f32 result rounded to BF16 (NaN only as NaN);
   // F32 outputs equal it exactly.
   Exact,
+  // BF16 outputs as Exact; F32 outputs accumulated across rows with atomics
+  // (so in no fixed order), within 1e-5 relative + 1e-5 absolute of _f32.
+  ExactAtomics,
   // GEMMs: per output element, within one BF16 rounding of the output
   // (2^-8 relative, BF16 outputs only) plus 1e-5 * sum|a*b| for the order
   // of FP32 accumulation.
@@ -584,6 +587,8 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"softmax_backward_causal_rows", "AAA", C::Exact},
       {"scaled_causal_softmax_rows_exec_context", "AA", C::Exact},
       {"softmax_backward_causal_rows_exec_context", "AAA", C::Exact},
+      {"layernorm_forward", "APPA", C::Exact},
+      {"layernorm_backward", "APAAPP", C::ExactAtomics},
       {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},
@@ -654,9 +659,14 @@ void compare_variants(DeviceBackend &reference, DeviceBackend &plugin,
     for (size_t i = 0; i < f32.outputs[o].size(); ++i) {
       const double want = f32.outputs[o][i];
       const double got = bf16.outputs[o][i];
-      if (variant.check == VariantCheck::Exact) {
+      if (variant.check == VariantCheck::Exact ||
+          (variant.check == VariantCheck::ExactAtomics && bf16_output)) {
         ok = ok && (bf16_output ? same_bf16(got, want)
                                 : (std::isnan(want) ? std::isnan(got) : got == want));
+        continue;
+      }
+      if (variant.check == VariantCheck::ExactAtomics) {
+        ok = ok && std::fabs(got - want) <= kReduce + kReduce * std::fabs(want);
         continue;
       }
       const double tol = (bf16_output ? std::ldexp(std::fabs(want), -8) : 0.0) +
@@ -669,6 +679,8 @@ void compare_variants(DeviceBackend &reference, DeviceBackend &plugin,
   std::cout << (ok ? "[PASS] " : "[FAIL] ") << op.name;
   if (variant.check == VariantCheck::Exact) {
     std::cout << " _bf16act == round(_f32)\n";
+  } else if (variant.check == VariantCheck::ExactAtomics) {
+    std::cout << " _bf16act == round(_f32), atomic F32 outputs within 1e-5\n";
   } else {
     std::cout << " _bf16act ~ _f32 (worst error " << std::fixed
               << std::setprecision(2) << worst << " of tolerance)\n"

@@ -374,24 +374,30 @@ public:
 
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "layernorm_forward(x)");
+    const Variant variant = variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "layernorm_forward(x)");
     check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_forward(gamma)");
     check_cuda_row_major(beta_1xC, {DType::F32}, "layernorm_forward(beta)");
-    check_cuda_row_major(out, {DType::F32}, "layernorm_forward(out)");
+    check_cuda_row_major(out, {act}, "layernorm_forward(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_layernorm_forward(x, gamma_1xC, beta_1xC, out);
+    variant == Variant::Bf16Act
+        ? launch_layernorm_forward_bf16act(x, gamma_1xC, beta_1xC, out)
+        : launch_layernorm_forward_f32(x, gamma_1xC, beta_1xC, out);
   }
 
   void layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
                           const TensorView &dout, TensorView &dx,
                           TensorView &dgamma_1xC,
                           TensorView &dbeta_1xC) override {
-    check_cuda_row_major(x, {DType::F32}, "layernorm_backward(x)");
+    const Variant variant = variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "layernorm_backward(x)");
     check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_backward(gamma)");
-    check_cuda_row_major(dout, {DType::F32}, "layernorm_backward(dout)");
-    check_cuda_row_major(dx, {DType::F32}, "layernorm_backward(dx)");
+    check_cuda_row_major(dout, {act}, "layernorm_backward(dout)");
+    check_cuda_row_major(dx, {act}, "layernorm_backward(dx)");
     check_cuda_row_major(dgamma_1xC, {DType::F32},
                          "layernorm_backward(dgamma)");
     check_cuda_row_major(dbeta_1xC, {DType::F32}, "layernorm_backward(dbeta)");
@@ -404,7 +410,11 @@ public:
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    launch_layernorm_backward(x, gamma_1xC, dout, dx, dgamma_1xC, dbeta_1xC);
+    variant == Variant::Bf16Act
+        ? launch_layernorm_backward_bf16act(x, gamma_1xC, dout, dx,
+                                            dgamma_1xC, dbeta_1xC)
+        : launch_layernorm_backward_f32(x, gamma_1xC, dout, dx, dgamma_1xC,
+                                        dbeta_1xC);
   }
 
   void embedding_lookup(const TensorView &table, const TensorView &ids,

@@ -96,11 +96,22 @@ void launch_cross_entropy_mean_backward_inplace(TensorView &logits,
                                                 const TensorView &targets,
                                                 TensorView &out_loss);
 
-void launch_layernorm_forward(const TensorView &x, const TensorView &gamma,
-                              const TensorView &beta, TensorView &out);
-void launch_layernorm_backward(const TensorView &x, const TensorView &gamma,
-                               const TensorView &dout, TensorView &dx,
-                               TensorView &dgamma, TensorView &dbeta);
+// LayerNorm: _f32, or _bf16act with x, out, dout and dx BF16 and gamma,
+// beta, dgamma and dbeta F32.
+void launch_layernorm_forward_f32(const TensorView &x,
+                                  const TensorView &gamma,
+                                  const TensorView &beta, TensorView &out);
+void launch_layernorm_forward_bf16act(const TensorView &x,
+                                      const TensorView &gamma,
+                                      const TensorView &beta, TensorView &out);
+void launch_layernorm_backward_f32(const TensorView &x,
+                                   const TensorView &gamma,
+                                   const TensorView &dout, TensorView &dx,
+                                   TensorView &dgamma, TensorView &dbeta);
+void launch_layernorm_backward_bf16act(const TensorView &x,
+                                       const TensorView &gamma,
+                                       const TensorView &dout, TensorView &dx,
+                                       TensorView &dgamma, TensorView &dbeta);
 
 void launch_embedding_lookup(const TensorView &table, const TensorView &ids,
                              TensorView &out);

@@ -159,6 +159,13 @@ std::vector<BenchCase> cases(int64_t batch) {
        [](DeviceBackend &b, V &v) { b.relu_backward_inplace(v[0], v[1]); }},
       {"row_sum (bias grad) " + b + "128,2048]", {wide, Shape{1, 2048}}, "AP", 2.0,
        [](DeviceBackend &b, V &v) { b.row_sum(v[0], v[1]); }},
+      {"layernorm " + b + "128,512]", {act, Shape{1, 512}, Shape{1, 512}, act}, "APPA", 2.0,
+       [](DeviceBackend &b, V &v) { b.layernorm_forward(v[0], v[1], v[2], v[3]); }},
+      {"layernorm_backward " + b + "128,512]",
+       {act, Shape{1, 512}, act, act, Shape{1, 512}, Shape{1, 512}}, "APAAPP", 2.0,
+       [](DeviceBackend &b, V &v) {
+         b.layernorm_backward(v[0], v[1], v[2], v[3], v[4], v[5]);
+       }},
       {"causal softmax " + b + "8,128,128]", {scores, scores}, "AA", 2.0,
        [](DeviceBackend &b, V &v) { b.scaled_causal_softmax_rows(v[0], 0.125f, v[1]); }},
       {"causal softmax backward " + b + "8,128,128]", {scores, scores, scores}, "AAA", 2.0,
