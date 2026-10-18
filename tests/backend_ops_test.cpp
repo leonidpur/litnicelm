@@ -589,6 +589,8 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"softmax_backward_causal_rows_exec_context", "AAA", C::Exact},
       {"layernorm_forward", "APPA", C::Exact},
       {"layernorm_backward", "APAAPP", C::ExactAtomics},
+      {"embedding_lookup", "PIA", C::Exact},
+      {"accumulate_embedding_grads", "IAP", C::ExactAtomics},
       {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},

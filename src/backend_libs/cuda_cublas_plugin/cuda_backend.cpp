@@ -419,28 +419,37 @@ public:
 
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) override {
+    // The table is a parameter (F32); out the gathered activations.
+    const Variant variant = variant_of(out);
     check_cuda_row_major(table, {DType::F32}, "embedding_lookup(table)");
     check_cuda_row_major(ids, {DType::I32}, "embedding_lookup(ids)");
-    check_cuda_row_major(out, {DType::F32}, "embedding_lookup(out)");
+    check_cuda_row_major(out, {activation_dtype(variant)},
+                         "embedding_lookup(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_embedding_lookup(table, ids, out);
+    variant == Variant::Bf16Act
+        ? launch_embedding_lookup_bf16act(table, ids, out)
+        : launch_embedding_lookup_f32(table, ids, out);
   }
 
   void accumulate_embedding_grads(const TensorView &ids,
                                   const TensorView &d_cur,
                                   TensorView &d_tok) override {
+    // d_cur: the activation gradient; d_tok: the table's gradient (F32).
+    const Variant variant = variant_of(d_cur);
     check_cuda_row_major(ids, {DType::I32},
                          "accumulate_embedding_grads(ids)");
-    check_cuda_row_major(d_cur, {DType::F32},
+    check_cuda_row_major(d_cur, {activation_dtype(variant)},
                          "accumulate_embedding_grads(d_cur)");
     check_cuda_row_major(d_tok, {DType::F32},
                          "accumulate_embedding_grads(d_tok)");
     if (tensor_rows(d_cur) == 0 || tensor_cols(d_cur) == 0) {
       return;
     }
-    launch_accumulate_embedding_grads(ids, d_cur, d_tok);
+    variant == Variant::Bf16Act
+        ? launch_accumulate_embedding_grads_bf16act(ids, d_cur, d_tok)
+        : launch_accumulate_embedding_grads_f32(ids, d_cur, d_tok);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,

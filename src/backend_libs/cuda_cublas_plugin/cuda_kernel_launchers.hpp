@@ -113,11 +113,18 @@ void launch_layernorm_backward_bf16act(const TensorView &x,
                                        const TensorView &dout, TensorView &dx,
                                        TensorView &dgamma, TensorView &dbeta);
 
-void launch_embedding_lookup(const TensorView &table, const TensorView &ids,
-                             TensorView &out);
-void launch_accumulate_embedding_grads(const TensorView &ids,
-                                       const TensorView &d_cur,
-                                       TensorView &d_tok);
+// Embeddings: the table and its gradient F32; ids I32; the gathered
+// activations and their gradients F32 (_f32) or BF16 (_bf16act).
+void launch_embedding_lookup_f32(const TensorView &table,
+                                 const TensorView &ids, TensorView &out);
+void launch_embedding_lookup_bf16act(const TensorView &table,
+                                     const TensorView &ids, TensorView &out);
+void launch_accumulate_embedding_grads_f32(const TensorView &ids,
+                                           const TensorView &d_cur,
+                                           TensorView &d_tok);
+void launch_accumulate_embedding_grads_bf16act(const TensorView &ids,
+                                               const TensorView &d_cur,
+                                               TensorView &d_tok);
 
 void launch_adamw_step(TensorView &params, const TensorView &grads,
                        TensorView &m, TensorView &v, float learning_rate,

@@ -27,7 +27,12 @@
 
 namespace {
 
-// A tensor in backend memory, filled with seeded values in [-1, 1].
+// Rows in the benchmark's embedding tables; I32 tensors hold token ids
+// below this.
+constexpr int32_t kBenchVocab = 50000;
+
+// A tensor in backend memory, filled with seeded values in [-1, 1] (token
+// ids for I32).
 class BenchTensor {
 public:
   BenchTensor(DeviceBackend &backend, DType dtype, Shape shape, uint32_t seed)
@@ -39,7 +44,10 @@ public:
     std::vector<uint8_t> raw(static_cast<size_t>(bytes_));
     for (uint64_t i = 0; i < shape.numel(); ++i) {
       const float v = dist(rng);
-      if (dtype == DType::BF16) {
+      if (dtype == DType::I32) {
+        const int32_t id = static_cast<int32_t>(rng() % kBenchVocab);
+        std::memcpy(raw.data() + i * 4, &id, 4);
+      } else if (dtype == DType::BF16) {
         const uint16_t b = f32_to_bf16_bits(v);
         std::memcpy(raw.data() + i * 2, &b, 2);
       } else {
@@ -102,7 +110,9 @@ void bench(DeviceBackend &backend, const BenchCase &c) {
     for (size_t i = 0; i < c.shapes.size(); ++i) {
       // A = activation, W = weight copy: BF16 in _bf16act; P stays F32.
       const bool bf16 = c.roles[i] == 'A' || c.roles[i] == 'W';
-      const DType dtype = variant == 1 && bf16 ? DType::BF16 : DType::F32;
+      const DType dtype = c.roles[i] == 'I'          ? DType::I32
+                          : variant == 1 && bf16 ? DType::BF16
+                                                 : DType::F32;
       tensors.push_back(std::make_unique<BenchTensor>(backend, dtype, c.shapes[i],
                                                       static_cast<uint32_t>(i + 1)));
       views.push_back(tensors.back()->view());
@@ -166,6 +176,11 @@ std::vector<BenchCase> cases(int64_t batch) {
        [](DeviceBackend &b, V &v) {
          b.layernorm_backward(v[0], v[1], v[2], v[3], v[4], v[5]);
        }},
+      {"embedding_lookup " + b + "128,512]", {Shape{kBenchVocab, 512}, Shape{batch, 128}, act},
+       "PIA", 2.0, [](DeviceBackend &b, V &v) { b.embedding_lookup(v[0], v[1], v[2]); }},
+      {"accumulate_embedding_grads " + b + "128,512]",
+       {Shape{batch, 128}, act, Shape{kBenchVocab, 512}}, "IAP", 1.2,
+       [](DeviceBackend &b, V &v) { b.accumulate_embedding_grads(v[0], v[1], v[2]); }},
       {"causal softmax " + b + "8,128,128]", {scores, scores}, "AA", 2.0,
        [](DeviceBackend &b, V &v) { b.scaled_causal_softmax_rows(v[0], 0.125f, v[1]); }},
       {"causal softmax backward " + b + "8,128,128]", {scores, scores, scores}, "AAA", 2.0,
