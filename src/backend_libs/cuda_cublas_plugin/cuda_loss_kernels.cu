@@ -33,6 +33,10 @@ __global__ void cross_entropy_mean_backward_inplace_f32(
     }
     return;
   }
+  // The loss needs the target's logit, which the gradient below overwrites
+  // in place: thread 0 reads it now, before any write (the reductions'
+  // barriers order every write after this read).
+  const float target_logit = threadIdx.x == 0 ? logits_row[target] : 0.0f;
 
   float local_max = -FLT_MAX;
   for (int64_t c = threadIdx.x; c < logits.cols; c += blockDim.x) {
@@ -89,7 +93,6 @@ __global__ void cross_entropy_mean_backward_inplace_f32(
   const float inv_token_rows = 1.0f / static_cast<float>(logits.rows);
 
   if (threadIdx.x == 0) {
-    const float target_logit = logits_row[target];
     const float row_loss =
         (logf(sum) + row_max - target_logit) * inv_token_rows;
     atomicAdd(loss, row_loss);
