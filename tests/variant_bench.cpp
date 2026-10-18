@@ -157,6 +157,8 @@ std::vector<BenchCase> cases(int64_t batch) {
        [](DeviceBackend &b, V &v) { b.relu_backward(v[0], v[1], v[2]); }},
       {"relu_backward_inplace " + b + "128,2048]", {wide, wide}, "AA", 2.0,
        [](DeviceBackend &b, V &v) { b.relu_backward_inplace(v[0], v[1]); }},
+      {"row_sum (bias grad) " + b + "128,2048]", {wide, Shape{1, 2048}}, "AP", 2.0,
+       [](DeviceBackend &b, V &v) { b.row_sum(v[0], v[1]); }},
       {"causal_mask " + b + "8,128,128]", {scores}, "A", 2.0,
        [](DeviceBackend &b, V &v) { b.apply_causal_mask_inplace(v[0], -1e9f); }},
       {"rotary " + b + "128,512]", {act}, "A", 2.0,

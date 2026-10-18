@@ -2,6 +2,8 @@
 #include "cuda_checks.hpp"
 #include "cuda_kernel_config.hpp"
 
+#include <cuda_bf16.h>
+
 #include <algorithm>
 
 namespace cuda_cublas_plugin {
@@ -63,6 +65,37 @@ __global__ void row_sum_f32(KernelTensorView x, KernelTensorView out_1xC) {
   }
 }
 
+// x: a BF16 activation gradient; out_1xC: its F32 column sums (a bias
+// gradient). The same reduction order as row_sum_f32.
+__global__ void row_sum_bf16act(KernelTensorView x, KernelTensorView out_1xC) {
+  const int64_t col = blockIdx.x;
+  if (col >= x.cols) {
+    return;
+  }
+
+  extern __shared__ float row_sum_bf16_scratch[];
+  float local_sum = 0.0f;
+  for (int64_t row = threadIdx.x; row < x.rows; row += blockDim.x) {
+    local_sum += __bfloat162float(
+        reinterpret_cast<const __nv_bfloat16 *>(row_ptr(x, row))[col]);
+  }
+  row_sum_bf16_scratch[threadIdx.x] = local_sum;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      row_sum_bf16_scratch[threadIdx.x] +=
+          row_sum_bf16_scratch[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+
+  if (threadIdx.x == 0) {
+    reinterpret_cast<float *>(row_ptr_mut(out_1xC, 0))[col] =
+        row_sum_bf16_scratch[0];
+  }
+}
+
 } // namespace
 
 void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq) {
@@ -77,11 +110,19 @@ void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq) {
   check_kernel_launch("sum_squares_f32");
 }
 
-void launch_row_sum(const TensorView &x, TensorView &out_1xC) {
+void launch_row_sum_f32(const TensorView &x, TensorView &out_1xC) {
   row_sum_f32<<<static_cast<unsigned int>(tensor_cols(x)), kThreadsPerBlock,
                 static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
       to_kernel_tensor_view(x), to_kernel_tensor_view(out_1xC));
   check_kernel_launch("row_sum_f32");
+}
+
+void launch_row_sum_bf16act(const TensorView &x, TensorView &out_1xC) {
+  row_sum_bf16act<<<static_cast<unsigned int>(tensor_cols(x)),
+                    kThreadsPerBlock,
+                    static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
+      to_kernel_tensor_view(x), to_kernel_tensor_view(out_1xC));
+  check_kernel_launch("row_sum_bf16act");
 }
 
 } // namespace cuda_cublas_plugin

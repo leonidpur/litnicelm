@@ -63,7 +63,9 @@ void launch_rotary_embedding_inplace_bf16act(TensorView &x, int64_t n_heads,
                                              float base, bool inverse);
 
 void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq);
-void launch_row_sum(const TensorView &x, TensorView &out_1xC);
+void launch_row_sum_f32(const TensorView &x, TensorView &out_1xC);
+// x BF16 (an activation gradient), out_1xC F32.
+void launch_row_sum_bf16act(const TensorView &x, TensorView &out_1xC);
 
 void launch_softmax_rows(const TensorView &x, TensorView &out);
 void launch_softmax_backward_rows(const TensorView &softmax,

@@ -314,12 +314,15 @@ public:
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
-    check_cuda_row_major(x, {DType::F32}, "row_sum(x)");
+    // x is an activation gradient; out_1xC a bias gradient (F32).
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)}, "row_sum(x)");
     check_cuda_row_major(out_1xC, {DType::F32}, "row_sum(out)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    launch_row_sum(x, out_1xC);
+    variant == Variant::Bf16Act ? launch_row_sum_bf16act(x, out_1xC)
+                                : launch_row_sum_f32(x, out_1xC);
   }
 
   void gemm(const TensorView &a, const TensorView &b,

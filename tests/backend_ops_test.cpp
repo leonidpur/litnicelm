@@ -575,6 +575,8 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"apply_causal_mask_inplace", "A", C::Exact},
       {"rotary_embedding_inplace", "A", C::Exact},
       {"rotary_embedding_inplace (inverse)", "A", C::Exact},
+      // Same reduction order in both variants: the F32 sums match exactly.
+      {"row_sum", "AP", C::Exact},
       {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},
