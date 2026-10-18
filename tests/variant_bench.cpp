@@ -27,9 +27,11 @@
 
 namespace {
 
-// Rows in the benchmark's embedding tables; I32 tensors hold token ids
-// below this.
+// Rows in the benchmark's embedding tables.
 constexpr int32_t kBenchVocab = 50000;
+// I32 tensors hold token ids below this: valid for the embedding tables
+// and for the 512-way logits of the cross-entropy cases.
+constexpr int32_t kBenchIds = 512;
 
 // A tensor in backend memory, filled with seeded values in [-1, 1] (token
 // ids for I32).
@@ -45,7 +47,7 @@ public:
     for (uint64_t i = 0; i < shape.numel(); ++i) {
       const float v = dist(rng);
       if (dtype == DType::I32) {
-        const int32_t id = static_cast<int32_t>(rng() % kBenchVocab);
+        const int32_t id = static_cast<int32_t>(rng() % kBenchIds);
         std::memcpy(raw.data() + i * 4, &id, 4);
       } else if (dtype == DType::BF16) {
         const uint16_t b = f32_to_bf16_bits(v);
@@ -181,6 +183,11 @@ std::vector<BenchCase> cases(int64_t batch) {
       {"accumulate_embedding_grads " + b + "128,512]",
        {Shape{batch, 128}, act, Shape{kBenchVocab, 512}}, "IAP", 1.2,
        [](DeviceBackend &b, V &v) { b.accumulate_embedding_grads(v[0], v[1], v[2]); }},
+      {"cross_entropy_backward " + b + "128,512]",
+       {Shape{batch, 128, 512}, Shape{batch, 128}, Shape{1, 1}}, "AIL", 2.0,
+       [](DeviceBackend &b, V &v) {
+         b.cross_entropy_mean_backward_inplace(v[0], v[1], v[2]);
+       }},
       {"causal softmax " + b + "8,128,128]", {scores, scores}, "AA", 2.0,
        [](DeviceBackend &b, V &v) { b.scaled_causal_softmax_rows(v[0], 0.125f, v[1]); }},
       {"causal softmax backward " + b + "8,128,128]", {scores, scores, scores}, "AAA", 2.0,

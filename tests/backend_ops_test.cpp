@@ -591,6 +591,10 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"layernorm_backward", "APAAPP", C::ExactAtomics},
       {"embedding_lookup", "PIA", C::Exact},
       {"accumulate_embedding_grads", "IAP", C::ExactAtomics},
+      // The loss is an atomic sum over rows; the gradient is exact.
+      {"cross_entropy_mean", "AIL", C::ExactAtomics},
+      {"cross_entropy_mean_backward_inplace", "AIL", C::ExactAtomics},
+      {"backward_from_logits_targets", "AI", C::Exact},
       {"gemm_ranked_matrix_rhs", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},

@@ -457,7 +457,9 @@ public:
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                           TensorView &out_loss) override {
-    check_cuda_row_major(logits, {DType::F32}, "cross_entropy_mean(logits)");
+    const Variant variant = variant_of(logits);
+    check_cuda_row_major(logits, {activation_dtype(variant)},
+                         "cross_entropy_mean(logits)");
     check_cuda_row_major(targets, {DType::I32}, "cross_entropy_mean(targets)");
     check_cuda_row_major(out_loss, {DType::F32},
                          "cross_entropy_mean(out_loss)");
@@ -466,13 +468,16 @@ public:
     if (tensor_rows(logits) == 0) {
       return;
     }
-    launch_cross_entropy_mean_f32(logits, targets, out_loss);
+    variant == Variant::Bf16Act
+        ? launch_cross_entropy_mean_bf16act(logits, targets, out_loss)
+        : launch_cross_entropy_mean_f32(logits, targets, out_loss);
   }
 
   void cross_entropy_mean_backward_inplace(TensorView &logits,
                                            const TensorView &targets,
                                            TensorView &out_loss) override {
-    check_cuda_row_major(logits, {DType::F32},
+    const Variant variant = variant_of(logits);
+    check_cuda_row_major(logits, {activation_dtype(variant)},
                          "cross_entropy_mean_backward_inplace(logits)");
     check_cuda_row_major(targets, {DType::I32},
                          "cross_entropy_mean_backward_inplace(targets)");
@@ -480,7 +485,11 @@ public:
                          "cross_entropy_mean_backward_inplace(out_loss)");
     check_cuda(cudaMemset(out_loss.data(), 0, sizeof(float)),
                "cudaMemset(cross_entropy_mean_backward_inplace(out_loss))");
-    launch_cross_entropy_mean_backward_inplace_f32(logits, targets, out_loss);
+    variant == Variant::Bf16Act
+        ? launch_cross_entropy_mean_backward_inplace_bf16act(logits, targets,
+                                                             out_loss)
+        : launch_cross_entropy_mean_backward_inplace_f32(logits, targets,
+                                                         out_loss);
   }
 
   float read_scalar_f32(const TensorView &x) override {

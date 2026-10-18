@@ -100,6 +100,12 @@ void launch_cross_entropy_mean_f32(const TensorView &logits,
 void launch_cross_entropy_mean_backward_inplace_f32(TensorView &logits,
                                                     const TensorView &targets,
                                                     TensorView &out_loss);
+// The same with BF16 logits and gradient (_bf16act); the loss stays F32.
+void launch_cross_entropy_mean_bf16act(const TensorView &logits,
+                                       const TensorView &targets,
+                                       TensorView &out_loss);
+void launch_cross_entropy_mean_backward_inplace_bf16act(
+    TensorView &logits, const TensorView &targets, TensorView &out_loss);
 
 // LayerNorm: _f32, or _bf16act with x, out, dout and dx BF16 and gamma,
 // beta, dgamma and dbeta F32.
