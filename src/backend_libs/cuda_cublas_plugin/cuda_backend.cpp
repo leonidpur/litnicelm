@@ -63,6 +63,9 @@ public:
     if (handle_ != nullptr) {
       cublasDestroy(handle_);
     }
+    if (scratch_loss_ != nullptr) {
+      cudaFree(scratch_loss_);
+    }
   }
 
   Device device() const override { return Device::GPU; }
@@ -454,7 +457,16 @@ public:
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                           TensorView &out_loss) override {
-    fallback_cross_entropy_mean(logits, targets, out_loss);
+    check_cuda_row_major(logits, {DType::F32}, "cross_entropy_mean(logits)");
+    check_cuda_row_major(targets, {DType::I32}, "cross_entropy_mean(targets)");
+    check_cuda_row_major(out_loss, {DType::F32},
+                         "cross_entropy_mean(out_loss)");
+    check_cuda(cudaMemset(out_loss.data(), 0, sizeof(float)),
+               "cudaMemset(cross_entropy_mean(out_loss))");
+    if (tensor_rows(logits) == 0) {
+      return;
+    }
+    launch_cross_entropy_mean_f32(logits, targets, out_loss);
   }
 
   void cross_entropy_mean_backward_inplace(TensorView &logits,
@@ -468,7 +480,7 @@ public:
                          "cross_entropy_mean_backward_inplace(out_loss)");
     check_cuda(cudaMemset(out_loss.data(), 0, sizeof(float)),
                "cudaMemset(cross_entropy_mean_backward_inplace(out_loss))");
-    launch_cross_entropy_mean_backward_inplace(logits, targets, out_loss);
+    launch_cross_entropy_mean_backward_inplace_f32(logits, targets, out_loss);
   }
 
   float read_scalar_f32(const TensorView &x) override {
@@ -478,9 +490,15 @@ public:
     return value;
   }
 
+  // The loss-and-gradient kernel with its loss going to a scratch scalar.
   void backward_from_logits_targets(TensorView &logits,
                                     const TensorView &targets) override {
-    fallback_backward_from_logits_targets(logits, targets);
+    if (scratch_loss_ == nullptr) {
+      check_cuda(cudaMalloc(&scratch_loss_, sizeof(float)),
+                 "cudaMalloc(backward_from_logits_targets scratch loss)");
+    }
+    TensorView loss(Device::GPU, DType::F32, scratch_loss_, Shape{1, 1});
+    cross_entropy_mean_backward_inplace(logits, targets, loss);
   }
 
   void softmax_rows(const TensorView &x, TensorView &out) override {
@@ -775,44 +793,8 @@ private:
     }
   }
 
-  void copy_stage_from_device(const TensorView &src, HostTensorStage &dst) {
-    copy_tensor_2d(src, dst.view, cudaMemcpyDeviceToHost,
-                   "cudaMemcpy2D(device_to_host_stage)");
-  }
-
-  void copy_stage_to_device(const HostTensorStage &src, const TensorView &dst) {
-    copy_tensor_2d(src.view, dst, cudaMemcpyHostToDevice,
-                   "cudaMemcpy2D(host_stage_to_device)");
-  }
-
-  void fallback_cross_entropy_mean(const TensorView &logits,
-                                   const TensorView &targets,
-                                   TensorView &out_loss) {
-    HostTensorStage logits_host(logits);
-    HostTensorStage targets_host(targets);
-    HostTensorStage out_loss_host(out_loss);
-
-    copy_stage_from_device(logits, logits_host);
-    copy_stage_from_device(targets, targets_host);
-
-    cpu_backend_.cross_entropy_mean(logits_host.view, targets_host.view,
-                                    out_loss_host.view);
-    copy_stage_to_device(out_loss_host, out_loss);
-  }
-
-  void fallback_backward_from_logits_targets(TensorView &logits,
-                                             const TensorView &targets) {
-    HostTensorStage logits_host(logits);
-    HostTensorStage targets_host(targets);
-
-    copy_stage_from_device(logits, logits_host);
-    copy_stage_from_device(targets, targets_host);
-
-    cpu_backend_.backward_from_logits_targets(logits_host.view, targets_host.view);
-    copy_stage_to_device(logits_host, logits);
-  }
-
   cublasHandle_t handle_ = nullptr;
+  float *scratch_loss_ = nullptr;  // backward_from_logits_targets' unused loss
   DefaultCpuBackend cpu_backend_;
   static constexpr size_t max_exec_lanes_ = 4;
   cudaEvent_t exec_ready_event_ = nullptr;

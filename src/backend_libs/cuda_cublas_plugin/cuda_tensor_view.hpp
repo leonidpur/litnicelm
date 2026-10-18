@@ -29,7 +29,6 @@ bool is_power_of_two(uint32_t x);
 int64_t tensor_cols(const TensorView &view);
 int64_t tensor_rows(const TensorView &view);
 uint64_t row_bytes(const TensorView &view);
-uint64_t span_bytes(const TensorView &view);
 bool has_storage(const TensorView &view);
 bool is_cuda_row_major(const TensorView &view);
 bool is_cuda_f32_row_major(const TensorView &view);
@@ -60,13 +59,6 @@ void check_cuda_row_major(const TensorView &view,
 int leading_dim(const TensorView &view);
 void copy_tensor_2d(const TensorView &src, const TensorView &dst,
                     cudaMemcpyKind kind, const char *what);
-
-struct HostTensorStage {
-  std::vector<uint8_t> storage;
-  TensorView view;
-
-  explicit HostTensorStage(const TensorView &like);
-};
 
 // Byte address of row r, rows running over all leading dims. Rows are
 // stride_r_bytes apart (to_kernel_tensor_view refuses views whose rows are

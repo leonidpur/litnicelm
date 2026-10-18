@@ -92,9 +92,14 @@ void launch_softmax_backward_causal_rows_bf16act(const TensorView &softmax,
                                                  TensorView &dx,
                                                  cudaStream_t stream = 0);
 
-void launch_cross_entropy_mean_backward_inplace(TensorView &logits,
-                                                const TensorView &targets,
-                                                TensorView &out_loss);
+// Mean cross-entropy over rows: the loss alone, or the loss and the logits'
+// gradient in place. out_loss must be zero; targets I32.
+void launch_cross_entropy_mean_f32(const TensorView &logits,
+                                   const TensorView &targets,
+                                   TensorView &out_loss);
+void launch_cross_entropy_mean_backward_inplace_f32(TensorView &logits,
+                                                    const TensorView &targets,
+                                                    TensorView &out_loss);
 
 // LayerNorm: _f32, or _bf16act with x, out, dout and dx BF16 and gamma,
 // beta, dgamma and dbeta F32.

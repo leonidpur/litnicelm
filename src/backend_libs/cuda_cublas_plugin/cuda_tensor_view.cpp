@@ -77,18 +77,6 @@ uint64_t row_bytes(const TensorView &view) {
   return static_cast<uint64_t>(tensor_cols(view)) * dtype_size(view.dtype());
 }
 
-uint64_t span_bytes(const TensorView &view) {
-  if (tensor_rows(view) <= 0 || tensor_cols(view) <= 0) {
-    return 0;
-  }
-  const uint64_t elem_size = dtype_size(view.dtype());
-  return static_cast<uint64_t>(tensor_rows(view) - 1) *
-             static_cast<uint64_t>(view.stride_bytes(view.rank() - 2)) +
-         static_cast<uint64_t>(tensor_cols(view) - 1) *
-             static_cast<uint64_t>(view.stride_bytes(view.rank() - 1)) +
-         elem_size;
-}
-
 bool has_storage(const TensorView &view) {
   return tensor_rows(view) == 0 || tensor_cols(view) == 0 || view.data() != nullptr;
 }
@@ -201,12 +189,5 @@ void copy_tensor_2d(const TensorView &src, const TensorView &dst,
                           static_cast<size_t>(tensor_rows(src)), kind),
              what);
 }
-
-HostTensorStage::HostTensorStage(const TensorView &like)
-    : storage(static_cast<size_t>(span_bytes(like))),
-      view(Device::CPU, like.dtype(), storage.empty() ? nullptr : storage.data(),
-           like.shape(),
-           like.rank() >= 1 ? like.stride_bytes(like.rank() - 1) : 0,
-           like.rank() >= 2 ? like.stride_bytes(like.rank() - 2) : 0) {}
 
 } // namespace cuda_cublas_plugin
