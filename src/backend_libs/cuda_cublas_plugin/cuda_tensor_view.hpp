@@ -12,16 +12,13 @@
 
 namespace cuda_cublas_plugin {
 
+// What a kernel needs of a tensor: rows (all leading dims flattened) of
+// cols contiguous elements, stride_r_bytes apart.
 struct KernelTensorView {
-  DType dtype;
   void *data;
-  int32_t rank;
-  int64_t dims[kMaxTensorRank];
-  int64_t strides_bytes[kMaxTensorRank];
   int64_t rows;
   int64_t cols;
   int64_t stride_r_bytes;
-  int64_t stride_c_bytes;
 };
 
 const TensorView &to_tensor_view(const TensorViewStruct &abi);
@@ -62,27 +59,12 @@ struct HostTensorStage {
   explicit HostTensorStage(const TensorView &like);
 };
 
-__device__ inline int64_t kernel_prefix_offset_bytes(const KernelTensorView &t,
-                                                     int64_t prefix,
-                                                     int32_t prefix_rank) {
-  int64_t offset = 0;
-  for (int32_t axis = prefix_rank - 1; axis >= 0; --axis) {
-    const int64_t dim = t.dims[axis];
-    const int64_t coord = dim > 0 ? prefix % dim : 0;
-    prefix = dim > 0 ? prefix / dim : 0;
-    offset += coord * t.strides_bytes[axis];
-  }
-  return offset;
-}
-
-// Byte address of row r, rows running over all leading dims. The elements
-// of a row are contiguous (check_cuda_row_major), so a kernel indexes the
-// row through a pointer of the tensor's element type.
+// Byte address of row r, rows running over all leading dims. Rows are
+// stride_r_bytes apart (to_kernel_tensor_view refuses views whose rows are
+// not evenly spaced) and the elements of a row are contiguous
+// (check_cuda_row_major), so a kernel indexes the row through a pointer of
+// the tensor's element type.
 __device__ inline const char *row_ptr(const KernelTensorView &t, int64_t r) {
-  if (t.rank >= 2) {
-    return static_cast<const char *>(t.data) +
-           kernel_prefix_offset_bytes(t, r, t.rank - 1);
-  }
   return static_cast<const char *>(t.data) + r * t.stride_r_bytes;
 }
 

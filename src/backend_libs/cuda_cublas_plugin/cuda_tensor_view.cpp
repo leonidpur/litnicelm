@@ -11,36 +11,46 @@ const TensorView &to_tensor_view(const TensorViewStruct &abi) {
   return as_tensor_view(abi, "cuda cublas plugin");
 }
 
-KernelTensorView to_kernel_tensor_view(const TensorView &view) {
-  KernelTensorView out{};
-  out.dtype = view.dtype();
-  out.data = view.data();
-  out.rank = static_cast<int32_t>(view.rank());
-  for (size_t i = 0; i < view.rank() && i < kMaxTensorRank; ++i) {
-    out.dims[i] = view.dim(i);
-    out.strides_bytes[i] = view.stride_bytes(i);
+namespace {
+
+// The byte distance between consecutive rows, rows running over all leading
+// dims, if that distance is the same everywhere: the stride of the innermost
+// leading axis longer than 1, with every outer such axis spanning exactly
+// the rows inside it. Size-1 axes do not matter. Returns false otherwise.
+bool uniform_row_stride(const TensorView &view, int64_t &stride) {
+  stride = 0;
+  int64_t span = -1;  // bytes covered by the rows of the axes seen so far
+  for (size_t axis = view.rank() >= 2 ? view.rank() - 1 : 0; axis-- > 0;) {
+    if (view.dim(axis) == 1) {
+      continue;
+    }
+    if (span < 0) {
+      stride = view.stride_bytes(axis);
+    } else if (view.stride_bytes(axis) != span) {
+      return false;
+    }
+    span = view.stride_bytes(axis) * view.dim(axis);
   }
-  out.rows = tensor_rows(view);
-  out.cols = tensor_cols(view);
-  out.stride_r_bytes = view.rank() >= 2 ? view.stride_bytes(view.rank() - 2) : 0;
-  out.stride_c_bytes = view.rank() >= 1 ? view.stride_bytes(view.rank() - 1) : 0;
-  return out;
+  return true;
+}
+
+} // namespace
+
+KernelTensorView to_kernel_tensor_view(const TensorView &view) {
+  int64_t row_stride = 0;
+  checker().check(CheckKind::Capability, uniform_row_stride(view, row_stride),
+                  "cuda_cublas_plugin",
+                  "kernels need evenly spaced rows; this view's leading axes "
+                  "are not");
+  return {view.data(), tensor_rows(view), tensor_cols(view), row_stride};
 }
 
 KernelTensorView to_kernel_index_vector_view(const TensorView &view) {
-  KernelTensorView out{};
-  out.dtype = view.dtype();
-  out.data = view.data();
-  out.rank = 2;
-  out.dims[0] = static_cast<int64_t>(view.numel());
-  out.dims[1] = 1;
-  out.rows = out.dims[0];
-  out.cols = 1;
-  out.stride_r_bytes = view.rank() >= 1 ? view.stride_bytes(view.rank() - 1) : 0;
-  out.stride_c_bytes = out.stride_r_bytes;
-  out.strides_bytes[0] = out.stride_r_bytes;
-  out.strides_bytes[1] = out.stride_c_bytes;
-  return out;
+  // Read as one column of numel ids, one per row.
+  checker().check(CheckKind::Capability, view.is_contiguous_row_major(),
+                  "cuda_cublas_plugin", "id tensors must be contiguous");
+  return {view.data(), static_cast<int64_t>(view.numel()), 1,
+          static_cast<int64_t>(dtype_size(view.dtype()))};
 }
 
 bool is_power_of_two(uint32_t x) { return x != 0 && (x & (x - 1)) == 0; }
