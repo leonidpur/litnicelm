@@ -11,26 +11,56 @@ namespace cuda_cublas_plugin {
 void launch_cast_f32_to_bf16(const TensorView &src, TensorView &dst);
 void launch_cast_bf16_to_f32(const TensorView &src, TensorView &dst);
 
-void launch_fill(TensorView &t, float value);
-void launch_add(const TensorView &a, const TensorView &b, TensorView &out);
-void launch_add_batch_seq_plus_pos(const TensorView &a, const TensorView &b,
-                                   TensorView &out, int64_t seq_len);
-void launch_add_inplace(TensorView &a, const TensorView &b);
-void launch_add_bias_rowwise(const TensorView &x, const TensorView &bias,
-                             TensorView &out);
-void launch_add_bias_relu_rowwise(const TensorView &x, const TensorView &bias,
-                                  TensorView &out);
-void launch_add_bias_relu_rowwise_inplace(TensorView &x,
-                                          const TensorView &bias);
-void launch_mul_scalar(const TensorView &x, float scale, TensorView &out);
-void launch_relu(const TensorView &x, TensorView &out);
-void launch_relu_backward(const TensorView &preact, const TensorView &dout,
-                          TensorView &dx);
-void launch_relu_backward_inplace(const TensorView &preact, TensorView &dout_dx);
+// Elementwise ops: <op>_f32 for all-F32 operands, <op>_bf16act for BF16
+// activations with F32 parameters (bias, position table) and parameter
+// gradients (add_inplace's accumulator).
+
+void launch_fill_f32(TensorView &t, float value);
+void launch_fill_bf16act(TensorView &t, float value);
+void launch_add_f32(const TensorView &a, const TensorView &b, TensorView &out);
+void launch_add_bf16act(const TensorView &a, const TensorView &b,
+                        TensorView &out);
+void launch_add_batch_seq_plus_pos_f32(const TensorView &a, const TensorView &b,
+                                       TensorView &out, int64_t seq_len);
+void launch_add_batch_seq_plus_pos_bf16act(const TensorView &a,
+                                           const TensorView &b, TensorView &out,
+                                           int64_t seq_len);
+void launch_add_inplace_f32(TensorView &a, const TensorView &b);
+void launch_add_inplace_bf16act(TensorView &a, const TensorView &b);
+void launch_add_bias_rowwise_f32(const TensorView &x, const TensorView &bias,
+                                 TensorView &out);
+void launch_add_bias_rowwise_bf16act(const TensorView &x,
+                                     const TensorView &bias, TensorView &out);
+void launch_add_bias_relu_rowwise_f32(const TensorView &x,
+                                      const TensorView &bias, TensorView &out);
+void launch_add_bias_relu_rowwise_bf16act(const TensorView &x,
+                                          const TensorView &bias,
+                                          TensorView &out);
+void launch_add_bias_relu_rowwise_inplace_f32(TensorView &x,
+                                              const TensorView &bias);
+void launch_add_bias_relu_rowwise_inplace_bf16act(TensorView &x,
+                                                  const TensorView &bias);
+void launch_mul_scalar_f32(const TensorView &x, float scale, TensorView &out);
+void launch_mul_scalar_bf16act(const TensorView &x, float scale,
+                               TensorView &out);
+void launch_relu_f32(const TensorView &x, TensorView &out);
+void launch_relu_bf16act(const TensorView &x, TensorView &out);
+void launch_relu_backward_f32(const TensorView &preact, const TensorView &dout,
+                              TensorView &dx);
+void launch_relu_backward_bf16act(const TensorView &preact,
+                                  const TensorView &dout, TensorView &dx);
+void launch_relu_backward_inplace_f32(const TensorView &preact,
+                                      TensorView &dout_dx);
+void launch_relu_backward_inplace_bf16act(const TensorView &preact,
+                                          TensorView &dout_dx);
 void launch_transpose(const TensorView &x, TensorView &out);
-void launch_apply_causal_mask_inplace(TensorView &scores, float neg_inf);
-void launch_rotary_embedding_inplace(TensorView &x, int64_t n_heads,
-                                     float base, bool inverse);
+void launch_apply_causal_mask_inplace_f32(TensorView &scores, float neg_inf);
+void launch_apply_causal_mask_inplace_bf16act(TensorView &scores,
+                                              float neg_inf);
+void launch_rotary_embedding_inplace_f32(TensorView &x, int64_t n_heads,
+                                         float base, bool inverse);
+void launch_rotary_embedding_inplace_bf16act(TensorView &x, int64_t n_heads,
+                                             float base, bool inverse);
 
 void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq);
 void launch_row_sum(const TensorView &x, TensorView &out_1xC);

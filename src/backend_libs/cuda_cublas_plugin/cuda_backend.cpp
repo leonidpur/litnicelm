@@ -140,80 +140,112 @@ public:
     }
   }
 
+  // Elementwise ops pick their variant from the activation operand and
+  // check every operand against that variant: activations in its
+  // activation dtype, parameters and parameter gradients F32.
   void fill(TensorView &t, float v) override {
-    check_cuda_row_major(t, {DType::F32}, "fill");
+    const Variant variant = variant_of(t);
+    check_cuda_row_major(t, {activation_dtype(variant)}, "fill");
     if (tensor_rows(t) == 0 || tensor_cols(t) == 0) {
       return;
     }
-    launch_fill(t, v);
+    variant == Variant::Bf16Act ? launch_fill_bf16act(t, v)
+                                : launch_fill_f32(t, v);
   }
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) override {
-    check_cuda_row_major(a, {DType::F32}, "add(a)");
-    check_cuda_row_major(b, {DType::F32}, "add(b)");
-    check_cuda_row_major(out, {DType::F32}, "add(out)");
+    const Variant variant = variant_of(a);
+    const DType act = activation_dtype(variant);
+    const bool position_table =
+        a.rank() == 3 && b.rank() == 2 && out.rank() == 3 &&
+        a.dim(1) == b.dim(0) && a.dim(2) == b.dim(1) &&
+        out.dim(0) == a.dim(0) && out.dim(1) == a.dim(1) &&
+        out.dim(2) == a.dim(2);
+    check_cuda_row_major(a, {act}, "add(a)");
+    // [B, S, D] + [S, D]: b is the F32 position table.
+    check_cuda_row_major(b, {position_table ? DType::F32 : act}, "add(b)");
+    check_cuda_row_major(out, {act}, "add(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    if (a.rank() == 3 && b.rank() == 2 && out.rank() == 3 &&
-        a.dim(1) == b.dim(0) && a.dim(2) == b.dim(1) &&
-        out.dim(0) == a.dim(0) && out.dim(1) == a.dim(1) &&
-        out.dim(2) == a.dim(2)) {
-      launch_add_batch_seq_plus_pos(a, b, out, a.dim(1));
+    if (position_table) {
+      variant == Variant::Bf16Act
+          ? launch_add_batch_seq_plus_pos_bf16act(a, b, out, a.dim(1))
+          : launch_add_batch_seq_plus_pos_f32(a, b, out, a.dim(1));
       return;
     }
-    launch_add(a, b, out);
+    variant == Variant::Bf16Act ? launch_add_bf16act(a, b, out)
+                                : launch_add_f32(a, b, out);
   }
 
+  // a: an F32 parameter gradient (or any F32 tensor); b: the activation
+  // gradient added into it.
   void add_inplace(TensorView &a, const TensorView &b) override {
+    const Variant variant = variant_of(b);
     check_cuda_row_major(a, {DType::F32}, "add_inplace(a)");
-    check_cuda_row_major(b, {DType::F32}, "add_inplace(b)");
+    check_cuda_row_major(b, {activation_dtype(variant)}, "add_inplace(b)");
     if (tensor_rows(a) == 0 || tensor_cols(a) == 0) {
       return;
     }
-    launch_add_inplace(a, b);
+    variant == Variant::Bf16Act ? launch_add_inplace_bf16act(a, b)
+                                : launch_add_inplace_f32(a, b);
   }
 
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "add_bias_rowwise(x)");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)}, "add_bias_rowwise(x)");
     check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_rowwise(bias)");
-    check_cuda_row_major(out, {DType::F32}, "add_bias_rowwise(out)");
+    check_cuda_row_major(out, {activation_dtype(variant)},
+                         "add_bias_rowwise(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_add_bias_rowwise(x, bias_1xC, out);
+    variant == Variant::Bf16Act
+        ? launch_add_bias_rowwise_bf16act(x, bias_1xC, out)
+        : launch_add_bias_rowwise_f32(x, bias_1xC, out);
   }
 
   void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
                              TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "add_bias_relu_rowwise(x)");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)},
+                         "add_bias_relu_rowwise(x)");
     check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_relu_rowwise(bias)");
-    check_cuda_row_major(out, {DType::F32}, "add_bias_relu_rowwise(out)");
+    check_cuda_row_major(out, {activation_dtype(variant)},
+                         "add_bias_relu_rowwise(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_add_bias_relu_rowwise(x, bias_1xC, out);
+    variant == Variant::Bf16Act
+        ? launch_add_bias_relu_rowwise_bf16act(x, bias_1xC, out)
+        : launch_add_bias_relu_rowwise_f32(x, bias_1xC, out);
   }
 
   void add_bias_relu_rowwise_inplace(TensorView &x,
                                      const TensorView &bias_1xC) override {
-    check_cuda_row_major(x, {DType::F32}, "add_bias_relu_rowwise_inplace(x)");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)},
+                         "add_bias_relu_rowwise_inplace(x)");
     check_cuda_row_major(bias_1xC, {DType::F32},
                          "add_bias_relu_rowwise_inplace(bias)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    launch_add_bias_relu_rowwise_inplace(x, bias_1xC);
+    variant == Variant::Bf16Act
+        ? launch_add_bias_relu_rowwise_inplace_bf16act(x, bias_1xC)
+        : launch_add_bias_relu_rowwise_inplace_f32(x, bias_1xC);
   }
 
   void mul_scalar(const TensorView &x, float s, TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "mul_scalar(x)");
-    check_cuda_row_major(out, {DType::F32}, "mul_scalar(out)");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)}, "mul_scalar(x)");
+    check_cuda_row_major(out, {activation_dtype(variant)}, "mul_scalar(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_mul_scalar(x, s, out);
+    variant == Variant::Bf16Act ? launch_mul_scalar_bf16act(x, s, out)
+                                : launch_mul_scalar_f32(x, s, out);
   }
 
   float sum_squares_f32(const TensorView &x) override {
@@ -234,34 +266,43 @@ public:
   }
 
   void relu(const TensorView &x, TensorView &out) override {
-    check_cuda_row_major(x, {DType::F32}, "relu(x)");
-    check_cuda_row_major(out, {DType::F32}, "relu(out)");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)}, "relu(x)");
+    check_cuda_row_major(out, {activation_dtype(variant)}, "relu(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    launch_relu(x, out);
+    variant == Variant::Bf16Act ? launch_relu_bf16act(x, out)
+                                : launch_relu_f32(x, out);
   }
 
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) override {
-    check_cuda_row_major(preact, {DType::F32}, "relu_backward(preact)");
-    check_cuda_row_major(dout, {DType::F32}, "relu_backward(dout)");
-    check_cuda_row_major(dx, {DType::F32}, "relu_backward(dx)");
+    const Variant variant = variant_of(preact);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(preact, {act}, "relu_backward(preact)");
+    check_cuda_row_major(dout, {act}, "relu_backward(dout)");
+    check_cuda_row_major(dx, {act}, "relu_backward(dx)");
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    launch_relu_backward(preact, dout, dx);
+    variant == Variant::Bf16Act ? launch_relu_backward_bf16act(preact, dout, dx)
+                                : launch_relu_backward_f32(preact, dout, dx);
   }
 
   void relu_backward_inplace(const TensorView &preact,
                              TensorView &dout_dx) override {
-    check_cuda_row_major(preact, {DType::F32}, "relu_backward_inplace(preact)");
-    check_cuda_row_major(dout_dx, {DType::F32},
+    const Variant variant = variant_of(preact);
+    check_cuda_row_major(preact, {activation_dtype(variant)},
+                         "relu_backward_inplace(preact)");
+    check_cuda_row_major(dout_dx, {activation_dtype(variant)},
                          "relu_backward_inplace(dout_dx)");
     if (tensor_rows(dout_dx) == 0 || tensor_cols(dout_dx) == 0) {
       return;
     }
-    launch_relu_backward_inplace(preact, dout_dx);
+    variant == Variant::Bf16Act
+        ? launch_relu_backward_inplace_bf16act(preact, dout_dx)
+        : launch_relu_backward_inplace_f32(preact, dout_dx);
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
@@ -567,20 +608,28 @@ public:
 
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override {
-    check_cuda_row_major(scores, {DType::F32}, "apply_causal_mask_inplace");
+    const Variant variant = variant_of(scores);
+    check_cuda_row_major(scores, {activation_dtype(variant)},
+                         "apply_causal_mask_inplace");
     if (tensor_rows(scores) == 0 || tensor_cols(scores) == 0) {
       return;
     }
-    launch_apply_causal_mask_inplace(scores, neg_inf);
+    variant == Variant::Bf16Act
+        ? launch_apply_causal_mask_inplace_bf16act(scores, neg_inf)
+        : launch_apply_causal_mask_inplace_f32(scores, neg_inf);
   }
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                                 bool inverse) override {
-    check_cuda_row_major(x, {DType::F32}, "rotary_embedding_inplace");
+    const Variant variant = variant_of(x);
+    check_cuda_row_major(x, {activation_dtype(variant)},
+                         "rotary_embedding_inplace");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    launch_rotary_embedding_inplace(x, n_heads, base, inverse);
+    variant == Variant::Bf16Act
+        ? launch_rotary_embedding_inplace_bf16act(x, n_heads, base, inverse)
+        : launch_rotary_embedding_inplace_f32(x, n_heads, base, inverse);
   }
 
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,

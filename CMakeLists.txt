@@ -163,12 +163,29 @@ target_include_directories(litnice_backend_ops_test PRIVATE
     src/model/memory
 )
 target_link_libraries(litnice_backend_ops_test PRIVATE litnice_core)
-foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin)
   if(TARGET ${plugin})
     add_test(NAME backend_ops_${plugin}
              COMMAND litnice_backend_ops_test $<TARGET_FILE:${plugin}>)
   endif()
 endforeach()
+# CUDA also compares its _f32 and _bf16act kernels.
+if(TARGET litnice_backend_cublas_plugin)
+  add_test(NAME backend_ops_litnice_backend_cublas_plugin
+           COMMAND litnice_backend_ops_test
+                   $<TARGET_FILE:litnice_backend_cublas_plugin> --bf16act)
+endif()
+
+# _f32 vs _bf16act timings per op (a tool, not a test).
+add_executable(litnice_variant_bench tests/variant_bench.cpp)
+target_include_directories(litnice_variant_bench PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/memory
+)
+target_link_libraries(litnice_variant_bench PRIVATE litnice_core)
 
 # Every F32 and BF16 bit pattern through the CUDA cast vs the host
 # conversion. Slow: excluded by `ctest -LE slow`.

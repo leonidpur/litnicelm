@@ -40,6 +40,15 @@ int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
 // Address of the prefix-th matrix (last two dims) of view.
 void *prefix_matrix_ptr(TensorView &view, uint64_t prefix);
 const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix);
+// The kernel variant an op runs, set by the dtype of its activation
+// operand: <op>_bf16act when that is BF16 (activations and activation
+// gradients BF16; parameters, their gradients and optimizer state F32),
+// otherwise <op>_f32.
+enum class Variant { F32, Bf16Act };
+Variant variant_of(const TensorView &activation);
+// The dtype activation operands have in variant v.
+DType activation_dtype(Variant v);
+
 // Capability: a GPU tensor with storage whose rows hold contiguous elements
 // (rank >= 2). what names the operand, e.g. "gemm(a)".
 void check_cuda_row_major(const TensorView &view, const char *what);

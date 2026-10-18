@@ -7,7 +7,13 @@
 // Output buffers start out holding nonzero values, so an op that
 // accumulates where the reference overwrites (or the reverse) fails.
 //
-// Usage: litnice_backend_ops_test <path to backend plugin .so>
+// With --bf16act, ops that have a _bf16act kernel also run both variants on
+// the plugin on identical BF16-representable inputs: BF16 activation
+// outputs must equal the _f32 result rounded to BF16 (bit for bit for
+// finite values and Inf; NaN only needs to be NaN), F32 outputs must equal
+// the _f32 result.
+//
+// Usage: litnice_backend_ops_test <path to backend plugin .so> [--bf16act]
 
 #include "backend/device_backend.hpp"
 #include "tensor.hpp"
@@ -292,6 +298,24 @@ std::vector<OpCase> op_cases() {
                      return Scalars{};
                    },
                    {1}, kExact, kExact});
+  // Odd last dims and odd column offsets: rows that a paired (bf16x2) or
+  // vectorized kernel would see misaligned and with a tail.
+  const Shape odd{3, 17, 37};
+  cases.push_back({"add, odd width", {random_f32(odd, 130), random_f32(odd, 131), random_f32(odd, 132)},
+                   [](DeviceBackend &b, Views &v) { b.add(v[0], v[1], v[2]); return Scalars{}; },
+                   {2}, kExact, kExact});
+  cases.push_back({"add on odd column slices of an odd width",
+                   {random_f32(Shape{3, 17, 75}, 133), random_f32(Shape{3, 17, 75}, 134)},
+                   [](DeviceBackend &b, Views &v) {
+                     TensorView out = v[1].subcols(1, 37);
+                     b.add(v[0].subcols(37, 37), v[0].subcols(3, 37), out);
+                     return Scalars{};
+                   },
+                   {1}, kExact, kExact});
+  cases.push_back({"add_bias_rowwise, odd width",
+                   {random_f32(odd, 135), random_f32(Shape{1, 37}, 136), random_f32(odd, 137)},
+                   [](DeviceBackend &b, Views &v) { b.add_bias_rowwise(v[0], v[1], v[2]); return Scalars{}; },
+                   {2}, kExact, kExact});
   cases.push_back({"add_inplace", {random_f32(bsd, 12), random_f32(bsd, 13)},
                    [](DeviceBackend &b, Views &v) { b.add_inplace(v[0], v[1]); return Scalars{}; },
                    {0}, kExact, kExact});
@@ -498,11 +522,98 @@ std::vector<OpCase> exec_context_cases() {
   return cases;
 }
 
+// --- _f32 vs _bf16act
+
+// A tensor's role in the _bf16act variant: A = activation or activation
+// gradient (BF16), P = parameter, parameter gradient or optimizer state
+// (F32), I = ids (I32), L = loss scalar (F32).
+// The roles of each op's tensors, in the order its case lists them, for
+// every op that has a _bf16act kernel.
+const std::vector<std::pair<std::string, std::string>> &bf16act_roles() {
+  static const std::vector<std::pair<std::string, std::string>> roles = {
+      {"copy", "AA"},
+      {"fill", "A"},
+      {"add, odd width", "AAA"},
+      {"add on odd column slices of an odd width", "AA"},
+      {"add_bias_rowwise, odd width", "APA"},
+      {"add", "AAA"},
+      {"add [B,S,D] + [S,D] (position broadcast)", "APA"},
+      {"add on column slices (strided rows)", "AA"},
+      {"add_inplace", "PA"},
+      {"add_bias_rowwise", "APA"},
+      {"add_bias_relu_rowwise", "APA"},
+      {"add_bias_relu_rowwise_inplace", "AP"},
+      {"mul_scalar", "AA"},
+      {"relu", "AA"},
+      {"relu_backward", "AAA"},
+      {"relu_backward_inplace", "AA"},
+      {"apply_causal_mask_inplace", "A"},
+      {"rotary_embedding_inplace", "A"},
+      {"rotary_embedding_inplace (inverse)", "A"},
+  };
+  return roles;
+}
+
+// The case with its float values rounded to BF16, stored as F32 (the _f32
+// run) or by role (the _bf16act run).
+OpCase as_variant(const OpCase &op, const std::string &roles, bool bf16act) {
+  OpCase out = op;
+  for (size_t i = 0; i < out.tensors.size(); ++i) {
+    HostTensor &t = out.tensors[i];
+    if (t.dtype == DType::I32) {
+      continue;
+    }
+    for (float &v : t.values) {
+      v = round_to_bf16(v);
+    }
+    t.dtype = bf16act && roles[i] == 'A' ? DType::BF16 : DType::F32;
+  }
+  return out;
+}
+
+bool same_bf16(double got, double want_f32) {
+  const double want = round_to_bf16(static_cast<float>(want_f32));
+  if (std::isnan(want) || std::isnan(got)) {
+    return std::isnan(want) && std::isnan(got);
+  }
+  return got == want;
+}
+
+void compare_variants(DeviceBackend &plugin, const OpCase &op,
+                      const std::string &roles) {
+  Result f32;
+  Result bf16;
+  try {
+    f32 = execute(plugin, as_variant(op, roles, false), false);
+    bf16 = execute(plugin, as_variant(op, roles, true), false);
+  } catch (const std::exception &e) {
+    std::cout << "[FAIL] " << op.name << " _f32 vs _bf16act: " << e.what() << "\n";
+    ++g_failures;
+    return;
+  }
+  bool ok = true;
+  for (size_t o = 0; o < op.outputs.size(); ++o) {
+    const bool activation = roles[op.outputs[o]] == 'A';
+    for (size_t i = 0; i < f32.outputs[o].size(); ++i) {
+      const double want = f32.outputs[o][i];
+      const double got = bf16.outputs[o][i];
+      ok = ok && (activation ? same_bf16(got, want)
+                             : (std::isnan(want) ? std::isnan(got) : got == want));
+    }
+  }
+  std::cout << (ok ? "[PASS] " : "[FAIL] ") << op.name
+            << " _bf16act == round(_f32)\n";
+  if (!ok) {
+    ++g_failures;
+  }
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cerr << "usage: " << argv[0] << " <backend plugin .so>\n";
+  const bool bf16act = argc == 3 && std::string(argv[2]) == "--bf16act";
+  if (argc != 2 && !bf16act) {
+    std::cerr << "usage: " << argv[0] << " <backend plugin .so> [--bf16act]\n";
     return 2;
   }
   Config cfg{};
@@ -521,6 +632,20 @@ int main(int argc, char **argv) {
     }
   } else {
     std::cout << "[SKIP] exec-context ops (not supported by this backend)\n";
+  }
+  if (bf16act) {
+    const std::vector<OpCase> cases = op_cases();
+    for (const auto &[name, roles] : bf16act_roles()) {
+      const auto it = std::find_if(cases.begin(), cases.end(),
+                                   [&](const OpCase &op) { return op.name == name; });
+      if (it == cases.end() || roles.size() != it->tensors.size()) {
+        std::cout << "[FAIL] " << name << ": no case with " << roles.size()
+                  << " tensors\n";
+        ++g_failures;
+        continue;
+      }
+      compare_variants(*plugin, *it, roles);
+    }
   }
 
   std::cout << (g_failures == 0 ? "All backend op tests passed.\n"
