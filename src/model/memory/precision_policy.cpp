@@ -20,10 +20,6 @@ constexpr std::array<DType, static_cast<size_t>(ItemType::Count)> kBf16Mixed = {
 PrecisionPolicy PrecisionPolicy::create(const Config &cfg,
                                         uint32_t backend_variants) {
   if (cfg.precision == Precision::Bf16Mixed) {
-    // Gate until E3 stores the BF16 compute weights; removing it is E3's
-    // first step.
-    checker().check(CheckKind::Capability, false, "PrecisionPolicy",
-                    "bf16_mixed: ComputeWeight storage not implemented (E3)");
     checker().check(CheckKind::Capability,
                     (backend_variants & kPrecisionVariantBf16Act) != 0,
                     "PrecisionPolicy",

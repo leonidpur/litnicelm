@@ -311,6 +311,16 @@ foreach(plugin litnice_backend_cpu litnice_backend_cublas_plugin)
   endif()
 endforeach()
 
+# Precision presets end to end on CUDA: bf16_mixed trains, and checkpoints
+# resume across presets.
+if(TARGET litnice_backend_cublas_plugin)
+  add_test(NAME precision_e2e
+           COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/precision_e2e.sh
+                   $<TARGET_FILE:litnicelm>
+                   $<TARGET_FILE:litnice_backend_cublas_plugin>
+                   ${CMAKE_CURRENT_BINARY_DIR}/precision_e2e_tmp)
+endif()
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)

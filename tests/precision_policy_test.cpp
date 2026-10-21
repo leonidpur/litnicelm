@@ -1,7 +1,9 @@
 // Precision presets: the config accepts exactly `precision: fp32` and
 // `precision: bf16_mixed` (default fp32) and rejects anything else; the fp32
-// policy gives each item type its table dtype; on every backend plugin given,
-// fp32 passes the capability check and bf16_mixed fails it (until E3).
+// and bf16_mixed policies give each item type its table dtype; on every
+// backend plugin given, fp32 passes the capability check, and bf16_mixed
+// passes it on the CUDA plugin (the one with _bf16act kernels) and fails it
+// on the others.
 //
 // Usage: litnice_precision_policy_test <tmp dir> <base config.yaml>
 //                                      <backend plugin .so>...
@@ -117,6 +119,28 @@ int main(int argc, char **argv) {
   expect(policy.compute_weight_aliases_parameter(),
          "fp32: ComputeWeight aliases Parameter");
 
+  const PrecisionPolicy mixed = PrecisionPolicy::create(
+      *bf16.cfg, kPrecisionVariantF32 | kPrecisionVariantBf16Act);
+  const struct {
+    ItemType item;
+    const char *name;
+    DType want;
+  } mixed_table[] = {
+      {ItemType::Parameter, "Parameter", DType::F32},
+      {ItemType::ComputeWeight, "ComputeWeight", DType::BF16},
+      {ItemType::Gradient, "Gradient", DType::F32},
+      {ItemType::OptimizerState, "OptimizerState", DType::F32},
+      {ItemType::Activation, "Activation", DType::BF16},
+      {ItemType::TokenIds, "TokenIds", DType::I32},
+      {ItemType::Loss, "Loss", DType::F32},
+  };
+  for (const auto &row : mixed_table) {
+    expect(mixed.dtype(row.item) == row.want,
+           std::string("bf16_mixed: ") + row.name + " is " + dtype_name(row.want));
+  }
+  expect(!mixed.compute_weight_aliases_parameter(),
+         "bf16_mixed: ComputeWeight does not alias Parameter");
+
   for (int i = 3; i < argc; ++i) {
     Config cfg = *fp32.cfg;
     cfg.backend.library = argv[i];
@@ -125,10 +149,16 @@ int main(int argc, char **argv) {
     expect(!create_error(*fp32.cfg, variants),
            std::string("fp32 passes the capability check on ") + argv[i]);
     const std::optional<std::string> error = create_error(*bf16.cfg, variants);
-    expect(error && error->find("ComputeWeight storage not implemented (E3)") !=
-                        std::string::npos,
-           std::string("bf16_mixed fails the capability check on ") + argv[i] +
-               (error ? " (" + *error + ")" : ""));
+    const bool has_bf16act = std::string(argv[i]).find("cublas") != std::string::npos;
+    if (has_bf16act) {
+      expect(!error, std::string("bf16_mixed passes the capability check on ") + argv[i] +
+                         (error ? " (" + *error + ")" : ""));
+    } else {
+      expect(error && error->find("no BF16-activation (_bf16act) kernels") !=
+                          std::string::npos,
+             std::string("bf16_mixed fails the capability check on ") + argv[i] +
+                 (error ? " (" + *error + ")" : ""));
+    }
   }
 
   std::cout << (failures == 0 ? "All precision policy tests passed.\n"
