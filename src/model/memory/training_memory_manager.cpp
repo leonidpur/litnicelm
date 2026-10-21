@@ -1,6 +1,7 @@
 #include "training_memory_manager.hpp"
 
 #include "backend/device_backend.hpp"
+#include "compute_weight_sync.hpp"
 #include "training_session_controller.hpp"
 
 #include <stdexcept>
@@ -144,4 +145,10 @@ AdamStateStore &TrainingMemoryManager::adam_state_store() const {
         "TrainingMemoryManager: adam_state_store is null");
   }
   return *adam_state_store_;
+}
+
+void TrainingMemoryManager::sync_compute_weights() {
+  if (compute_arena_) {
+    cast_parameters_to_compute_weights(cfg_, tensor_store(), backend_);
+  }
 }

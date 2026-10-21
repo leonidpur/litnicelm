@@ -42,6 +42,11 @@ public:
   uint64_t temp_bytes() const;
 
   TensorStore &tensor_store() const;
+
+  // Refreshes the compute weights from the parameters (after they change:
+  // initialization, checkpoint load, optimizer step). Nothing to do when the
+  // GEMMs read the parameters.
+  void sync_compute_weights();
   GradientStore &gradient_store() const;
   AdamStateStore &adam_state_store() const;
 

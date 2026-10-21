@@ -2,6 +2,7 @@
 
 #include "adam_state_store.hpp"
 #include "backend/device_backend.hpp"
+#include "compute_weight_sync.hpp"
 
 #include <stdexcept>
 
@@ -75,4 +76,10 @@ TensorStore &InferenceMemoryManager::tensor_store() const {
     throw std::runtime_error("InferenceMemoryManager: tensor_store is null");
   }
   return *tensor_store_;
+}
+
+void InferenceMemoryManager::sync_compute_weights() {
+  if (compute_arena_) {
+    cast_parameters_to_compute_weights(cfg_, tensor_store(), backend_);
+  }
 }

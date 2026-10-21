@@ -21,13 +21,15 @@
 
 // Trainer does: load/resume, loop epochs, forward, loss, backward (later),
 // optimizer step, save.
+class TrainingMemoryManager;
+
 class Trainer {
 public:
   Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
           OptimizerAdamW &opt, Transformer &transformer, const ArenaView &data_arena,
           const ArenaView &grad_sum_arena, GradientStore &gradient_store,
           AdamStateStore &adam_state_store, const AdamStateView &adam_state,
-          DeviceBackend &device_backend,
+          DeviceBackend &device_backend, TrainingMemoryManager &memory_manager,
           TrainingSessionController &session_controller,
           const RuntimeFlags &runtime_flags);
 
@@ -52,6 +54,7 @@ private:
   std::chrono::steady_clock::time_point last_checkpoint_time_{};
   bool has_last_checkpoint_time_ = false;
   DeviceBackend &device_backend_;
+  TrainingMemoryManager &memory_manager_;
   TrainingSessionController &session_controller_;
   TrainingDiagnosticsController diagnostics_;
   GradientAccumulator accumulator_;

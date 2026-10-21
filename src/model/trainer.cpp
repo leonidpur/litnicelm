@@ -30,6 +30,7 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
                  GradientStore &gradient_store, AdamStateStore &adam_state_store,
                  const AdamStateView &adam_state,
                  DeviceBackend &device_backend,
+                 TrainingMemoryManager &memory_manager,
                  TrainingSessionController &session_controller,
                  const RuntimeFlags &runtime_flags)
     : cfg_(cfg),
@@ -43,6 +44,7 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
       adam_state_(adam_state),
       runtime_flags_(runtime_flags),
       device_backend_(device_backend),
+      memory_manager_(memory_manager),
       session_controller_(session_controller),
       diagnostics_(tensor_store, ops, transformer_, gradient_store,
                    device_backend, runtime_flags_, cfg),
@@ -169,6 +171,7 @@ void Trainer::apply_optimizer_step(const TrainBatch &batch,
   }
   apply_zone_gradients(DecayZone::Decay, step, learning_rate);
   apply_zone_gradients(DecayZone::NoDecay, step, learning_rate);
+  memory_manager_.sync_compute_weights();
 }
 
 ValidationResult Trainer::evaluate(IDataLoader &val_dataset) {
@@ -198,6 +201,7 @@ void Trainer::train(IDataLoader &training_dataset, IDataLoader &val_dataset) {
       session_controller_.restore_or_initialize(
           tensorStore_, device_backend_, data_arena_, adam_state_,
           batches_per_epoch);
+  memory_manager_.sync_compute_weights();
   // Fixes the run's plan (incl. the learning-rate schedule) and notifies the
   // reporting observers.
   session_controller_.on_training_start(training_position, batches_per_epoch);
@@ -301,7 +305,8 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
                   memory_manager.grad_sum_arena(),
                   memory_manager.gradient_store(),
                   memory_manager.adam_state_store(),
-                  memory_manager.adam_state(), *backend, session_controller,
+                  memory_manager.adam_state(), *backend, memory_manager,
+                  session_controller,
                   cmd.runtime_flags);
   
   // Do it! Train the model using the dataset loader

@@ -34,6 +34,11 @@ public:
 
   TensorStore &tensor_store() const;
 
+  // Refreshes the compute weights from the parameters (after they change:
+  // initialization, checkpoint load, optimizer step). Nothing to do when the
+  // GEMMs read the parameters.
+  void sync_compute_weights();
+
 private:
   const Config &cfg_;
   DeviceBackend &backend_;

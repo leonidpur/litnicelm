@@ -90,6 +90,7 @@ void load_weights_or_throw(InferRuntime &rt) {
     }
     throw std::runtime_error(msg);
   }
+  rt.memory_manager->sync_compute_weights();
   const std::string tokfp = checkpoint_tokenizer_fingerprint(rt.cfg);
   if (!verify_checkpoint_tokenizer_fingerprint(checkpoint_path, tokfp,
                                                &ckpt_error)) {
