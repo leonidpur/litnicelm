@@ -105,7 +105,7 @@ void load_weights_or_throw(InferRuntime &rt) {
 std::vector<float> read_last_row_logits(DeviceBackend &backend,
                                         const TensorView &logits) {
   Tensor logits_host =
-      host_tensor_stage::stage_to_cpu(backend, logits, "Inference::argmax_last_row");
+      host_tensor_stage::stage_to_cpu_f32(backend, logits, "Inference::argmax_last_row");
   TensorView logits_view = logits_host.view();
   if (logits_view.rank() == 3) {
     if (logits_view.dim(0) != 1) {

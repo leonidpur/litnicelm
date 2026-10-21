@@ -20,12 +20,13 @@ TrainingDiagnosticsController::TrainingDiagnosticsController(
 
 void TrainingDiagnosticsController::check_finite(
     const Ops &ops, const TensorView &tensor, const std::string &label) {
-  if (tensor.dtype() != DType::F32 || tensor.numel() == 0) {
+  const bool readable = tensor.dtype() == DType::F32 || tensor.dtype() == DType::BF16;
+  if (!readable || tensor.numel() == 0) {
     return;
   }
 
   Tensor staged =
-      host_tensor_stage::stage_to_cpu(ops.backend(), tensor, label.c_str());
+      host_tensor_stage::stage_to_cpu_f32(ops.backend(), tensor, label.c_str());
   const TensorView staged_view = staged.view();
   const float *values = reinterpret_cast<const float *>(staged_view.data());
   const uint64_t count = staged_view.numel();

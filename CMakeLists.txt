@@ -295,6 +295,22 @@ foreach(plugin litnice_backend_cpu litnice_backend_cublas_plugin)
   endif()
 endforeach()
 
+# Host staging: BF16 tensors reach host readers as exact F32 values.
+add_executable(litnice_host_stage_test tests/host_stage_test.cpp)
+target_include_directories(litnice_host_stage_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+)
+target_link_libraries(litnice_host_stage_test PRIVATE litnice_core)
+foreach(plugin litnice_backend_cpu litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    add_test(NAME host_stage_${plugin}
+             COMMAND litnice_host_stage_test $<TARGET_FILE:${plugin}>)
+  endif()
+endforeach()
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)

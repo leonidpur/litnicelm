@@ -3,6 +3,7 @@
 #include "backend/device_backend.hpp"
 #include "tensor.hpp"
 
+#include <litnicelm_utils/bf16.hpp>
 #include <litnicelm_utils/checks.hpp>
 
 #include <cstring>
@@ -138,6 +139,26 @@ inline Tensor stage_to_cpu(DeviceBackend &backend, const TensorView &src,
   TensorView staged_view = staged.view();
   copy_to_cpu(backend, src, staged_view, who);
   return staged;
+}
+
+// A host F32 copy of an F32 or BF16 tensor, for host code that reads the
+// values as float: BF16 elements are widened exactly on the way.
+inline Tensor stage_to_cpu_f32(DeviceBackend &backend, const TensorView &src,
+                               const char *who) {
+  checker().check(CheckKind::Capability,
+                  src.dtype() == DType::F32 || src.dtype() == DType::BF16, who,
+                  "stage_to_cpu_f32 reads F32 or BF16 tensors");
+  if (src.dtype() == DType::F32) {
+    return stage_to_cpu(backend, src, who);
+  }
+  const Tensor raw = stage_to_cpu(backend, src, who);
+  Tensor widened = Tensor::make_cpu(DType::F32, src.shape());
+  const auto *bits = static_cast<const uint16_t *>(raw.view().data());
+  auto *values = static_cast<float *>(widened.view().data());
+  for (uint64_t i = 0; i < src.numel(); ++i) {
+    values[i] = bf16_bits_to_f32(bits[i]);
+  }
+  return widened;
 }
 
 } // namespace host_tensor_stage
