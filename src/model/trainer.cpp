@@ -106,15 +106,15 @@ double Trainer::train_one_batch(const TrainBatch &batch, BatchInEpoch in_epoch,
   if (first_of_step) {
     session_controller_.on_train_step_start(training_position.optimizer_steps);
   }
-  const double loss = forward_backward(batch);
-  accumulator_.add_batch(first_of_step, loss);
+  const double batch_loss = forward_backward(batch);
+  accumulator_.add_batch(first_of_step, batch_loss);
   if (session_controller_.step_ends_at(in_epoch.index, in_epoch.count)) {
     const double step_loss = accumulator_.finish_step();
     apply_optimizer_step(batch, training_position);
     session_controller_.on_train_step_end(training_position.optimizer_steps, step_loss);
     training_position.optimizer_steps += 1;
   }
-  return loss;
+  return batch_loss;
 }
 
 double Trainer::forward_backward(const TrainBatch &batch) {

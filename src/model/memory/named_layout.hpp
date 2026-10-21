@@ -66,14 +66,15 @@ public:
     return (r == 0) ? v : (v + (a - r));
   }
 
-  static uint64_t checked_mul(uint64_t a, uint64_t b, const char *what) {
-    if (a == 0 || b == 0) {
+  static uint64_t checked_mul(uint64_t multiplicand, uint64_t multiplier,
+                              const char *what) {
+    if (multiplicand == 0 || multiplier == 0) {
       return 0;
     }
-    if (a > (std::numeric_limits<uint64_t>::max() / b)) {
+    if (multiplicand > (std::numeric_limits<uint64_t>::max() / multiplier)) {
       throw std::overflow_error(std::string("NamedLayout overflow in ") + what);
     }
-    return a * b;
+    return multiplicand * multiplier;
   }
 
   static uint64_t tensor_bytes(uint64_t rows, uint64_t cols, DType dtype,
