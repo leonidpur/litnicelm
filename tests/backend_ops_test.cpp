@@ -407,6 +407,16 @@ std::vector<OpCase> op_cases() {
                    {random_f32(Shape{50, 40}, 71), random_ids(ids, 50, 72), random_f32(bsd, 73)},
                    [](DeviceBackend &b, Views &v) { b.embedding_lookup(v[0], v[1], v[2]); return Scalars{}; },
                    {2}, 0.0, 0.0});
+  // Inference reads the first n ids of a [1, S] row: a [1, n] view whose
+  // row stride is S ids, not n.
+  cases.push_back({"embedding_lookup, ids sliced from a wider row",
+                   {random_f32(Shape{50, 40}, 90), random_ids(Shape{1, 30}, 50, 91),
+                    random_f32(Shape{1, 17, 40}, 92)},
+                   [](DeviceBackend &b, Views &v) {
+                     b.embedding_lookup(v[0], v[1].subcols(0, 17), v[2]);
+                     return Scalars{};
+                   },
+                   {2}, 0.0, 0.0});
   // Accumulates into d_tok by definition, so d_tok starts nonzero on both.
   cases.push_back({"accumulate_embedding_grads",
                    {random_ids(ids, 50, 74), random_f32(bsd, 75), random_f32(Shape{50, 40}, 76)},

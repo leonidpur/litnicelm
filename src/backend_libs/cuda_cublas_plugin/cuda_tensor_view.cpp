@@ -34,6 +34,22 @@ bool uniform_row_stride(const TensorView &view, int64_t &stride) {
   return true;
 }
 
+// The view's elements lie back to back in row-major order. Size-1 axes may
+// have any stride, as when an [S] row of ids is sliced to its first n.
+bool dense_ignoring_unit_axes(const TensorView &view) {
+  int64_t expected = static_cast<int64_t>(dtype_size(view.dtype()));
+  for (size_t axis = view.rank(); axis-- > 0;) {
+    if (view.dim(axis) == 1) {
+      continue;
+    }
+    if (view.stride_bytes(axis) != expected) {
+      return false;
+    }
+    expected *= view.dim(axis);
+  }
+  return true;
+}
+
 } // namespace
 
 KernelTensorView to_kernel_tensor_view(const TensorView &view) {
@@ -47,7 +63,7 @@ KernelTensorView to_kernel_tensor_view(const TensorView &view) {
 
 KernelTensorView to_kernel_index_vector_view(const TensorView &view) {
   // Read as one column of numel ids, one per row.
-  checker().check(CheckKind::Capability, view.is_contiguous_row_major(),
+  checker().check(CheckKind::Capability, dense_ignoring_unit_axes(view),
                   "cuda_cublas_plugin", "id tensors must be contiguous");
   return {view.data(), static_cast<int64_t>(view.numel()), 1,
           static_cast<int64_t>(dtype_size(view.dtype()))};
