@@ -98,7 +98,6 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   const Checker &c = checker();
   c.check(CheckKind::Contract, ids.device() == dlogits.device(), "Transformer",
           "ids/dlogits device mismatch");
-  c.check_dtype_one_of(ids, {DType::I32, DType::F32}, "Transformer ids");
 
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
   const TensorContracts::BatchSeqDims dims =

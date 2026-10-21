@@ -157,8 +157,6 @@ void Ops::layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
 }
 void Ops::embedding_lookup(const TensorView &table, const TensorView &ids,
                            TensorView &out) const {
-  checker().check_dtype_one_of(ids, {DType::I32, DType::F32},
-                               "Ops embedding_lookup ids");
   checker().check_rank(table, 2, "Ops embedding_lookup table");
   checker().check(CheckKind::Contract, out.rank() >= 1,
                   "Ops embedding_lookup", "out must have feature axis");
@@ -174,8 +172,6 @@ void Ops::embedding_lookup(const TensorView &table, const TensorView &ids,
 void Ops::accumulate_embedding_grads(const TensorView &ids,
                                      const TensorView &d_cur,
                                      TensorView &d_tok) const {
-  checker().check_dtype_one_of(ids, {DType::I32, DType::F32},
-                               "Ops accumulate_embedding_grads ids");
   checker().check(CheckKind::Contract,
                   ids.numel() * static_cast<uint64_t>(d_cur.dim(d_cur.rank() - 1)) ==
                       d_cur.numel(),
@@ -187,8 +183,6 @@ void Ops::accumulate_embedding_grads(const TensorView &ids,
 }
 void Ops::cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                              TensorView &out_loss) const {
-  checker().check_dtype_one_of(targets, {DType::I32, DType::F32},
-                               "Ops cross_entropy_mean targets");
   checker().check_dims(out_loss, {1, 1}, "Ops cross_entropy_mean out_loss");
   checker().check(CheckKind::Contract, logits.rank() >= 2,
                   "Ops cross_entropy_mean", "logits must have class axis");
@@ -200,8 +194,6 @@ void Ops::cross_entropy_mean(const TensorView &logits, const TensorView &targets
 }
 void Ops::cross_entropy_mean_backward_inplace(
     TensorView &logits, const TensorView &targets, TensorView &out_loss) const {
-  checker().check_dtype_one_of(targets, {DType::I32, DType::F32},
-                               "Ops cross_entropy_mean_backward_inplace targets");
   checker().check_dims(out_loss, {1, 1},
                        "Ops cross_entropy_mean_backward_inplace out_loss");
   checker().check(CheckKind::Contract,
@@ -222,8 +214,6 @@ float Ops::read_scalar_f32(const TensorView &x) const {
 bool Ops::supports_backward() const { return true; }
 void Ops::backward_from_logits_targets(const TensorView &logits,
                                        const TensorView &targets) const {
-  checker().check_dtype_one_of(targets, {DType::I32, DType::F32},
-                               "Ops backward_from_logits_targets targets");
   checker().check(CheckKind::Contract,
                   logits.rank() >= 2 && logits.dim(logits.rank() - 1) > 0,
                   "Ops backward_from_logits_targets", "invalid logits shape");

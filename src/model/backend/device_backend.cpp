@@ -41,22 +41,10 @@ struct CpuMemOperations {
     std::memcpy(p, &v, sizeof(float));
   }
 
-  static int32_t load_i32(const TensorView &t, int64_t r, int64_t c) {
-    const uint8_t *base = reinterpret_cast<const uint8_t *>(t.data());
-    const uint8_t *p = base + r * t.stride_bytes(0) + c * t.stride_bytes(1);
-    int32_t out;
-    std::memcpy(&out, p, sizeof(int32_t));
-    return out;
-  }
-
-  static int64_t load_index(const TensorView &t, int64_t r, int64_t c) {
-    if (t.dtype() == DType::I32) {
-      return static_cast<int64_t>(load_i32(t, r, c));
-    }
-    if (t.dtype() == DType::F32) {
-      return static_cast<int64_t>(load_f32(t, r, c));
-    }
-    throw std::runtime_error("DeviceBackend: unsupported index dtype");
+  // Capability: token ids and targets are I32.
+  static void check_index_dtype(const TensorView &t, std::string_view who) {
+    checker().check(CheckKind::Capability, t.dtype() == DType::I32, who,
+                    "index tensor must be i32");
   }
 
   static int64_t logical_offset_bytes_for_linear_index(const TensorView &t,
@@ -78,17 +66,9 @@ struct CpuMemOperations {
     const uint8_t *base = reinterpret_cast<const uint8_t *>(t.data());
     const uint8_t *p =
         base + logical_offset_bytes_for_linear_index(t, linear_index, t.rank());
-    if (t.dtype() == DType::I32) {
-      int32_t out;
-      std::memcpy(&out, p, sizeof(int32_t));
-      return static_cast<int64_t>(out);
-    }
-    if (t.dtype() == DType::F32) {
-      float out;
-      std::memcpy(&out, p, sizeof(float));
-      return static_cast<int64_t>(out);
-    }
-    throw std::runtime_error("DeviceBackend: unsupported linear index dtype");
+    int32_t out;
+    std::memcpy(&out, p, sizeof(int32_t));
+    return static_cast<int64_t>(out);
   }
 
   static uint64_t logical_prefix_count(const TensorView &t, size_t suffix_rank) {
@@ -1265,6 +1245,7 @@ void DefaultCpuBackend::layernorm_backward(const TensorView &x,
 
 void DefaultCpuBackend::embedding_lookup(const TensorView &table, const TensorView &ids,
                                   TensorView &out) {
+  CpuMemOperations::check_index_dtype(ids, "DefaultCpuBackend::embedding_lookup");
   const int64_t vocab_size = table.dim(0);
   const int64_t model_dim = table.dim(1);
   const uint64_t token_count = ids.numel();
@@ -1289,6 +1270,7 @@ void DefaultCpuBackend::embedding_lookup(const TensorView &table, const TensorVi
 void DefaultCpuBackend::accumulate_embedding_grads(const TensorView &ids,
                                             const TensorView &d_cur,
                                             TensorView &d_tok) {
+  CpuMemOperations::check_index_dtype(ids, "DefaultCpuBackend::accumulate_embedding_grads");
   const uint64_t token_count = ids.numel();
   const int64_t model_dim = d_cur.dim(d_cur.rank() - 1);
   const int64_t vocab_size = d_tok.dim(0);
@@ -1308,6 +1290,7 @@ void DefaultCpuBackend::accumulate_embedding_grads(const TensorView &ids,
 void DefaultCpuBackend::cross_entropy_mean(const TensorView &logits,
                                     const TensorView &targets,
                                     TensorView &out_loss) {
+  CpuMemOperations::check_index_dtype(targets, "DefaultCpuBackend::cross_entropy_mean");
   const uint64_t token_count = targets.numel();
   const int64_t vocab_size = logits.dim(logits.rank() - 1);
   double sum = 0.0;
@@ -1346,6 +1329,7 @@ float DefaultCpuBackend::read_scalar_f32(const TensorView &x) {
 
 void DefaultCpuBackend::backward_from_logits_targets(TensorView &logits,
                                               const TensorView &targets) {
+  CpuMemOperations::check_index_dtype(targets, "DefaultCpuBackend::backward_from_logits_targets");
   const uint64_t token_count = targets.numel();
   const int64_t vocab_size = logits.dim(logits.rank() - 1);
   const float inv_token_rows = 1.0f / static_cast<float>(token_count);
