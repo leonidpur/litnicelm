@@ -62,7 +62,6 @@ public:
     TensorView dx_ln1;
 
     TensorView attn_contextT;
-    TensorView attn_WoT;
     TensorView attn_dcontext;
     TensorView attn_dqkv;
     TensorView attn_KhT;
@@ -71,15 +70,12 @@ public:
     TensorView attn_weightsT;
     TensorView attn_dscores;
     TensorView attn_dscoresT;
-    TensorView attn_WqkvT;
     TensorView attn_xT;
 
     TensorView ffn_aT;
-    TensorView ffn_W2T;
     TensorView ffn_da;
     TensorView ffn_dh;
     TensorView ffn_xT;
-    TensorView ffn_W1T;
   };
 
   // algo must outlive the store (it lives next to the backend).
@@ -161,7 +157,6 @@ public:
   TensorView temp_tr_Xn(int64_t rows) const;
   TensorView temp_tr_Xn(int64_t batch_size, int64_t seq_len) const;
   TensorView temp_bw_XnT(int64_t rows) const;
-  TensorView temp_bw_lm_wT() const;
   TensorView temp_bw_d_xn(int64_t rows) const;
   TensorView temp_bw_d_xn(int64_t batch_size, int64_t seq_len) const;
   TensorView temp_bw_d_xlast(int64_t rows) const;
@@ -212,7 +207,6 @@ public:
                                       int64_t seq_len) const;
   TensorView temp_attn_head(int layer, int64_t batch_size, int64_t seq_len) const;
   TensorView temp_attn_contextT(int layer, int64_t rows) const;
-  TensorView temp_attn_WoT(int layer) const;
   TensorView temp_attn_dcontext(int layer, int64_t rows) const;
   TensorView temp_attn_dcontext(int layer, int64_t batch_size,
                                 int64_t seq_len) const;
@@ -229,7 +223,6 @@ public:
   TensorView temp_attn_dscores(int layer, int64_t batch_size,
                                int64_t seq_len) const;
   TensorView temp_attn_dscoresT(int layer, int64_t rows) const;
-  TensorView temp_attn_WqkvT(int layer) const;
   TensorView temp_attn_xT(int layer, int64_t rows) const;
 
   TensorView temp_ffn_h(int layer, int64_t rows) const;
@@ -237,13 +230,11 @@ public:
   TensorView temp_ffn_a(int layer, int64_t rows) const;
   TensorView temp_ffn_a(int layer, int64_t batch_size, int64_t seq_len) const;
   TensorView temp_ffn_aT(int layer, int64_t rows) const;
-  TensorView temp_ffn_W2T(int layer) const;
   TensorView temp_ffn_da(int layer, int64_t rows) const;
   TensorView temp_ffn_da(int layer, int64_t batch_size, int64_t seq_len) const;
   TensorView temp_ffn_dh(int layer, int64_t rows) const;
   TensorView temp_ffn_dh(int layer, int64_t batch_size, int64_t seq_len) const;
   TensorView temp_ffn_xT(int layer, int64_t rows) const;
-  TensorView temp_ffn_W1T(int layer) const;
 
   void initialize_parameters_deterministic(DeviceBackend &device_backend) const;
 

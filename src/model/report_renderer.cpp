@@ -80,7 +80,6 @@ std::string infer_temp_purpose(const std::string &name) {
   if (name == "tr.X" || name == "tr.Y" || name == "tr.Xn")
     return "Training hidden-state buffer";
   if (name == "bw.XnT") return "Transposed normalized hidden states";
-  if (name == "bw.lm_wT") return "Transposed LM head weights";
   if (name == "bw.d_xn" || name == "bw.d_xlast") return "Backward hidden gradients";
   if (name.find("layer") == 0 && name.find(".ln") != std::string::npos)
     return "Layernorm or residual workspace";
@@ -434,7 +433,6 @@ void ReportRenderer::report_tensor_store_topology(
                                 static_cast<int64_t>(cfg.training.train_seq_len)),
       infer_temp_purpose("tr.Xn")));
   lines.push_back(tensor_metadata_row("bw.XnT", tensor_store.temp_bw_XnT(T), infer_temp_purpose("bw.XnT")));
-  lines.push_back(tensor_metadata_row("bw.lm_wT", tensor_store.temp_bw_lm_wT(), infer_temp_purpose("bw.lm_wT")));
   lines.push_back(tensor_metadata_row("bw.d_xn", tensor_store.temp_bw_d_xn(T), infer_temp_purpose("bw.d_xn")));
   lines.push_back(tensor_metadata_row("bw.d_xlast", tensor_store.temp_bw_d_xlast(T), infer_temp_purpose("bw.d_xlast")));
 
@@ -496,7 +494,6 @@ void ReportRenderer::report_tensor_store_topology(
             static_cast<int64_t>(cfg.training.train_seq_len)),
         infer_temp_purpose("attn.head")));
     lines.push_back(tensor_metadata_row(p + "attn.contextT", tensor_store.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
-    lines.push_back(tensor_metadata_row(p + "attn.WoT", tensor_store.temp_attn_WoT(li), infer_temp_purpose("attn.WoT")));
     lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensor_store.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
     lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensor_store.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
     lines.push_back(tensor_metadata_row(p + "attn.KhT", tensor_store.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
@@ -505,7 +502,6 @@ void ReportRenderer::report_tensor_store_topology(
     lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensor_store.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
     lines.push_back(tensor_metadata_row(p + "attn.dscores", tensor_store.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
     lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensor_store.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
-    lines.push_back(tensor_metadata_row(p + "attn.WqkvT", tensor_store.temp_attn_WqkvT(li), infer_temp_purpose("attn.WqkvT")));
     lines.push_back(tensor_metadata_row(p + "attn.xT", tensor_store.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
 
     lines.push_back(tensor_metadata_row(
@@ -522,7 +518,6 @@ void ReportRenderer::report_tensor_store_topology(
           infer_temp_purpose("ffn.a")));
     }
     lines.push_back(tensor_metadata_row(p + "ffn.aT", tensor_store.temp_ffn_aT(li, T), infer_temp_purpose("ffn.aT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W2T", tensor_store.temp_ffn_W2T(li), infer_temp_purpose("ffn.W2T")));
     lines.push_back(tensor_metadata_row(
         p + "ffn.da",
         tensor_store.temp_ffn_da(li, static_cast<int64_t>(cfg.training.batch_size),
@@ -537,7 +532,6 @@ void ReportRenderer::report_tensor_store_topology(
           infer_temp_purpose("ffn.dh")));
     }
     lines.push_back(tensor_metadata_row(p + "ffn.xT", tensor_store.temp_ffn_xT(li, T), infer_temp_purpose("ffn.xT")));
-    lines.push_back(tensor_metadata_row(p + "ffn.W1T", tensor_store.temp_ffn_W1T(li), infer_temp_purpose("ffn.W1T")));
   }
   lines.push_back("+--------------------+---------+-----------------------+--------+----------------+---------+------------------------------+");
 

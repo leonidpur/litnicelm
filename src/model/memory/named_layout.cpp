@@ -242,8 +242,6 @@ NamedLayout NamedLayout::build_training_temp_layout(
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.XnT",
              NamedLayout::tensor_bytes(D, T, dtype, "bw.XnT"), cursor, dtype);
-  push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.lm_wT",
-             NamedLayout::tensor_bytes(V, D, dtype, "bw.lm_wT"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.d_xn",
              NamedLayout::tensor_bytes(T, D, dtype, "bw.d_xn"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "bw.d_xlast",
@@ -317,8 +315,6 @@ NamedLayout NamedLayout::build_training_temp_layout(
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.contextT",
                NamedLayout::tensor_bytes(D, T, dtype, "attn.contextT"),
                cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.WoT",
-               NamedLayout::tensor_bytes(D, D, dtype, "attn.WoT"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dcontext",
                NamedLayout::tensor_bytes(T, D, dtype, "attn.dcontext"),
                cursor, dtype);
@@ -341,16 +337,11 @@ NamedLayout NamedLayout::build_training_temp_layout(
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dscoresT",
                NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dscoresT"),
                cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.WqkvT",
-               NamedLayout::tensor_bytes(3 * D, D, dtype, "attn.WqkvT"),
-               cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.xT",
                NamedLayout::tensor_bytes(D, T, dtype, "attn.xT"), cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.aT",
                NamedLayout::tensor_bytes(F, T, dtype, "ffn.aT"), cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.W2T",
-               NamedLayout::tensor_bytes(D, F, dtype, "ffn.W2T"), cursor, dtype);
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.da",
                NamedLayout::tensor_bytes(T, F, dtype, "ffn.da"), cursor, dtype);
     if (algo.ffn_needs_activation_buffers()) {
@@ -360,8 +351,6 @@ NamedLayout NamedLayout::build_training_temp_layout(
     }
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.xT",
                NamedLayout::tensor_bytes(D, T, dtype, "ffn.xT"), cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.W1T",
-               NamedLayout::tensor_bytes(F, D, dtype, "ffn.W1T"), cursor, dtype);
   }
 
   layout.total_bytes_ = NamedLayout::align_up(cursor, cfg.memory.alignment_bytes);
