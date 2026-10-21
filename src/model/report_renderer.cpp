@@ -280,6 +280,11 @@ void ReportRenderer::report_memory_usage(const TrainingMemoryUsage &usage) {
   oss << "| Adam optimizer           | " << std::fixed
       << std::setprecision(2) << std::setw(11)
       << bytes_to_mib(usage.adam_bytes) << " |\n";
+  if (usage.compute_weight_bytes > 0) {
+    oss << "| Compute weights          | " << std::fixed
+        << std::setprecision(2) << std::setw(11)
+        << bytes_to_mib(usage.compute_weight_bytes) << " |\n";
+  }
   oss << "| Temp                     | " << std::fixed
       << std::setprecision(2) << std::setw(11)
       << bytes_to_mib(usage.temp_bytes) << " |\n";

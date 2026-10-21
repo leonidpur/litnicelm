@@ -42,6 +42,13 @@ TrainingMemoryManager::TrainingMemoryManager(
                                         cfg_.memory.alignment_bytes);
   temp_arena_ = std::make_unique<Arena>(backend_, device, temp_bytes,
                                         cfg_.memory.alignment_bytes);
+  if (!precision_.compute_weight_aliases_parameter()) {
+    compute_layout_ = NamedLayout::build_compute_weight_layout(
+        cfg_, precision_.dtype(ItemType::ComputeWeight));
+    compute_arena_ = std::make_unique<Arena>(backend_, device,
+                                             compute_layout_->total_bytes(),
+                                             cfg_.memory.alignment_bytes);
+  }
 
   data_view_ = ArenaView{param_arena_->ptr(), param_arena_->size_bytes(),
                          device};
@@ -57,11 +64,12 @@ TrainingMemoryManager::TrainingMemoryManager(
   memory_usage_.grad_bytes = grad_view_.bytes;
   memory_usage_.grad_sum_bytes = grad_sum_view_.bytes;
   memory_usage_.adam_bytes = adam_view_.bytes;
+  memory_usage_.compute_weight_bytes = compute_arena_ ? compute_arena_->size_bytes() : 0;
   memory_usage_.temp_bytes = temp_arena_->size_bytes();
   memory_usage_.total_managed_bytes =
       memory_usage_.param_bytes + memory_usage_.grad_bytes +
       memory_usage_.grad_sum_bytes + memory_usage_.adam_bytes +
-      memory_usage_.temp_bytes;
+      memory_usage_.compute_weight_bytes + memory_usage_.temp_bytes;
   memory_usage_.device_after_alloc = backend_.memory_info();
   session_controller.init_topology_ready(param_layout_, data_view_.base,
                                          data_view_.bytes, grad_view_.base,
@@ -73,7 +81,10 @@ TrainingMemoryManager::TrainingMemoryManager(
   tensor_store_ = std::make_unique<TensorStore>(
       cfg_, algo, param_layout_, data_view_.base, data_view_.bytes, data_view_.device,
       temp_layout_, temp_arena_->ptr(), temp_arena_->size_bytes(),
-      TensorStore::TempLayoutKind::Training);
+      TensorStore::TempLayoutKind::Training,
+      compute_layout_ ? &*compute_layout_ : nullptr,
+      compute_arena_ ? compute_arena_->ptr() : nullptr,
+      compute_arena_ ? compute_arena_->size_bytes() : 0);
   session_controller.tensor_store_topology_ready(cfg_, *tensor_store_);
   gradient_store_ = std::make_unique<GradientStore>(
       cfg_, algo, param_layout_, grad_layout_, data_view_.base, data_view_.bytes,

@@ -50,7 +50,7 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
 
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
-  const TensorView &lm_w = tensorStore_.param_lm_head_w();
+  const TensorView &compute_lm_w = tensorStore_.compute_lm_head_w();
 
   TensorView Xn = tensorStore_.temp_tr_Xn(batch_size, seq_len);
   ops_.layernorm(x, lnf_g, lnf_b, Xn);
@@ -62,7 +62,7 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
     ops_.copy(Xn, *last_hidden);
   }
 
-  ops_.gemm_ranked_matrix_rhs(Xn, lm_w, logits);
+  ops_.gemm_ranked_matrix_rhs(Xn, compute_lm_w, logits);
   cache_x_ = x;
   cache_xn_ = Xn;
   observer_->on_output_head_end();
@@ -80,6 +80,7 @@ void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
                                     vocab_size, "OutputHead", "dlogits");
 
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
+  const TensorView &compute_lm_w = tensorStore_.compute_lm_head_w();
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
 
@@ -90,7 +91,7 @@ void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   observer_->probe_output_head_ready(lm_w, d_lm_w);
 
   TensorView d_xn = tensorStore_.temp_bw_d_xn(batch_size, seq_len);
-  ops_.gemm_ranked_matrix_rhs_t(dlogits, lm_w, d_xn);
+  ops_.gemm_ranked_matrix_rhs_t(dlogits, compute_lm_w, d_xn);
   diagnostics_->bk_transformer_d_xn(d_xn);
 
   TensorView d_lnf_g = gradientStore_->grad_for_param(lnf_g);

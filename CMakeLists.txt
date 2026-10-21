@@ -274,6 +274,23 @@ add_test(NAME precision_policy
                  ${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cpu.yaml
                  ${PRECISION_POLICY_TEST_PLUGINS})
 
+# Compute weights: fp32 aliases the parameters; the BF16 layout holds the
+# GEMM weights.
+add_executable(litnice_compute_weights_test tests/compute_weights_test.cpp)
+target_include_directories(litnice_compute_weights_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+)
+target_link_libraries(litnice_compute_weights_test PRIVATE litnice_core)
+add_test(NAME compute_weights
+         COMMAND litnice_compute_weights_test
+                 ${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cpu.yaml
+                 $<TARGET_FILE:litnice_backend_cpu>)
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)

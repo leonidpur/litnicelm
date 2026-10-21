@@ -56,13 +56,13 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
   const int64_t dh = model_dim / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
-  const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
+  const TensorView &compute_Wqkv = tensorStore_.compute_attn_qkv_w(idx_);
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
-  const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
+  const TensorView &compute_Wo = tensorStore_.compute_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
 
   TensorView qkv = tensorStore_.temp_attn_qkv(idx_, batch_size, seq_len);
-  ops_.gemm_ranked_matrix_rhs(x, Wqkv, qkv);
+  ops_.gemm_ranked_matrix_rhs(x, compute_Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
   positionEncoding_.apply_to_qk(qkv);
 
@@ -91,7 +91,7 @@ void SelfAttentionFusedInplace::forward(const TensorView &x, TensorView &out) {
     ops_.gemm_batched(weights_h, Vh, context_h);
   }
 
-  ops_.gemm_ranked_matrix_rhs(context, Wo, out);
+  ops_.gemm_ranked_matrix_rhs(context, compute_Wo, out);
   ops_.add_bias_rowwise(out, bo, out);
 
   cache_x_ = x;
@@ -115,8 +115,10 @@ void SelfAttentionFusedInplace::backward(const TensorView &dout,
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
 
   const TensorView &Wqkv = tensorStore_.param_attn_qkv_w(idx_);
+  const TensorView &compute_Wqkv = tensorStore_.compute_attn_qkv_w(idx_);
   const TensorView &bqkv = tensorStore_.param_attn_qkv_b(idx_);
   const TensorView &Wo = tensorStore_.param_attn_out_w(idx_);
+  const TensorView &compute_Wo = tensorStore_.compute_attn_out_w(idx_);
   const TensorView &bo = tensorStore_.param_attn_out_b(idx_);
   TensorView dWo = gradientStore_->grad_for_param(Wo);
   ops_.gemm_ranked_reduce_lhs_t(cache_context_, dout, dWo);
@@ -126,7 +128,7 @@ void SelfAttentionFusedInplace::backward(const TensorView &dout,
   diagnostics_->bk_attn_dbo(idx_, dbo);
 
   TensorView dcontext = tensorStore_.temp_attn_dcontext(idx_, batch_size, seq_len);
-  ops_.gemm_ranked_matrix_rhs_t(dout, Wo, dcontext);
+  ops_.gemm_ranked_matrix_rhs_t(dout, compute_Wo, dcontext);
   diagnostics_->bk_attn_dcontext(idx_, dcontext);
 
   TensorView dqkv = tensorStore_.temp_attn_dqkv(idx_, batch_size, seq_len);
@@ -176,7 +178,7 @@ void SelfAttentionFusedInplace::backward(const TensorView &dout,
   }
 
   positionEncoding_.backward_qk(dqkv);
-  ops_.gemm_ranked_matrix_rhs_t(dqkv, Wqkv, dx);
+  ops_.gemm_ranked_matrix_rhs_t(dqkv, compute_Wqkv, dx);
   diagnostics_->bk_attn_dx(idx_, dx);
 
   TensorView dWqkv = gradientStore_->grad_for_param(Wqkv);

@@ -35,6 +35,10 @@ public:
   // that mirror the parameters (gradients, optimizer state).
   static NamedLayout build_param_layout(const Config &cfg,
                                         const ModelAlgoFactory &algo, DType dtype);
+  // The weights the GEMMs read (attention QKV and output, FFN W1 and W2 per
+  // layer, the LM head) with elements of `dtype`; allocated only when that
+  // differs from the parameter dtype.
+  static NamedLayout build_compute_weight_layout(const Config &cfg, DType dtype);
   // Temporaries: activations, token ids and the loss scalar, each in its
   // item type's dtype under `precision`.
   static NamedLayout build_training_temp_layout(const Config &cfg,

@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 class DeviceBackend;
 class TrainingSessionController;
@@ -54,11 +55,14 @@ private:
   NamedLayout grad_layout_;
   NamedLayout optimizer_layout_;
   NamedLayout temp_layout_;
+  // The BF16 GEMM weights; absent when the GEMMs read the parameters.
+  std::optional<NamedLayout> compute_layout_;
   std::unique_ptr<Arena> param_arena_;
   std::unique_ptr<Arena> grad_arena_;
   std::unique_ptr<Arena> grad_sum_arena_;
   std::unique_ptr<Arena> adam_arena_;
   std::unique_ptr<Arena> temp_arena_;
+  std::unique_ptr<Arena> compute_arena_;
   ArenaView data_view_{};
   ArenaView grad_view_{};
   ArenaView grad_sum_view_{};

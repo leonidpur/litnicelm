@@ -45,18 +45,18 @@ void FFN::forward(const TensorView &x, TensorView &out) {
   const int64_t batch_size = dims.batch_size;
   const int64_t seq_len = dims.seq_len;
 
-  const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
+  const TensorView &compute_W1 = tensorStore_.compute_ffn_w1(idx_);
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
-  const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
+  const TensorView &compute_W2 = tensorStore_.compute_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
 
   TensorView h = tensorStore_.temp_ffn_h(idx_, batch_size, seq_len);
   TensorView a = tensorStore_.temp_ffn_a(idx_, batch_size, seq_len);
 
-  ops_.gemm_ranked_matrix_rhs(x, W1, h);
+  ops_.gemm_ranked_matrix_rhs(x, compute_W1, h);
   ops_.add_bias_rowwise(h, b1, h);
   ops_.relu(h, a);
-  ops_.gemm_ranked_matrix_rhs(a, W2, out);
+  ops_.gemm_ranked_matrix_rhs(a, compute_W2, out);
   ops_.add_bias_rowwise(out, b2, out);
 
   cache_x_ = x;
@@ -73,8 +73,10 @@ void FFN::backward(const TensorView &dout, TensorView &dx) {
   const int64_t seq_len = cache_x_.dim(1);
 
   const TensorView &W1 = tensorStore_.param_ffn_w1(idx_);
+  const TensorView &compute_W1 = tensorStore_.compute_ffn_w1(idx_);
   const TensorView &b1 = tensorStore_.param_ffn_b1(idx_);
   const TensorView &W2 = tensorStore_.param_ffn_w2(idx_);
+  const TensorView &compute_W2 = tensorStore_.compute_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
   TensorView dW2 = gradientStore_->grad_for_param(W2);
   ops_.gemm_ranked_reduce_lhs_t(cache_a_, dout, dW2);
@@ -84,7 +86,7 @@ void FFN::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_ffn_db2(idx_, db2);
 
   TensorView da = tensorStore_.temp_ffn_da(idx_, batch_size, seq_len);
-  ops_.gemm_ranked_matrix_rhs_t(dout, W2, da);
+  ops_.gemm_ranked_matrix_rhs_t(dout, compute_W2, da);
   diagnostics_->bk_ffn_da(idx_, da);
 
   TensorView dh = tensorStore_.temp_ffn_dh(idx_, batch_size, seq_len);
@@ -98,7 +100,7 @@ void FFN::backward(const TensorView &dout, TensorView &dx) {
   ops_.row_sum(dh, db1);
   diagnostics_->bk_ffn_db1(idx_, db1);
 
-  ops_.gemm_ranked_matrix_rhs_t(dh, W1, dx);
+  ops_.gemm_ranked_matrix_rhs_t(dh, compute_W1, dx);
   diagnostics_->bk_ffn_dx(idx_, dx);
   observer_->on_ffn_end(idx_);
 }

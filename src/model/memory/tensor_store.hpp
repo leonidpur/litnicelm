@@ -36,6 +36,14 @@ public:
     TensorView ffn_b2;
   };
 
+  // The GEMM weights of one layer as the GEMMs read them.
+  struct LayerComputeViews {
+    TensorView attn_qkv_w;
+    TensorView attn_out_w;
+    TensorView ffn_w1;
+    TensorView ffn_w2;
+  };
+
   struct LayerTempViews {
     TensorView ln1;
     TensorView bw_d_prev;
@@ -83,7 +91,9 @@ public:
               const NamedLayout &param_layout,
                 void *params_base, uint64_t params_bytes, Device device,
                 const NamedLayout &temp_layout, void *temp_base,
-                uint64_t temp_bytes, TempLayoutKind temp_kind);
+                uint64_t temp_bytes, TempLayoutKind temp_kind,
+                const NamedLayout *compute_layout = nullptr,
+                void *compute_base = nullptr, uint64_t compute_bytes = 0);
   ~TensorStore();
 
   // Parameters of one decay zone as a flat view; empty if the zone is.
@@ -137,6 +147,15 @@ public:
   const TensorView &param_lnf_gamma() const;
   const TensorView &param_lnf_beta() const;
   const TensorView &param_lm_head_w() const;
+
+  // The GEMM weights as the GEMMs read them: the parameters themselves when
+  // the store has no compute layout, otherwise views into the compute-weight
+  // arena (kept in sync with the parameters by the memory manager).
+  const TensorView &compute_attn_qkv_w(int layer) const;
+  const TensorView &compute_attn_out_w(int layer) const;
+  const TensorView &compute_ffn_w1(int layer) const;
+  const TensorView &compute_ffn_w2(int layer) const;
+  const TensorView &compute_lm_head_w() const;
 
   TensorView temp_ds_ids() const;
   TensorView temp_ds_ids(int64_t rows) const;
@@ -251,10 +270,14 @@ private:
   TensorView lnf_beta_;
   TensorView lm_head_w_;
   std::vector<LayerParamViews> layer_param_views_;
+  std::vector<LayerComputeViews> layer_compute_views_;
+  TensorView compute_lm_head_w_;
   std::unique_ptr<TempTensorSubStore> temp_tensor_substore_;
 
   void check_layer(int layer) const;
   void build_param_views(const NamedLayout &param_layout);
+  void build_compute_views(const NamedLayout *compute_layout, void *compute_base,
+                           uint64_t compute_bytes);
 
   TensorView make_view(const LayoutSlice &s, Shape shape) const;
   TensorView make_subview(const TensorView &view, int64_t col_offset,

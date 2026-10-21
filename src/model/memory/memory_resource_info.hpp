@@ -13,6 +13,7 @@ struct TrainingMemoryUsage {
   uint64_t grad_bytes = 0;
   uint64_t grad_sum_bytes = 0;  // gradient sum over a step's batches; 0 at 1 batch per step
   uint64_t adam_bytes = 0;
+  uint64_t compute_weight_bytes = 0;  // BF16 GEMM weights; 0 when the GEMMs read the parameters
   uint64_t temp_bytes = 0;
   uint64_t total_managed_bytes = 0;
   DeviceMemoryInfo device_before_alloc;

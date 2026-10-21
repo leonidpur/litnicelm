@@ -214,7 +214,9 @@ TensorStore::TensorStore(const Config &cfg,
                              void *params_base, uint64_t params_bytes,
                              Device device, const NamedLayout &temp_layout,
                              void *temp_base, uint64_t temp_bytes,
-                             TempLayoutKind temp_kind)
+                             TempLayoutKind temp_kind,
+                             const NamedLayout *compute_layout,
+                             void *compute_base, uint64_t compute_bytes)
     : cfg_(cfg), algo_(algo),
       base_(reinterpret_cast<uint8_t *>(params_base)),
       bytes_(params_bytes), device_(device), param_layout_(param_layout) {
@@ -231,6 +233,7 @@ TensorStore::TensorStore(const Config &cfg,
   v.check_in_bounds(0, temp_layout.total_bytes(), temp_bytes,
                     "TensorStore", "temporary layout");
   build_param_views(param_layout);
+  build_compute_views(compute_layout, compute_base, compute_bytes);
   if (temp_kind == TempLayoutKind::Training) {
     temp_tensor_substore_ = std::make_unique<TrainingTempTensorSubStore>(
         cfg_, algo_, temp_layout, temp_base_bytes, temp_bytes, device_);
@@ -322,6 +325,41 @@ void TensorStore::build_param_views(const NamedLayout &param_layout) {
   lnf_gamma_ = make_view(cursor.next("lnf_gamma"), {1, model_dim});
   lnf_beta_ = make_view(cursor.next("lnf_beta"), {1, model_dim});
   lm_head_w_ = make_view(cursor.next("lm_head_w"), {model_dim, vocab_size});
+  cursor.finish();
+}
+
+void TensorStore::build_compute_views(const NamedLayout *compute_layout,
+                                      void *compute_base, uint64_t compute_bytes) {
+  if (compute_layout == nullptr) {
+    for (const LayerParamViews &p : layer_param_views_) {
+      layer_compute_views_.push_back(
+          LayerComputeViews{p.attn_qkv_w, p.attn_out_w, p.ffn_w1, p.ffn_w2});
+    }
+    compute_lm_head_w_ = lm_head_w_;
+    return;
+  }
+  const Checker &v = checker();
+  v.check_not_null(compute_base, "TensorStore", "compute_base");
+  v.check_in_bounds(0, compute_layout->total_bytes(), compute_bytes, "TensorStore",
+                    "compute-weight layout");
+  auto *base = reinterpret_cast<uint8_t *>(compute_base);
+  auto view = [&](const LayoutSlice &s, const TensorView &param) {
+    v.check_slice(s, param.shape(), compute_bytes, "TensorStore compute weights");
+    return TensorView(device_, s.dtype, base + s.offset, param.shape());
+  };
+  LayoutCursor cursor(compute_layout->slices(), "TensorStore compute-weight layout");
+  for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
+    const LayerParamViews &p = layer_param_views_[layer];
+    LayerComputeViews views;
+    views.attn_qkv_w =
+        view(cursor.next(lname(static_cast<int>(layer), "attn_qkv_w")), p.attn_qkv_w);
+    views.attn_out_w =
+        view(cursor.next(lname(static_cast<int>(layer), "attn_out_w")), p.attn_out_w);
+    views.ffn_w1 = view(cursor.next(lname(static_cast<int>(layer), "ffn_w1")), p.ffn_w1);
+    views.ffn_w2 = view(cursor.next(lname(static_cast<int>(layer), "ffn_w2")), p.ffn_w2);
+    layer_compute_views_.push_back(views);
+  }
+  compute_lm_head_w_ = view(cursor.next("lm_head_w"), lm_head_w_);
   cursor.finish();
 }
 
@@ -1843,6 +1881,24 @@ const ModelAlgoFactory &TensorStore::algo_factory() const { return algo_; }
 const TensorView &TensorStore::param_lnf_gamma() const { return lnf_gamma_; }
 const TensorView &TensorStore::param_lnf_beta() const { return lnf_beta_; }
 const TensorView &TensorStore::param_lm_head_w() const { return lm_head_w_; }
+
+const TensorView &TensorStore::compute_attn_qkv_w(int layer) const {
+  check_layer(layer);
+  return layer_compute_views_[static_cast<size_t>(layer)].attn_qkv_w;
+}
+const TensorView &TensorStore::compute_attn_out_w(int layer) const {
+  check_layer(layer);
+  return layer_compute_views_[static_cast<size_t>(layer)].attn_out_w;
+}
+const TensorView &TensorStore::compute_ffn_w1(int layer) const {
+  check_layer(layer);
+  return layer_compute_views_[static_cast<size_t>(layer)].ffn_w1;
+}
+const TensorView &TensorStore::compute_ffn_w2(int layer) const {
+  check_layer(layer);
+  return layer_compute_views_[static_cast<size_t>(layer)].ffn_w2;
+}
+const TensorView &TensorStore::compute_lm_head_w() const { return compute_lm_head_w_; }
 
 void TensorStore::initialize_parameters_deterministic(
     DeviceBackend &device_backend) const {

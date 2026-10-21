@@ -188,6 +188,30 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
   return layout;
 }
 
+NamedLayout NamedLayout::build_compute_weight_layout(const Config &cfg,
+                                                     DType dtype) {
+  NamedLayout layout;
+  const uint64_t D = cfg.model.d_model;
+  const uint64_t F = cfg.model.d_ff;
+  const uint64_t V = cfg.model.vocab_size;
+  uint64_t cursor = 0;
+  for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
+    const std::string p = "layer" + std::to_string(l) + ".";
+    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn_qkv_w",
+               NamedLayout::tensor_bytes(D, 3 * D, dtype, "attn_qkv_w"), cursor, dtype);
+    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn_out_w",
+               NamedLayout::tensor_bytes(D, D, dtype, "attn_out_w"), cursor, dtype);
+    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn_w1",
+               NamedLayout::tensor_bytes(D, F, dtype, "ffn_w1"), cursor, dtype);
+    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn_w2",
+               NamedLayout::tensor_bytes(F, D, dtype, "ffn_w2"), cursor, dtype);
+  }
+  push_slice(layout.slices_, cfg.memory.alignment_bytes, "lm_head_w",
+             NamedLayout::tensor_bytes(D, V, dtype, "lm_head_w"), cursor, dtype);
+  layout.total_bytes_ = NamedLayout::align_up(cursor, cfg.memory.alignment_bytes);
+  return layout;
+}
+
 NamedLayout NamedLayout::build_training_temp_layout(
     const Config &cfg, const ModelAlgoFactory &algo,
     const PrecisionPolicy &precision) {
