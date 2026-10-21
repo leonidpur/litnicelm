@@ -15,10 +15,12 @@ class DeviceBackend;
 
 class InferenceMemoryManager {
 public:
-  // algo must outlive the manager (it lives next to the backend).
+  // algo and precision must outlive the manager (they live next to the
+  // backend).
   InferenceMemoryManager(const Config &cfg,
                          const ModelAlgoFactory &algo,
-                         DeviceBackend &backend);
+                         DeviceBackend &backend,
+                         const PrecisionPolicy &precision);
 
   const NamedLayout &param_layout() const;
   const NamedLayout &temp_layout() const;
@@ -34,7 +36,7 @@ public:
 private:
   const Config &cfg_;
   DeviceBackend &backend_;
-  const PrecisionPolicy precision_;
+  const PrecisionPolicy &precision_;
   NamedLayout param_layout_;
   NamedLayout temp_layout_;
   std::unique_ptr<Arena> param_arena_;

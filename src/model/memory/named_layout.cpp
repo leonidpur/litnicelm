@@ -2,6 +2,7 @@
 
 #include <config.hpp>
 #include "model_algo_factory.hpp"
+#include "precision_policy.hpp"
 
 #include <litnicelm_utils/checks.hpp>
 
@@ -188,8 +189,12 @@ NamedLayout NamedLayout::build_param_layout(const Config &cfg,
 }
 
 NamedLayout NamedLayout::build_training_temp_layout(
-    const Config &cfg, const ModelAlgoFactory &algo, DType dtype) {
+    const Config &cfg, const ModelAlgoFactory &algo,
+    const PrecisionPolicy &precision) {
   NamedLayout layout;
+  const DType dtype = precision.dtype(ItemType::Activation);
+  const DType ids = precision.dtype(ItemType::TokenIds);
+  const DType loss = precision.dtype(ItemType::Loss);
 
   if (cfg.memory.alignment_bytes == 0) {
     throw std::runtime_error("build_temp_layout: alignment_bytes must be > 0");
@@ -218,16 +223,16 @@ NamedLayout NamedLayout::build_training_temp_layout(
   uint64_t cursor = 0;
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "ds.ids",
-             NamedLayout::tensor_bytes(T, 1, DType::I32, "ds.ids"), cursor,
-             DType::I32);
+             NamedLayout::tensor_bytes(T, 1, ids, "ds.ids"), cursor,
+             ids);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "ds.targets",
-             NamedLayout::tensor_bytes(T, 1, DType::I32, "ds.targets"), cursor,
-             DType::I32);
+             NamedLayout::tensor_bytes(T, 1, ids, "ds.targets"), cursor,
+             ids);
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.logits",
              NamedLayout::tensor_bytes(T, V, dtype, "tr.logits"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.loss",
-             NamedLayout::tensor_bytes(1, 1, dtype, "tr.loss"), cursor, dtype);
+             NamedLayout::tensor_bytes(1, 1, loss, "tr.loss"), cursor, loss);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.X",
              NamedLayout::tensor_bytes(T, D, dtype, "tr.X"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "tr.Y",
@@ -365,8 +370,11 @@ NamedLayout NamedLayout::build_training_temp_layout(
 
 
 NamedLayout NamedLayout::build_inference_temp_layout(
-    const Config &cfg, const ModelAlgoFactory &algo, DType dtype) {
+    const Config &cfg, const ModelAlgoFactory &algo,
+    const PrecisionPolicy &precision) {
   NamedLayout layout;
+  const DType dtype = precision.dtype(ItemType::Activation);
+  const DType ids = precision.dtype(ItemType::TokenIds);
 
   if (cfg.memory.alignment_bytes == 0) {
     throw std::runtime_error("build_inference_temp_layout: alignment_bytes must be > 0");
@@ -392,8 +400,8 @@ NamedLayout NamedLayout::build_inference_temp_layout(
   uint64_t cursor = 0;
 
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.ids",
-             NamedLayout::tensor_bytes(S, 1, DType::I32, "infer.ids"), cursor,
-             DType::I32);
+             NamedLayout::tensor_bytes(S, 1, ids, "infer.ids"), cursor,
+             ids);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.logits",
              NamedLayout::tensor_bytes(S, V, dtype, "infer.logits"),
              cursor, dtype);
@@ -474,6 +482,6 @@ NamedLayout NamedLayout::build_inference_temp_layout(
 
 NamedLayout NamedLayout::build_temp_layout(const Config &cfg,
                                            const ModelAlgoFactory &algo,
-                                           DType dtype) {
-  return build_training_temp_layout(cfg, algo, dtype);
+                                           const PrecisionPolicy &precision) {
+  return build_training_temp_layout(cfg, algo, precision);
 }

@@ -12,6 +12,7 @@
 
 struct Config;
 class ModelAlgoFactory;
+class PrecisionPolicy;
 
 
 class NamedLayout;
@@ -34,15 +35,17 @@ public:
   // that mirror the parameters (gradients, optimizer state).
   static NamedLayout build_param_layout(const Config &cfg,
                                         const ModelAlgoFactory &algo, DType dtype);
-  // Temporaries; `dtype` is the activation dtype (token ids stay I32).
+  // Temporaries: activations, token ids and the loss scalar, each in its
+  // item type's dtype under `precision`.
   static NamedLayout build_training_temp_layout(const Config &cfg,
                                                 const ModelAlgoFactory &algo,
-                                                DType dtype);
+                                                const PrecisionPolicy &precision);
   static NamedLayout build_inference_temp_layout(const Config &cfg,
                                                  const ModelAlgoFactory &algo,
-                                                 DType dtype);
+                                                 const PrecisionPolicy &precision);
   static NamedLayout build_temp_layout(const Config &cfg,
-                                       const ModelAlgoFactory &algo, DType dtype);
+                                       const ModelAlgoFactory &algo,
+                                       const PrecisionPolicy &precision);
 
   const std::vector<LayoutSlice> &slices() const { return slices_; }
   uint64_t total_bytes() const { return total_bytes_; }

@@ -274,7 +274,9 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   //////////////////////////
   const std::unique_ptr<DeviceBackend> backend =
       DeviceBackend::create_instance(runtime_cfg);
-  TrainingMemoryManager memory_manager(runtime_cfg, algo, *backend,
+  const PrecisionPolicy precision =
+      PrecisionPolicy::create(runtime_cfg, backend->precision_variants());
+  TrainingMemoryManager memory_manager(runtime_cfg, algo, *backend, precision,
                                        session_controller);
   const Ops ops(*backend);
   OptimizerAdamW opt(*backend);

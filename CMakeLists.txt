@@ -251,6 +251,29 @@ target_include_directories(litnice_learning_rate_schedule_test PRIVATE
 target_link_libraries(litnice_learning_rate_schedule_test PRIVATE litnice_core)
 add_test(NAME learning_rate_schedule COMMAND litnice_learning_rate_schedule_test)
 
+# Precision presets: config parsing, the fp32 table, and the capability
+# check on every backend plugin.
+add_executable(litnice_precision_policy_test tests/precision_policy_test.cpp)
+target_include_directories(litnice_precision_policy_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/memory
+)
+target_link_libraries(litnice_precision_policy_test PRIVATE litnice_core)
+set(PRECISION_POLICY_TEST_PLUGINS)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    list(APPEND PRECISION_POLICY_TEST_PLUGINS $<TARGET_FILE:${plugin}>)
+  endif()
+endforeach()
+add_test(NAME precision_policy
+         COMMAND litnice_precision_policy_test
+                 ${CMAKE_CURRENT_BINARY_DIR}/precision_policy_test_tmp
+                 ${CMAKE_CURRENT_SOURCE_DIR}/conf/char_book_abcdef_cpu.yaml
+                 ${PRECISION_POLICY_TEST_PLUGINS})
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)

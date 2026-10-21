@@ -111,7 +111,9 @@ std::string config_to_yaml(const Config &cfg) {
     << "parameter_bytes: " << cfg.parameter_bytes << "\n"
     << "optimizer_bytes: " << cfg.optimizer_bytes << "\n"
     << "arena_alignment: " << cfg.arena_alignment << "\n"
-    << "max_steps: " << cfg.max_steps << "\n\n";
+    << "max_steps: " << cfg.max_steps << "\n"
+    << "precision: "
+    << (cfg.precision == Precision::Bf16Mixed ? "bf16_mixed" : "fp32") << "\n\n";
 
   y << "backend:\n"
     << "  library: " << quoted(cfg.backend.library) << "\n\n";

@@ -7,20 +7,19 @@
 
 TrainingMemoryManager::TrainingMemoryManager(
     const Config &cfg, const ModelAlgoFactory &algo,
-    DeviceBackend &backend,
-                                             TrainingSessionController &session_controller)
+    DeviceBackend &backend, const PrecisionPolicy &precision,
+    TrainingSessionController &session_controller)
     : cfg_(cfg),
       backend_(backend),
-      precision_(PrecisionPolicy::from_config(
-          cfg, backend.precision_variants())),
+      precision_(precision),
       param_layout_(NamedLayout::build_param_layout(
-          cfg, algo, precision_.dtype(TensorRole::Parameter))),
+          cfg, algo, precision_.dtype(ItemType::Parameter))),
       grad_layout_(NamedLayout::build_param_layout(
-          cfg, algo, precision_.dtype(TensorRole::Gradient))),
+          cfg, algo, precision_.dtype(ItemType::Gradient))),
       optimizer_layout_(NamedLayout::build_param_layout(
-          cfg, algo, precision_.dtype(TensorRole::OptimizerState))),
+          cfg, algo, precision_.dtype(ItemType::OptimizerState))),
       temp_layout_(NamedLayout::build_training_temp_layout(
-          cfg, algo, precision_.dtype(TensorRole::Activation))) {
+          cfg, algo, precision_)) {
   session_controller.init_config_ready(
       cfg_, TrainingLayouts{param_layout_, grad_layout_, optimizer_layout_, temp_layout_});
 

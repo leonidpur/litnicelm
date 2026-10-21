@@ -45,6 +45,8 @@ void validate_vocab_contract_or_throw(const Config &cfg,
 struct InferRuntime {
   Config cfg;
   std::unique_ptr<DeviceBackend> backend;
+  // Dtypes of every tensor the memory manager lays out.
+  const PrecisionPolicy precision;
   std::unique_ptr<Tokenizer> tokenizer;
   // Model algorithm choices; memory and model are built with it.
   ModelAlgoFactory algo;
@@ -55,13 +57,14 @@ struct InferRuntime {
   explicit InferRuntime(const Config &base_cfg)
       : cfg(base_cfg),
         backend(DeviceBackend::create_instance(cfg)),
+        precision(PrecisionPolicy::create(cfg, backend->precision_variants())),
         tokenizer(TokenizerFactory::create(cfg)),
         algo(ModelAlgoConfig::from_config(cfg)),
         ops(*backend) {
     cfg = with_tokenizer_vocab_size(cfg, *tokenizer);
     validate_vocab_contract_or_throw(cfg, *tokenizer);
     memory_manager = std::make_unique<InferenceMemoryManager>(cfg, algo,
-                                                              *backend);
+                                                              *backend, precision);
     model = std::make_unique<Transformer>(cfg, algo,
                                           memory_manager->tensor_store(),
                                           nullptr, ops);

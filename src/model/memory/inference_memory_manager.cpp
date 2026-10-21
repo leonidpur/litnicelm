@@ -7,19 +7,18 @@
 
 InferenceMemoryManager::InferenceMemoryManager(
     const Config &cfg, const ModelAlgoFactory &algo,
-    DeviceBackend &backend)
+    DeviceBackend &backend, const PrecisionPolicy &precision)
     : cfg_(cfg),
       backend_(backend),
-      precision_(PrecisionPolicy::from_config(
-          cfg, backend.precision_variants())),
+      precision_(precision),
       param_layout_(NamedLayout::build_param_layout(
-          cfg, algo, precision_.dtype(TensorRole::Parameter))),
+          cfg, algo, precision_.dtype(ItemType::Parameter))),
       temp_layout_(NamedLayout::build_inference_temp_layout(
-          cfg, algo, precision_.dtype(TensorRole::Activation))) {
+          cfg, algo, precision_)) {
   const uint64_t param_bytes = param_layout_.total_bytes();
   // Checkpoints carry AdamW m and v; inference loads them into this arena.
   const uint64_t adam_bytes = AdamStateStore::arena_bytes(NamedLayout::build_param_layout(
-      cfg, algo, precision_.dtype(TensorRole::OptimizerState)));
+      cfg, algo, precision_.dtype(ItemType::OptimizerState)));
   const uint64_t temp_bytes = temp_layout_.total_bytes();
   const Device device = backend_.device();
 

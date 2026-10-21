@@ -176,6 +176,10 @@ struct TrackingConfig {
 
 struct Command;
 
+// The precision preset (top-level config key `precision`); the dtypes it
+// gives each kind of tensor live in PrecisionPolicy.
+enum class Precision : uint8_t { Fp32, Bf16Mixed };
+
 struct Config {
   std::string conf_version;
   uint32_t transformer_layers;
@@ -183,6 +187,7 @@ struct Config {
   uint64_t optimizer_bytes;
   uint32_t arena_alignment;
   uint64_t max_steps;
+  Precision precision = Precision::Fp32;
   ModelConfig model;
   ModelAlgoRuntimeConfig model_algo;
   MemoryConfig memory;

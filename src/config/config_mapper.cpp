@@ -236,6 +236,17 @@ bool map_root_fields(const std::string &key, const std::string &value, Config &c
     cfg.max_steps = parse_u64_or_throw(value, key);
     return true;
   }
+  if (key == "precision") {
+    if (value == "fp32") {
+      cfg.precision = Precision::Fp32;
+    } else if (value == "bf16_mixed") {
+      cfg.precision = Precision::Bf16Mixed;
+    } else {
+      throw std::runtime_error("Config::load_from_file: invalid precision: " + value +
+                               " (expected fp32 or bf16_mixed)");
+    }
+    return true;
+  }
   return false;
 }
 

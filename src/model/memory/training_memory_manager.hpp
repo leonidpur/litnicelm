@@ -19,13 +19,14 @@ class TrainingSessionController;
 
 class TrainingMemoryManager {
 public:
-  // algo must outlive the manager (it lives next to the backend).
+  // algo and precision must outlive the manager (they live next to the
+  // backend).
   TrainingMemoryManager(const Config &cfg,
                         const ModelAlgoFactory &algo,
                         DeviceBackend &backend,
+                        const PrecisionPolicy &precision,
                         TrainingSessionController &session_controller);
 
-  const PrecisionPolicy &precision() const { return precision_; }
   const NamedLayout &param_layout() const;
   const NamedLayout &temp_layout() const;
 
@@ -46,7 +47,7 @@ public:
 private:
   const Config &cfg_;
   DeviceBackend &backend_;
-  const PrecisionPolicy precision_;
+  const PrecisionPolicy &precision_;
   NamedLayout param_layout_;
   // Parameter-shaped layouts of the gradients and of each AdamW state (m, v),
   // in their own dtypes.
