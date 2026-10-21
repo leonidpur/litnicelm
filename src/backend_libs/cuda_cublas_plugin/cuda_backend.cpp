@@ -158,17 +158,17 @@ public:
   // check every operand against that variant: activations in its
   // activation dtype, parameters and parameter gradients F32.
   void fill(TensorView &t, float v) override {
-    const Variant variant = variant_of(t);
+    const PrecisionVariant variant = precision_variant_of(t);
     check_cuda_row_major(t, {activation_dtype(variant)}, "fill");
     if (tensor_rows(t) == 0 || tensor_cols(t) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_fill_bf16act(t, v)
+    variant == PrecisionVariant::Bf16Act ? launch_fill_bf16act(t, v)
                                 : launch_fill_f32(t, v);
   }
 
   void add(const TensorView &a, const TensorView &b, TensorView &out) override {
-    const Variant variant = variant_of(a);
+    const PrecisionVariant variant = precision_variant_of(a);
     const DType act = activation_dtype(variant);
     const bool position_table =
         a.rank() == 3 && b.rank() == 2 && out.rank() == 3 &&
@@ -183,31 +183,31 @@ public:
       return;
     }
     if (position_table) {
-      variant == Variant::Bf16Act
+      variant == PrecisionVariant::Bf16Act
           ? launch_add_batch_seq_plus_pos_bf16act(a, b, out, a.dim(1))
           : launch_add_batch_seq_plus_pos_f32(a, b, out, a.dim(1));
       return;
     }
-    variant == Variant::Bf16Act ? launch_add_bf16act(a, b, out)
+    variant == PrecisionVariant::Bf16Act ? launch_add_bf16act(a, b, out)
                                 : launch_add_f32(a, b, out);
   }
 
   // a: an F32 parameter gradient (or any F32 tensor); b: the activation
   // gradient added into it.
   void add_inplace(TensorView &a, const TensorView &b) override {
-    const Variant variant = variant_of(b);
+    const PrecisionVariant variant = precision_variant_of(b);
     check_cuda_row_major(a, {DType::F32}, "add_inplace(a)");
     check_cuda_row_major(b, {activation_dtype(variant)}, "add_inplace(b)");
     if (tensor_rows(a) == 0 || tensor_cols(a) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_add_inplace_bf16act(a, b)
+    variant == PrecisionVariant::Bf16Act ? launch_add_inplace_bf16act(a, b)
                                 : launch_add_inplace_f32(a, b);
   }
 
   void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
                         TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)}, "add_bias_rowwise(x)");
     check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_rowwise(bias)");
     check_cuda_row_major(out, {activation_dtype(variant)},
@@ -215,14 +215,14 @@ public:
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_add_bias_rowwise_bf16act(x, bias_1xC, out)
         : launch_add_bias_rowwise_f32(x, bias_1xC, out);
   }
 
   void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
                              TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)},
                          "add_bias_relu_rowwise(x)");
     check_cuda_row_major(bias_1xC, {DType::F32}, "add_bias_relu_rowwise(bias)");
@@ -231,14 +231,14 @@ public:
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_add_bias_relu_rowwise_bf16act(x, bias_1xC, out)
         : launch_add_bias_relu_rowwise_f32(x, bias_1xC, out);
   }
 
   void add_bias_relu_rowwise_inplace(TensorView &x,
                                      const TensorView &bias_1xC) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)},
                          "add_bias_relu_rowwise_inplace(x)");
     check_cuda_row_major(bias_1xC, {DType::F32},
@@ -246,19 +246,19 @@ public:
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_add_bias_relu_rowwise_inplace_bf16act(x, bias_1xC)
         : launch_add_bias_relu_rowwise_inplace_f32(x, bias_1xC);
   }
 
   void mul_scalar(const TensorView &x, float s, TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)}, "mul_scalar(x)");
     check_cuda_row_major(out, {activation_dtype(variant)}, "mul_scalar(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_mul_scalar_bf16act(x, s, out)
+    variant == PrecisionVariant::Bf16Act ? launch_mul_scalar_bf16act(x, s, out)
                                 : launch_mul_scalar_f32(x, s, out);
   }
 
@@ -280,19 +280,19 @@ public:
   }
 
   void relu(const TensorView &x, TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)}, "relu(x)");
     check_cuda_row_major(out, {activation_dtype(variant)}, "relu(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_relu_bf16act(x, out)
+    variant == PrecisionVariant::Bf16Act ? launch_relu_bf16act(x, out)
                                 : launch_relu_f32(x, out);
   }
 
   void relu_backward(const TensorView &preact, const TensorView &dout,
                      TensorView &dx) override {
-    const Variant variant = variant_of(preact);
+    const PrecisionVariant variant = precision_variant_of(preact);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(preact, {act}, "relu_backward(preact)");
     check_cuda_row_major(dout, {act}, "relu_backward(dout)");
@@ -300,13 +300,13 @@ public:
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_relu_backward_bf16act(preact, dout, dx)
+    variant == PrecisionVariant::Bf16Act ? launch_relu_backward_bf16act(preact, dout, dx)
                                 : launch_relu_backward_f32(preact, dout, dx);
   }
 
   void relu_backward_inplace(const TensorView &preact,
                              TensorView &dout_dx) override {
-    const Variant variant = variant_of(preact);
+    const PrecisionVariant variant = precision_variant_of(preact);
     check_cuda_row_major(preact, {activation_dtype(variant)},
                          "relu_backward_inplace(preact)");
     check_cuda_row_major(dout_dx, {activation_dtype(variant)},
@@ -314,20 +314,20 @@ public:
     if (tensor_rows(dout_dx) == 0 || tensor_cols(dout_dx) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_relu_backward_inplace_bf16act(preact, dout_dx)
         : launch_relu_backward_inplace_f32(preact, dout_dx);
   }
 
   void row_sum(const TensorView &x, TensorView &out_1xC) override {
     // x is an activation gradient; out_1xC a bias gradient (F32).
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)}, "row_sum(x)");
     check_cuda_row_major(out_1xC, {DType::F32}, "row_sum(out)");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_row_sum_bf16act(x, out_1xC)
+    variant == PrecisionVariant::Bf16Act ? launch_row_sum_bf16act(x, out_1xC)
                                 : launch_row_sum_f32(x, out_1xC);
   }
 
@@ -380,7 +380,7 @@ public:
 
   void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
                          const TensorView &beta_1xC, TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(x, {act}, "layernorm_forward(x)");
     check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_forward(gamma)");
@@ -389,7 +389,7 @@ public:
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_layernorm_forward_bf16act(x, gamma_1xC, beta_1xC, out)
         : launch_layernorm_forward_f32(x, gamma_1xC, beta_1xC, out);
   }
@@ -398,7 +398,7 @@ public:
                           const TensorView &dout, TensorView &dx,
                           TensorView &dgamma_1xC,
                           TensorView &dbeta_1xC) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(x, {act}, "layernorm_backward(x)");
     check_cuda_row_major(gamma_1xC, {DType::F32}, "layernorm_backward(gamma)");
@@ -416,7 +416,7 @@ public:
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_layernorm_backward_bf16act(x, gamma_1xC, dout, dx,
                                             dgamma_1xC, dbeta_1xC)
         : launch_layernorm_backward_f32(x, gamma_1xC, dout, dx, dgamma_1xC,
@@ -426,7 +426,7 @@ public:
   void embedding_lookup(const TensorView &table, const TensorView &ids,
                         TensorView &out) override {
     // The table is a parameter (F32); out the gathered activations.
-    const Variant variant = variant_of(out);
+    const PrecisionVariant variant = precision_variant_of(out);
     check_cuda_row_major(table, {DType::F32}, "embedding_lookup(table)");
     check_cuda_row_major(ids, {DType::I32}, "embedding_lookup(ids)");
     check_cuda_row_major(out, {activation_dtype(variant)},
@@ -434,7 +434,7 @@ public:
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_embedding_lookup_bf16act(table, ids, out)
         : launch_embedding_lookup_f32(table, ids, out);
   }
@@ -443,7 +443,7 @@ public:
                                   const TensorView &d_cur,
                                   TensorView &d_tok) override {
     // d_cur: the activation gradient; d_tok: the table's gradient (F32).
-    const Variant variant = variant_of(d_cur);
+    const PrecisionVariant variant = precision_variant_of(d_cur);
     check_cuda_row_major(ids, {DType::I32},
                          "accumulate_embedding_grads(ids)");
     check_cuda_row_major(d_cur, {activation_dtype(variant)},
@@ -453,14 +453,14 @@ public:
     if (tensor_rows(d_cur) == 0 || tensor_cols(d_cur) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_accumulate_embedding_grads_bf16act(ids, d_cur, d_tok)
         : launch_accumulate_embedding_grads_f32(ids, d_cur, d_tok);
   }
 
   void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
                           TensorView &out_loss) override {
-    const Variant variant = variant_of(logits);
+    const PrecisionVariant variant = precision_variant_of(logits);
     check_cuda_row_major(logits, {activation_dtype(variant)},
                          "cross_entropy_mean(logits)");
     check_cuda_row_major(targets, {DType::I32}, "cross_entropy_mean(targets)");
@@ -471,7 +471,7 @@ public:
     if (tensor_rows(logits) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_cross_entropy_mean_bf16act(logits, targets, out_loss)
         : launch_cross_entropy_mean_f32(logits, targets, out_loss);
   }
@@ -479,7 +479,7 @@ public:
   void cross_entropy_mean_backward_inplace(TensorView &logits,
                                            const TensorView &targets,
                                            TensorView &out_loss) override {
-    const Variant variant = variant_of(logits);
+    const PrecisionVariant variant = precision_variant_of(logits);
     check_cuda_row_major(logits, {activation_dtype(variant)},
                          "cross_entropy_mean_backward_inplace(logits)");
     check_cuda_row_major(targets, {DType::I32},
@@ -488,7 +488,7 @@ public:
                          "cross_entropy_mean_backward_inplace(out_loss)");
     check_cuda(cudaMemset(out_loss.data(), 0, sizeof(float)),
                "cudaMemset(cross_entropy_mean_backward_inplace(out_loss))");
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_cross_entropy_mean_backward_inplace_bf16act(logits, targets,
                                                              out_loss)
         : launch_cross_entropy_mean_backward_inplace_f32(logits, targets,
@@ -514,20 +514,20 @@ public:
   }
 
   void softmax_rows(const TensorView &x, TensorView &out) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(x, {act}, "softmax_rows(x)");
     check_cuda_row_major(out, {act}, "softmax_rows(out)");
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act ? launch_softmax_rows_bf16act(x, out)
+    variant == PrecisionVariant::Bf16Act ? launch_softmax_rows_bf16act(x, out)
                                 : launch_softmax_rows_f32(x, out);
   }
 
   void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
                              TensorView &dx) override {
-    const Variant variant = variant_of(softmax);
+    const PrecisionVariant variant = precision_variant_of(softmax);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(softmax, {act},
                          "softmax_backward_rows(softmax)");
@@ -536,14 +536,14 @@ public:
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_softmax_backward_rows_bf16act(softmax, dout, dx)
         : launch_softmax_backward_rows_f32(softmax, dout, dx);
   }
 
   void scaled_causal_softmax_rows(const TensorView &scores, float scale,
                                   TensorView &out) override {
-    const Variant variant = variant_of(scores);
+    const PrecisionVariant variant = precision_variant_of(scores);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(scores, {act},
                          "scaled_causal_softmax_rows(scores)");
@@ -551,7 +551,7 @@ public:
     if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_scaled_causal_softmax_rows_bf16act(scores, scale, out)
         : launch_scaled_causal_softmax_rows_f32(scores, scale, out);
   }
@@ -634,7 +634,7 @@ public:
 
   void scaled_causal_softmax_rows_exec_context(
       const TensorView &scores, float scale, TensorView &out) override {
-    const Variant variant = variant_of(scores);
+    const PrecisionVariant variant = precision_variant_of(scores);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(scores, {act},
                          "scaled_causal_softmax_rows_exec_context(scores)");
@@ -644,7 +644,7 @@ public:
       return;
     }
     CudaExecutionLane &lane = active_exec_lane();
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_scaled_causal_softmax_rows_bf16act(
               scores, scale, out, lane.stream)
         : launch_scaled_causal_softmax_rows_f32(
@@ -654,7 +654,7 @@ public:
   void softmax_backward_causal_rows_exec_context(const TensorView &softmax,
                                                  const TensorView &dout,
                                                  TensorView &dx) override {
-    const Variant variant = variant_of(softmax);
+    const PrecisionVariant variant = precision_variant_of(softmax);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(softmax, {act},
                          "softmax_backward_causal_rows_exec_context(softmax)");
@@ -666,7 +666,7 @@ public:
       return;
     }
     CudaExecutionLane &lane = active_exec_lane();
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_softmax_backward_causal_rows_bf16act(
               softmax, dout, dx, lane.stream)
         : launch_softmax_backward_causal_rows_f32(
@@ -676,7 +676,7 @@ public:
   void softmax_backward_causal_rows(const TensorView &softmax,
                                     const TensorView &dout,
                                     TensorView &dx) override {
-    const Variant variant = variant_of(softmax);
+    const PrecisionVariant variant = precision_variant_of(softmax);
     const DType act = activation_dtype(variant);
     check_cuda_row_major(softmax, {act},
                          "softmax_backward_causal_rows(softmax)");
@@ -686,33 +686,33 @@ public:
     if (tensor_rows(dx) == 0 || tensor_cols(dx) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_softmax_backward_causal_rows_bf16act(softmax, dout, dx)
         : launch_softmax_backward_causal_rows_f32(softmax, dout, dx);
   }
 
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override {
-    const Variant variant = variant_of(scores);
+    const PrecisionVariant variant = precision_variant_of(scores);
     check_cuda_row_major(scores, {activation_dtype(variant)},
                          "apply_causal_mask_inplace");
     if (tensor_rows(scores) == 0 || tensor_cols(scores) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_apply_causal_mask_inplace_bf16act(scores, neg_inf)
         : launch_apply_causal_mask_inplace_f32(scores, neg_inf);
   }
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                                 bool inverse) override {
-    const Variant variant = variant_of(x);
+    const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)},
                          "rotary_embedding_inplace");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
       return;
     }
-    variant == Variant::Bf16Act
+    variant == PrecisionVariant::Bf16Act
         ? launch_rotary_embedding_inplace_bf16act(x, n_heads, base, inverse)
         : launch_rotary_embedding_inplace_f32(x, n_heads, base, inverse);
   }

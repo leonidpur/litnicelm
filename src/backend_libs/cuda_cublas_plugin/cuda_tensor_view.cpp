@@ -132,12 +132,12 @@ const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix) {
          prefix_matrix_byte_offset(view, prefix, 2);
 }
 
-Variant variant_of(const TensorView &activation) {
-  return activation.dtype() == DType::BF16 ? Variant::Bf16Act : Variant::F32;
+PrecisionVariant precision_variant_of(const TensorView &activation) {
+  return activation.dtype() == DType::BF16 ? PrecisionVariant::Bf16Act : PrecisionVariant::F32;
 }
 
-DType activation_dtype(Variant v) {
-  return v == Variant::Bf16Act ? DType::BF16 : DType::F32;
+DType activation_dtype(PrecisionVariant v) {
+  return v == PrecisionVariant::Bf16Act ? DType::BF16 : DType::F32;
 }
 
 void check_cuda_row_major(const TensorView &view, const char *what) {

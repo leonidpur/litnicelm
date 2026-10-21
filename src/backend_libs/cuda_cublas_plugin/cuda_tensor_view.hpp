@@ -43,10 +43,10 @@ const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix);
 // operand: <op>_bf16act when that is BF16 (activations and activation
 // gradients BF16; parameters, their gradients and optimizer state F32),
 // otherwise <op>_f32.
-enum class Variant { F32, Bf16Act };
-Variant variant_of(const TensorView &activation);
+enum class PrecisionVariant { F32, Bf16Act };
+PrecisionVariant precision_variant_of(const TensorView &activation);
 // The dtype activation operands have in variant v.
-DType activation_dtype(Variant v);
+DType activation_dtype(PrecisionVariant v);
 
 // Capability: a GPU tensor with storage whose rows hold contiguous elements
 // (rank >= 2). what names the operand, e.g. "gemm(a)".

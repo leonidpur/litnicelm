@@ -144,23 +144,23 @@ void run_strided_batched_gemm_bf16act(cublasHandle_t handle,
                what);
 }
 
-void run_gemm(Variant variant, cublasHandle_t handle, cublasOperation_t op_a,
+void run_gemm(PrecisionVariant variant, cublasHandle_t handle, cublasOperation_t op_a,
               cublasOperation_t op_b, const GemmShape &shape,
               const CublasInputMatrix &a, const CublasInputMatrix &b,
               const CublasOutputMatrix &out, const char *what) {
-  variant == Variant::Bf16Act
+  variant == PrecisionVariant::Bf16Act
       ? run_gemm_bf16act(handle, op_a, op_b, shape, a, b, out, what)
       : run_gemm_f32(handle, op_a, op_b, shape, a, b, out, what);
 }
 
-void run_strided_batched_gemm(Variant variant, cublasHandle_t handle,
+void run_strided_batched_gemm(PrecisionVariant variant, cublasHandle_t handle,
                               cublasOperation_t op_a, cublasOperation_t op_b,
                               const GemmShape &shape,
                               const CublasInputMatrix &a,
                               const CublasInputMatrix &b,
                               const CublasOutputMatrix &out, int batch_count,
                               const char *what) {
-  variant == Variant::Bf16Act
+  variant == PrecisionVariant::Bf16Act
       ? run_strided_batched_gemm_bf16act(handle, op_a, op_b, shape, a, b, out,
                                          batch_count, what)
       : run_strided_batched_gemm_f32(handle, op_a, op_b, shape, a, b, out,
@@ -286,7 +286,7 @@ void cublas_gemm(cublasHandle_t handle, const TensorView &a,
                   "gemm would run no GEMM for "
                   "zero-sized tensors");
   const GemmShape shape = matmul_tensor_shape(a, b);
-  run_gemm(Variant::F32, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
+  run_gemm(PrecisionVariant::F32, handle, CUBLAS_OP_N, CUBLAS_OP_N, shape,
            input_matrix(b, leading_dim(b)), input_matrix(a, leading_dim(a)),
            output_matrix(out, leading_dim(out)), "GEMM (gemm)");
 }
@@ -295,7 +295,7 @@ void cublas_gemm_ranked_matrix_rhs(cublasHandle_t handle, const TensorView &a,
                                    const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_ranked_matrix_rhs(a)");
   check_cuda_row_major(b, {act}, "gemm_ranked_matrix_rhs(b)");
@@ -312,7 +312,7 @@ void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
                                      const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_ranked_matrix_rhs_t(a)");
   check_cuda_row_major(b, {act}, "gemm_ranked_matrix_rhs_t(b)");
@@ -329,7 +329,7 @@ void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
                                      const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_ranked_reduce_lhs_t(a)");
   check_cuda_row_major(b, {act}, "gemm_ranked_reduce_lhs_t(b)");
@@ -345,7 +345,7 @@ void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                          const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_batched(a)");
   check_cuda_row_major(b, {act}, "gemm_batched(b)");
@@ -392,7 +392,7 @@ void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_batched_lhs_t(a)");
   check_cuda_row_major(b, {act}, "gemm_batched_lhs_t(b)");
@@ -439,7 +439,7 @@ void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
                                const TensorView &b, TensorView &out) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
-  const Variant variant = variant_of(a);
+  const PrecisionVariant variant = precision_variant_of(a);
   const DType act = activation_dtype(variant);
   check_cuda_row_major(a, {act}, "gemm_batched_rhs_t(a)");
   check_cuda_row_major(b, {act}, "gemm_batched_rhs_t(b)");
