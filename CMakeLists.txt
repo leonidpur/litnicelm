@@ -311,15 +311,23 @@ foreach(plugin litnice_backend_cpu litnice_backend_cublas_plugin)
   endif()
 endforeach()
 
-# Precision presets end to end on CUDA: bf16_mixed trains, and checkpoints
-# resume across presets.
+# Training -> inference end to end on CUDA: both precision presets, rope and
+# learned positions, fresh and resumed runs, inference after each, across
+# presets, and fp32 against the CPU backend. Skipped (exit 77) without the
+# CUDA plugin. About 45 s.
 if(TARGET litnice_backend_cublas_plugin)
-  add_test(NAME precision_e2e
-           COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/precision_e2e.sh
-                   $<TARGET_FILE:litnicelm>
-                   $<TARGET_FILE:litnice_backend_cublas_plugin>
-                   ${CMAKE_CURRENT_BINARY_DIR}/precision_e2e_tmp)
+  set(TRAIN_INFER_E2E_CUDA $<TARGET_FILE:litnice_backend_cublas_plugin>)
+else()
+  set(TRAIN_INFER_E2E_CUDA "")
 endif()
+add_test(NAME train_infer_e2e
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/train_infer_e2e.sh
+                 $<TARGET_FILE:litnicelm>
+                 "${TRAIN_INFER_E2E_CUDA}"
+                 $<TARGET_FILE:litnice_backend_cpu>
+                 ${CMAKE_CURRENT_BINARY_DIR}/train_infer_e2e_tmp)
+set_tests_properties(train_infer_e2e PROPERTIES LABELS e2e SKIP_RETURN_CODE 77
+                                                TIMEOUT 300)
 
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
