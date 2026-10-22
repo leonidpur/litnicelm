@@ -312,9 +312,10 @@ foreach(plugin litnice_backend_cpu litnice_backend_cublas_plugin)
 endforeach()
 
 # Training -> inference end to end on CUDA: both precision presets, rope and
-# learned positions, fresh and resumed runs, inference after each, across
-# presets, and fp32 against the CPU backend. Skipped (exit 77) without the
-# CUDA plugin. About 45 s.
+# learned positions, fresh and resumed runs, each model memorizing a fixed
+# text and continuing it exactly under greedy inference; across presets, and
+# fp32 against the CPU backend. Skipped (exit 77) without the CUDA plugin.
+# About 50 s.
 if(TARGET litnice_backend_cublas_plugin)
   set(TRAIN_INFER_E2E_CUDA $<TARGET_FILE:litnice_backend_cublas_plugin>)
 else()
