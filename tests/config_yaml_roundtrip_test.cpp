@@ -28,6 +28,7 @@ int main(int argc, char **argv) {
       cfg.tracking.sinks = {"./build/liblitnice_tracking_journal.so",
                             "./build/liblitnice_tracking_runs.so"};
       cfg.tracking.metrics_every_n_steps = 50;
+      cfg.inference.report_margin = true;
       cfg.tracking.options = {{"runs.dir", "runs"},
                               {"journal.path", "journal/x.txt"}};
       const std::string first = config_to_yaml(cfg);

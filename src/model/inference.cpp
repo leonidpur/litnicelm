@@ -289,6 +289,30 @@ int32_t select_next_token_sampled(const std::vector<float> &row_logits,
   return candidates[dist(rng)].id;
 }
 
+// Softmax probabilities of the two most likely next tokens.
+struct TopTwo {
+  double first = 0.0;
+  double second = 0.0;
+};
+
+TopTwo top_two_probabilities(const std::vector<float> &row_logits) {
+  const float max_logit = *std::max_element(row_logits.begin(), row_logits.end());
+  double sum = 0.0;
+  double first = 0.0;
+  double second = 0.0;
+  for (const float logit : row_logits) {
+    const double w = std::exp(static_cast<double>(logit - max_logit));
+    sum += w;
+    if (w > first) {
+      second = first;
+      first = w;
+    } else if (w > second) {
+      second = w;
+    }
+  }
+  return {first / sum, second / sum};
+}
+
 std::string generate_text(InferRuntime &rt, const std::string &prompt) {
   std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
   std::mt19937 rng(rt.cfg.inference.seed);
@@ -307,13 +331,31 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
           << max_seq << ")";
   }
   logger().log(model_events::kInferenceStart, start.str());
+  TopTwo least_margin{1.0, 0.0};
+  uint32_t least_margin_step = 0;
   for (uint32_t step = 0; step < max_new; ++step) {
     TensorView logits = forward_prompt(rt, context_window(ids, max_seq));
     const std::vector<float> row_logits =
         read_last_row_logits(*rt.backend, logits);
+    if (rt.cfg.inference.report_margin) {
+      const TopTwo top = top_two_probabilities(row_logits);
+      if (top.first - top.second < least_margin.first - least_margin.second) {
+        least_margin = top;
+        least_margin_step = step;
+      }
+    }
     const int32_t next =
         select_next_token_sampled(row_logits, rt.cfg.inference, rng);
     ids.push_back(next);
+  }
+  if (rt.cfg.inference.report_margin && max_new > 0) {
+    std::ostringstream margin;
+    margin << std::fixed << std::setprecision(6)
+           << "min top-1 minus top-2 probability: "
+           << least_margin.first - least_margin.second << " at step "
+           << least_margin_step << " (top-1 " << least_margin.first << ", top-2 "
+           << least_margin.second << ")";
+    logger().log(model_events::kInferenceMargin, margin.str());
   }
 
   logger().log(model_events::kInferenceEnd, "Inference complete: tokens=" +

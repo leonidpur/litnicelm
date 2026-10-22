@@ -128,6 +128,8 @@ struct InferenceConfig {
   uint32_t top_k;
   float top_p;
   uint32_t seed;
+  // Log the smallest top-1 minus top-2 probability over the generated tokens.
+  bool report_margin = false;
 };
 
 struct LoggingConfig {

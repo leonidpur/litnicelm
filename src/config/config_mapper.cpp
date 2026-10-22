@@ -740,6 +740,10 @@ bool map_inference_fields(const std::string &key, const std::string &value, Conf
     cfg.inference.seed = parse_u32_or_throw(value, key);
     return true;
   }
+  if (key == "inference.report_margin") {
+    cfg.inference.report_margin = parse_bool_or_throw(value, key);
+    return true;
+  }
   return false;
 }
 
