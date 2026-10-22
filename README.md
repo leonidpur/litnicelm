@@ -142,6 +142,7 @@ Useful train flags:
 
 ```bash
 --epochs N
+--stop_after_epoch N   # stop after epoch N; the LR schedule still spans --epochs
 --incremental
 --no-incremental
 --epoch_report_every N

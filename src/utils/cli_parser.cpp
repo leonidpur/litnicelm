@@ -137,6 +137,19 @@ void parse_train_args(const std::vector<std::string> &args, Command &cmd) {
       cmd.num_epochs_override = parse_u32_or_throw(args[++i], "--epochs");
       continue;
     }
+    if (arg == "--stop_after_epoch") {
+      if (i + 1 >= args.size()) {
+        throw std::runtime_error("--stop_after_epoch requires a value");
+      }
+      cmd.stop_after_epoch = parse_u32_or_throw(args[++i], "--stop_after_epoch");
+      continue;
+    }
+    constexpr const char *kStopAfterEpochPrefix = "--stop_after_epoch=";
+    if (arg.rfind(kStopAfterEpochPrefix, 0) == 0) {
+      cmd.stop_after_epoch = parse_u32_or_throw(
+          arg.substr(std::string(kStopAfterEpochPrefix).size()), "--stop_after_epoch");
+      continue;
+    }
     constexpr const char *kEpochPrefix = "--epochs=";
     if (arg.rfind(kEpochPrefix, 0) == 0) {
       cmd.num_epochs_override =
@@ -173,7 +186,7 @@ void parse_train_args(const std::vector<std::string> &args, Command &cmd) {
   if (positional.size() > 2) {
     throw std::runtime_error(
         "Too many train arguments. Usage: ./build/litnicelm train --config <config.yaml> "
-        "[train_seq_len] [batch_size] [--probe a,b] [--epochs N] [--logit] "
+        "[train_seq_len] [batch_size] [--probe a,b] [--epochs N] [--stop_after_epoch N] [--logit] "
         "[--incremental|--no-incremental] [--epoch_report_every N]");
   }
   if (!positional.empty()) {
@@ -320,16 +333,19 @@ std::string CliParser::usage_text() {
   oss << "Usage:\n"
       << "  Train (default):\n"
       << "    ./build/litnicelm train --config <config.yaml> [train_seq_len] [batch_size] "
-         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
+         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] "
+         "[--stop_after_epoch N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "    ./build/litnicelm --config <config.yaml> [train_seq_len] [batch_size] "
-         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
+         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] "
+         "[--stop_after_epoch N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Dry run:\n"
       << "    ./build/litnicelm dry_run --config <config.yaml> [train_seq_len] [batch_size] "
-         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] [--logit] "
+         "[--probe embeddings,output_head|--do-probe] [--epochs N|--epochs=N] "
+         "[--stop_after_epoch N] [--logit] "
          "[--incremental|--no-incremental] "
          "[--epoch_report_every N|--epoch_report_every=N]\n"
       << "  Inference:\n"
@@ -370,6 +386,7 @@ Command CliParser::parse(int argc, char **argv) {
   cmd.runtime_flags.logit = false;
   cmd.runtime_flags.epoch_report_every = 0;
   cmd.num_epochs_override = 0;
+  cmd.stop_after_epoch = 0;
   cmd.has_prompt_override = false;
   cmd.prompt.clear();
   cmd.has_max_new_override = false;

@@ -114,7 +114,7 @@ private:
   // Logs why training ends: every reason that holds, joined.
   void log_training_end(const TrainingPosition &training_position,
                         bool plan_done, bool monitor_stop,
-                        bool observer_stop) const;
+                        bool observer_stop, bool stop_requested) const;
   bool resume_from_latest(TrainingPosition &training_position,
                           DeviceBackend &device_backend,
                           const ArenaView &data_arena,

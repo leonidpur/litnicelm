@@ -244,6 +244,9 @@ struct Command {
   bool incremental_override;
   RuntimeFlags runtime_flags;
   uint32_t num_epochs_override;
+  // Stop after this epoch (0: run the plan to its end); the LR schedule
+  // still spans the whole plan, as in a run interrupted there.
+  uint32_t stop_after_epoch;
 
   bool has_prompt_override;
   std::string prompt;

@@ -300,19 +300,23 @@ ContinueTrainingDecision TrainingSessionController::on_epoch_end(uint32_t epoch,
   }
   const bool plan_done = epoch >= training_plan_.last_epoch;
   const bool monitor_stop = !verdict.decision.continue_training;
+  const bool stop_requested = training_plan_.stop_after_epoch > 0 &&
+                              epoch >= training_plan_.stop_after_epoch;
 
   ContinueTrainingDecision result;
   result.decided = true;
-  result.continue_training = !plan_done && !monitor_stop && !observer_stop;
+  result.continue_training =
+      !plan_done && !monitor_stop && !observer_stop && !stop_requested;
   if (!result.continue_training) {
-    log_training_end(training_position, plan_done, monitor_stop, observer_stop);
+    log_training_end(training_position, plan_done, monitor_stop, observer_stop,
+                     stop_requested);
   }
   return result;
 }
 
 void TrainingSessionController::log_training_end(
     const TrainingPosition &training_position, bool plan_done,
-    bool monitor_stop, bool observer_stop) const {
+    bool monitor_stop, bool observer_stop, bool stop_requested) const {
   std::vector<std::string> reasons;
   if (plan_done) {
     reasons.push_back("reached last epoch " +
@@ -323,6 +327,11 @@ void TrainingSessionController::log_training_end(
   }
   if (observer_stop) {
     reasons.push_back("requested by an observer");
+  }
+  if (stop_requested && !plan_done) {
+    reasons.push_back("--stop_after_epoch " +
+                      std::to_string(training_plan_.stop_after_epoch) + " of " +
+                      std::to_string(training_plan_.last_epoch) + " planned");
   }
   std::string message =
       plan_done ? (training_plan_.dry_run() ? "Dry run complete" : "Training complete")
