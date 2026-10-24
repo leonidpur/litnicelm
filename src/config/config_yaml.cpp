@@ -1,5 +1,6 @@
 #include "config_yaml.hpp"
 
+#include <litnicelm_utils/format_utils.hpp>
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -55,17 +56,6 @@
 namespace {
 
 // Shortest decimal text that parses back to the same float.
-std::string float_text(float v) {
-  char buf[64];
-  for (int precision = 6; precision <= 9; ++precision) {
-    std::snprintf(buf, sizeof(buf), "%.*g", precision, static_cast<double>(v));
-    if (std::strtof(buf, nullptr) == v) {
-      break;
-    }
-  }
-  return buf;
-}
-
 // The loader strips one pair of surrounding quotes and keeps the rest
 // verbatim. Newlines cannot appear in a single-line value, so they are
 // written as \n (only inter_file_boundary decodes them back).
@@ -156,31 +146,31 @@ std::string config_to_yaml(const Config &cfg) {
 
   const TrainingConfig &t = cfg.training;
   y << "training:\n"
-    << "  learning_rate: " << float_text(t.learning_rate) << "\n"
-    << "  beta1: " << float_text(t.beta1) << "\n"
-    << "  beta2: " << float_text(t.beta2) << "\n"
-    << "  eps: " << float_text(t.eps) << "\n"
-    << "  weight_decay: " << float_text(t.weight_decay) << "\n"
+    << "  learning_rate: " << format_utils::float_text(t.learning_rate) << "\n"
+    << "  beta1: " << format_utils::float_text(t.beta1) << "\n"
+    << "  beta2: " << format_utils::float_text(t.beta2) << "\n"
+    << "  eps: " << format_utils::float_text(t.eps) << "\n"
+    << "  weight_decay: " << format_utils::float_text(t.weight_decay) << "\n"
     << "  incremental: " << boolean(t.incremental) << "\n"
     << "  dry_run: " << boolean(t.dry_run) << "\n"
     << "  num_epochs_train: " << t.num_epochs_train << "\n"
     << "  num_epochs_dry_run: " << t.num_epochs_dry_run << "\n"
     << "  save_interval_epochs: " << t.save_interval_epochs << "\n"
-    << "  grad_clip: " << float_text(t.grad_clip) << "\n"
+    << "  grad_clip: " << format_utils::float_text(t.grad_clip) << "\n"
     << "  train_seq_len: " << t.train_seq_len << "\n"
     << "  window_stride: " << t.window_stride << "\n"
     << "  batch_size: " << t.batch_size << "\n"
-    << "  target_loss: " << float_text(t.target_loss) << "\n"
-    << "  min_delta: " << float_text(t.min_delta) << "\n"
+    << "  target_loss: " << format_utils::float_text(t.target_loss) << "\n"
+    << "  min_delta: " << format_utils::float_text(t.min_delta) << "\n"
     << "  patience_epochs: " << t.patience_epochs << "\n"
     << "  min_epochs: " << t.min_epochs << "\n"
     << "  stop_on_nonfinite_loss: " << boolean(t.stop_on_nonfinite_loss) << "\n"
-    << "  validation_fraction: " << float_text(t.validation_fraction) << "\n"
+    << "  validation_fraction: " << format_utils::float_text(t.validation_fraction) << "\n"
     << "  validation_chunk_tokens: " << t.validation_chunk_tokens << "\n"
     << "  validation_every_epochs: " << t.validation_every_epochs << "\n"
     << "  lr_schedule: " << quoted(t.lr_schedule) << "\n"
     << "  warmup_steps: " << t.warmup_steps << "\n"
-    << "  min_lr_ratio: " << float_text(t.min_lr_ratio) << "\n"
+    << "  min_lr_ratio: " << format_utils::float_text(t.min_lr_ratio) << "\n"
     << "  batches_per_step: " << t.batches_per_step << "\n"
     << "  diagnostics:\n";
 #define LITNICE_DUMP_DIAGNOSTIC(name) \
@@ -197,9 +187,9 @@ std::string config_to_yaml(const Config &cfg) {
   y << "inference:\n"
     << "  prompt: " << quoted(cfg.inference.prompt) << "\n"
     << "  max_new: " << cfg.inference.max_new << "\n"
-    << "  temp: " << float_text(cfg.inference.temp) << "\n"
+    << "  temp: " << format_utils::float_text(cfg.inference.temp) << "\n"
     << "  top_k: " << cfg.inference.top_k << "\n"
-    << "  top_p: " << float_text(cfg.inference.top_p) << "\n"
+    << "  top_p: " << format_utils::float_text(cfg.inference.top_p) << "\n"
     << "  seed: " << cfg.inference.seed << "\n"
     << "  report_margin: " << boolean(cfg.inference.report_margin) << "\n\n";
 

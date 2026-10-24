@@ -10,6 +10,7 @@
 #include "model_algo_factory.hpp"
 #include "runtime_config.hpp"
 #include "safetensors_writer.hpp"
+#include <litnicelm_utils/format_utils.hpp>
 #include <litnicelm_utils/text_io.hpp>
 #include <tokenizer_factory.hpp>
 
@@ -26,7 +27,7 @@ namespace fs = std::filesystem;
 namespace {
 
 // DefaultCpuBackend and the CUDA layernorm kernels use this epsilon.
-constexpr double kLayerNormEpsilon = 1e-5;
+constexpr float kLayerNormEpsilon = 1e-5f;
 constexpr const char *kLicense = "apache-2.0";  // the repository's LICENSE
 
 // ---------------------------------------------------------------------------
@@ -162,14 +163,6 @@ void write_weights(const LoadedCheckpoint &model, const fs::path &file) {
 // config.json, tokenizer/
 // ---------------------------------------------------------------------------
 
-// Text for a value that was a float: 6 significant digits, so 0.0006f
-// prints as 0.0006, not its double expansion.
-std::string number(double v) {
-  std::ostringstream out;
-  out << std::setprecision(6) << v;
-  return out.str();
-}
-
 std::string config_json(const Config &cfg) {
   const std::string &pos = cfg.model_algo.position_encoding;
   std::ostringstream j;
@@ -182,11 +175,11 @@ std::string config_json(const Config &cfg) {
     << "  \"n_layer\": " << cfg.model.n_layers << ",\n"
     << "  \"n_head\": " << cfg.model.n_heads << ",\n"
     << "  \"n_inner\": " << cfg.model.d_ff << ",\n"
-    << "  \"layer_norm_epsilon\": " << number(kLayerNormEpsilon) << ",\n"
+    << "  \"layer_norm_epsilon\": " << format_utils::float_text(kLayerNormEpsilon) << ",\n"
     << "  \"activation_function\": \"relu\",\n"
     << "  \"position_encoding\": \"" << pos << "\",\n";
   if (pos == "rope") {
-    j << "  \"rope_theta\": " << number(RopePositionEncoding::kBase) << ",\n"
+    j << "  \"rope_theta\": " << format_utils::float_text(RopePositionEncoding::kBase) << ",\n"
       << "  \"rope_layout\": \"half_split\",\n";
   }
   j << "  \"tie_word_embeddings\": false,\n"
@@ -246,7 +239,7 @@ std::string card_architecture(const Config &cfg) {
     << "| MLP activation | ReLU |\n\n"
     << "Pre-LayerNorm blocks (LN, attention, residual; LN, MLP, residual), a final "
        "LayerNorm (epsilon "
-    << number(kLayerNormEpsilon) << ") and an untied LM head without bias.\n\n";
+    << format_utils::float_text(kLayerNormEpsilon) << ") and an untied LM head without bias.\n\n";
   return c.str();
 }
 
@@ -261,7 +254,7 @@ std::string card_training(const Config &run_cfg, const LoadedCheckpoint &model) 
     << "| precision | "
     << (run_cfg.precision == Precision::Bf16Mixed ? "bf16_mixed" : "fp32") << " |\n"
     << "| checkpoint | epoch " << model.epoch << ", optimizer step " << model.step << " |\n"
-    << "| learning rate | " << number(run_cfg.training.learning_rate) << " ("
+    << "| learning rate | " << format_utils::float_text(run_cfg.training.learning_rate) << " ("
     << run_cfg.training.lr_schedule << ") |\n"
     << "| batch | " << run_cfg.training.batch_size << " x "
     << run_cfg.training.train_seq_len << " tokens";
@@ -271,7 +264,7 @@ std::string card_training(const Config &run_cfg, const LoadedCheckpoint &model) 
   c << " |\n";
   if (conv.flags & CheckpointConvergenceState::kHasBest) {
     const bool val = (conv.flags & CheckpointConvergenceState::kBestIsVal) != 0;
-    c << "| best " << (val ? "val" : "train") << " loss | " << number(conv.best_loss)
+    c << "| best " << (val ? "val" : "train") << " loss | " << format_utils::float_text(conv.best_loss)
       << " (epoch " << conv.best_epoch << ") |\n";
   }
   c << "\n";
@@ -293,7 +286,7 @@ std::string card_files(const Config &cfg) {
     << "Unlike GPT-2: ReLU instead of GELU, untied LM head without bias";
   if (rope) {
     c << ", and rotary position embeddings instead of `wpe` (base "
-      << number(RopePositionEncoding::kBase)
+      << format_utils::float_text(RopePositionEncoding::kBase)
       << ", element i paired with i + head_dim/2, applied to Q and K)";
   }
   c << ". A stock `GPT2LMHeadModel` will not reproduce this model's outputs.\n";

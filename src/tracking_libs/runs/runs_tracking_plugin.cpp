@@ -9,6 +9,7 @@
 // JSONL lines are appended and closed per event, so a crashed run keeps every
 // finished line. Options: dir (default "runs").
 
+#include <litnicelm_utils/format_utils.hpp>
 #include <litnicelm_utils/json_utils.hpp>
 #include <litnicelm_utils/text_io.hpp>
 #include <tracking_plugin_api.h>
@@ -46,14 +47,7 @@ std::string json_number(double v) {
   if (!std::isfinite(v)) {
     return "null";
   }
-  char buf[64];
-  for (int precision = 15; precision <= 17; ++precision) {
-    std::snprintf(buf, sizeof(buf), "%.*g", precision, v);
-    if (std::strtod(buf, nullptr) == v) {
-      break;
-    }
-  }
-  return buf;
+  return format_utils::double_text(v);
 }
 
 std::string json_value(const TrackingField &f) {

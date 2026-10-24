@@ -1,5 +1,6 @@
 #include "config_mapper.hpp"
 
+#include <litnicelm_utils/parse_utils.hpp>
 #include <litnicelm_utils/string_utils.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "config_events.hpp"
@@ -14,55 +15,11 @@
 #include <vector>
 
 namespace {
-bool parse_bool_or_throw(const std::string &v, const std::string &k) {
-  const std::string s = string_utils::trim_copy(v);
-  if (s == "1" || s == "true" || s == "True" || s == "TRUE" || s == "yes" || s == "on") {
-    return true;
-  }
-  if (s == "0" || s == "false" || s == "False" || s == "FALSE" || s == "no" || s == "off") {
-    return false;
-  }
-  throw std::runtime_error("Config::load_from_file: invalid bool for key " + k + ": " + v);
-}
-
-uint64_t parse_u64_or_throw(const std::string &v, const std::string &k) {
-  try {
-    return static_cast<uint64_t>(std::stoull(string_utils::trim_copy(v)));
-  } catch (...) {
-    throw std::runtime_error("Config::load_from_file: invalid uint for key " + k + ": " + v);
-  }
-}
-
-uint32_t parse_u32_or_throw(const std::string &v, const std::string &k) {
-  const uint64_t x = parse_u64_or_throw(v, k);
-  if (x > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())) {
-    throw std::runtime_error("Config::load_from_file: u32 overflow for key " + k);
-  }
-  return static_cast<uint32_t>(x);
-}
-
-int32_t parse_i32_or_throw(const std::string &v, const std::string &k) {
-  try {
-    const long x = std::stol(string_utils::trim_copy(v));
-    if (x < static_cast<long>(std::numeric_limits<int32_t>::min()) ||
-        x > static_cast<long>(std::numeric_limits<int32_t>::max())) {
-      throw std::runtime_error("Config::load_from_file: i32 overflow for key " + k);
-    }
-    return static_cast<int32_t>(x);
-  } catch (const std::runtime_error &) {
-    throw;
-  } catch (...) {
-    throw std::runtime_error("Config::load_from_file: invalid int for key " + k + ": " + v);
-  }
-}
-
-float parse_f32_or_throw(const std::string &v, const std::string &k) {
-  try {
-    return std::stof(string_utils::trim_copy(v));
-  } catch (...) {
-    throw std::runtime_error("Config::load_from_file: invalid float for key " + k + ": " + v);
-  }
-}
+using parse_utils::parse_bool_or_throw;
+using parse_utils::parse_f32_or_throw;
+using parse_utils::parse_i32_or_throw;
+using parse_utils::parse_u32_or_throw;
+using parse_utils::parse_u64_or_throw;
 
 std::string parse_escaped_string(const std::string &v) {
   std::string out;

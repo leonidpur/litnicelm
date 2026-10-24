@@ -1,37 +1,16 @@
 #include "cli_parser.hpp"
 
+#include <litnicelm_utils/parse_utils.hpp>
+
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace {
-uint32_t parse_u32_or_throw(const std::string &s, const std::string &flag_name) {
-  try {
-    const unsigned long v = std::stoul(s);
-    return static_cast<uint32_t>(v);
-  } catch (...) {
-    throw std::runtime_error(flag_name + " requires a valid unsigned integer");
-  }
-}
-
-float parse_f32_or_throw(const std::string &s, const std::string &flag_name) {
-  try {
-    return std::stof(s);
-  } catch (...) {
-    throw std::runtime_error(flag_name + " requires a valid float");
-  }
-}
-
-bool parse_bool_or_throw(const std::string &s, const std::string &flag_name) {
-  if (s == "true" || s == "1") {
-    return true;
-  }
-  if (s == "false" || s == "0") {
-    return false;
-  }
-  throw std::runtime_error(flag_name + " requires true/false or 1/0");
-}
+using parse_utils::parse_bool_or_throw;
+using parse_utils::parse_f32_or_throw;
+using parse_utils::parse_u32_or_throw;
 
 void set_probe_flag_or_throw(const std::string &token, Command &cmd) {
   if (token == "embeddings") {
