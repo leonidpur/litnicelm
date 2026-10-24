@@ -1,4 +1,7 @@
-# Python tools: tools/hf_upload.py, tools/verify_export.py
+# Python tools: tools/hf_upload.py, tools/verify_export.py,
+# tools/reference_torch.py, tools/bench_torch.py
 huggingface_hub
 safetensors
 numpy
+torch
+pyyaml
