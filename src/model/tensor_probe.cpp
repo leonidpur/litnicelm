@@ -1,5 +1,6 @@
 #include "tensor_probe.hpp"
 
+#include <litnicelm_utils/hash_utils.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "model_events.hpp"
 
@@ -15,16 +16,8 @@ struct ProbeStats {
   double stddev = 0.0;
   double min = 0.0;
   double max = 0.0;
-  uint32_t hash = 2166136261u;
+  uint32_t hash = hash_utils::kFnv1a32Offset;
 };
-
-void hash_bytes(uint32_t &h, const void *ptr, size_t n) {
-  const auto *p = reinterpret_cast<const uint8_t *>(ptr);
-  for (size_t i = 0; i < n; ++i) {
-    h ^= static_cast<uint32_t>(p[i]);
-    h *= 16777619u;
-  }
-}
 
 ProbeStats probe_stats_f32(const TensorView &t) {
   if (t.device() != Device::CPU || t.dtype() != DType::F32) {
@@ -39,7 +32,7 @@ ProbeStats probe_stats_f32(const TensorView &t) {
   for (int64_t r = 0; r < R; ++r) {
     for (int64_t c = 0; c < C; ++c) {
       const float v = t.at_f32(r, c);
-      hash_bytes(s.hash, &v, sizeof(float));
+      s.hash = hash_utils::fnv1a32(s.hash, &v, sizeof(float));
       const double x = static_cast<double>(v);
       if (!init) {
         s.min = s.max = x;

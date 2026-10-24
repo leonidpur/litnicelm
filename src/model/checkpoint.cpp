@@ -1,5 +1,6 @@
 #include "checkpoint.hpp"
 #include "i_position_encoding.hpp"
+#include <litnicelm_utils/hash_utils.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "model_events.hpp"
 
@@ -275,19 +276,15 @@ bool read_arena_payload(std::ifstream &in, DeviceBackend &backend,
   return true;
 }
 
-uint64_t fnv1a_update(uint64_t hash, const void *data, size_t len) {
-  const auto *bytes = reinterpret_cast<const uint8_t *>(data);
-  for (size_t i = 0; i < len; ++i) {
-    hash ^= static_cast<uint64_t>(bytes[i]);
-    hash *= 1099511628211ull;
-  }
-  return hash;
-}
+// The fingerprint's starting value. Not the standard FNV-1a 64 offset
+// basis (14695981039346656037, one digit longer), but every .tokfp sidecar
+// was written with it, so it stays.
+constexpr uint64_t kFingerprintSeed = 1469598103934665603ull;
 
 void hash_string(uint64_t &hash, const std::string &value) {
-  hash = fnv1a_update(hash, value.data(), value.size());
+  hash = hash_utils::fnv1a64(hash, value.data(), value.size());
   const char sep = '\0';
-  hash = fnv1a_update(hash, &sep, 1);
+  hash = hash_utils::fnv1a64(hash, &sep, 1);
 }
 
 void hash_file(uint64_t &hash, const std::filesystem::path &path) {
@@ -300,7 +297,7 @@ void hash_file(uint64_t &hash, const std::filesystem::path &path) {
   std::vector<char> buffer(64u * 1024u);
   while (in.read(buffer.data(), static_cast<std::streamsize>(buffer.size())) ||
          in.gcount() > 0) {
-    hash = fnv1a_update(hash, buffer.data(), static_cast<size_t>(in.gcount()));
+    hash = hash_utils::fnv1a64(hash, buffer.data(), static_cast<size_t>(in.gcount()));
   }
 }
 
@@ -311,7 +308,7 @@ std::string fingerprint_sidecar_path(const std::string &checkpoint_path) {
 
 std::string checkpoint_tokenizer_fingerprint(const Config &cfg) {
   namespace fs = std::filesystem;
-  uint64_t hash = 1469598103934665603ull;
+  uint64_t hash = kFingerprintSeed;
   hash_string(hash, "litnicelm-tokenizer-fingerprint-v1");
   hash_string(hash, cfg.tokenizer.type);
   hash_string(hash, std::to_string(cfg.tokenizer.target_vocab_size));

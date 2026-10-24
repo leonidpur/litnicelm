@@ -352,6 +352,11 @@ add_test(NAME hf_export
                  $<TARGET_FILE:litnice_backend_cpu>
                  ${CMAKE_CURRENT_BINARY_DIR}/hf_export_test_tmp)
 
+# Shared helpers in liblitnicelm_utils (header-only parts).
+add_executable(litnicelm_utils_test tests/utils_test.cpp)
+target_link_libraries(litnicelm_utils_test PRIVATE litnicelm_utils)
+add_test(NAME utils COMMAND litnicelm_utils_test)
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)
