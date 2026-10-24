@@ -14,7 +14,9 @@
 #include <config.hpp>
 #include <litnicelm_utils/bf16.hpp>
 
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -199,6 +201,60 @@ std::vector<BenchCase> cases(int64_t batch) {
   };
 }
 
+// The attention core of SelfAttentionFusedInplace (no QKV/output
+// projections), head by head as the model runs it: Q, K, V are column
+// slices of one [B,S,3*H*dh] tensor; fills of the context and dqkv
+// accumulators included.
+std::vector<BenchCase> attention_cases(int64_t batch, int64_t heads, int64_t seq,
+                                       int64_t dh) {
+  const int64_t model = heads * dh;
+  const float scale = 1.0f / std::sqrt(static_cast<float>(dh));
+  const Shape qkv{batch, seq, 3 * model};
+  const Shape ctx{batch, seq, model};
+  const Shape cached{heads, batch, seq, seq};
+  const Shape scores{batch, seq, seq};
+  const std::string name = "[B" + std::to_string(batch) + " H" + std::to_string(heads) +
+                           " S" + std::to_string(seq) + " D" + std::to_string(dh) + "]";
+  using V = std::vector<TensorView>;
+  return {
+      {"attention fwd " + name, {qkv, ctx, cached, scores}, "AAAA", 2.0,
+       [=](DeviceBackend &b, V &v) {
+         b.fill(v[1], 0.0f);
+         for (int64_t h = 0; h < heads; ++h) {
+           const TensorView Qh = v[0].subcols(h * dh, dh);
+           const TensorView Kh = v[0].subcols(model + h * dh, dh);
+           const TensorView Vh = v[0].subcols(2 * model + h * dh, dh);
+           TensorView context_h = v[1].subcols(h * dh, dh);
+           TensorView weights_h = v[2].select(0, h);
+           b.gemm_batched_rhs_t(Qh, Kh, v[3]);
+           b.scaled_causal_softmax_rows(v[3], scale, weights_h);
+           b.gemm_batched(weights_h, Vh, context_h);
+         }
+       }},
+      {"attention bwd " + name, {qkv, ctx, cached, qkv, scores, scores}, "AAAAAA", 2.0,
+       [=](DeviceBackend &b, V &v) {
+         b.fill(v[3], 0.0f);
+         for (int64_t h = 0; h < heads; ++h) {
+           const TensorView Qh = v[0].subcols(h * dh, dh);
+           const TensorView Kh = v[0].subcols(model + h * dh, dh);
+           const TensorView Vh = v[0].subcols(2 * model + h * dh, dh);
+           const TensorView dhead = v[1].subcols(h * dh, dh);
+           const TensorView weights_h = v[2].select(0, h);
+           TensorView dQh = v[3].subcols(h * dh, dh);
+           TensorView dKh = v[3].subcols(model + h * dh, dh);
+           TensorView dVh = v[3].subcols(2 * model + h * dh, dh);
+           b.gemm_batched_rhs_t(dhead, Vh, v[4]);
+           b.gemm_batched_lhs_t(weights_h, dhead, dVh);
+           b.softmax_backward_causal_rows(weights_h, v[4], v[5]);
+           b.gemm_batched(v[5], Kh, dQh);
+           b.mul_scalar(dQh, scale, dQh);
+           b.gemm_batched_lhs_t(v[5], Qh, dKh);
+           b.mul_scalar(dKh, scale, dKh);
+         }
+       }},
+  };
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -246,6 +302,13 @@ int main(int argc, char **argv) {
             [](DeviceBackend &b, std::vector<TensorView> &v) { b.gemm_batched(v[0], v[1], v[2]); }},
        }) {
     bench(*backend, c);
+  }
+  std::cout << "-- attention core (shapes of the cuDNN SDPA comparison)\n";
+  for (const auto &[batch, heads, seq, dh] :
+       std::vector<std::array<int64_t, 4>>{{16, 8, 128, 64}, {1, 8, 1024, 48}, {4, 8, 1024, 48}}) {
+    for (const BenchCase &c : attention_cases(batch, heads, seq, dh)) {
+      bench(*backend, c);
+    }
   }
   for (const int64_t batch : {16, 64}) {
     std::cout << (batch == 16 ? "-- batch 16: working sets within a 32 MB L2\n"
