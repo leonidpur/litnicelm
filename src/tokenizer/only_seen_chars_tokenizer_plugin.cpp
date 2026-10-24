@@ -1,4 +1,6 @@
 #include "only_seen_chars_tokenizer_plugin.hpp"
+#include <litnicelm_utils/json_utils.hpp>
+#include <litnicelm_utils/text_io.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "tokenizer_events.hpp"
 
@@ -17,38 +19,6 @@ namespace fs = std::filesystem;
 
 fs::path artifact_path(const std::string &artifacts_dir) {
   return fs::path(artifacts_dir) / "char_seen.json";
-}
-
-std::string json_escape(const std::string &s) {
-  std::ostringstream out;
-  for (unsigned char ch : s) {
-    switch (ch) {
-    case '\\':
-      out << "\\\\";
-      break;
-    case '"':
-      out << "\\\"";
-      break;
-    case '\n':
-      out << "\\n";
-      break;
-    case '\r':
-      out << "\\r";
-      break;
-    case '\t':
-      out << "\\t";
-      break;
-    default:
-      if (ch < 0x20 || ch >= 0x7f) {
-        out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
-            << static_cast<int>(ch) << std::dec << std::setfill(' ');
-      } else {
-        out << static_cast<char>(ch);
-      }
-      break;
-    }
-  }
-  return out.str();
 }
 
 int hex_digit(char c) {
@@ -273,7 +243,7 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
     if (i != 0) {
       out << ", ";
     }
-    out << "\"" << json_escape(vocab_[i]) << "\"";
+    out << "\"" << json_utils::escape(vocab_[i], json_utils::NonAscii::Escape) << "\"";
   }
   out << "],\n";
   out << "  \"char_to_id\": {\n";
@@ -283,7 +253,7 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
       out << ",\n";
     }
     first = false;
-    out << "    \"" << json_escape(vocab_[i]) << "\": " << i;
+    out << "    \"" << json_utils::escape(vocab_[i], json_utils::NonAscii::Escape) << "\": " << i;
   }
   out << "\n  }\n";
   out << "}\n";
@@ -295,13 +265,11 @@ void OnlySeenCharsTokenizerPlugin::train(const std::string &corpus_path,
 }
 
 bool OnlySeenCharsTokenizerPlugin::load(const std::string &artifacts_dir) {
-  std::ifstream in(artifact_path(artifacts_dir), std::ios::binary);
-  if (!in) {
+  const fs::path path = artifact_path(artifacts_dir);
+  if (!fs::is_regular_file(path)) {
     return false;
   }
-  std::ostringstream ss;
-  ss << in.rdbuf();
-  vocab_ = parse_vocab_array(ss.str());
+  vocab_ = parse_vocab_array(text_io::read_text_file(path));
   if (vocab_size_limit_ != 0 && vocab_.size() > vocab_size_limit_) {
     throw std::runtime_error(
         "OnlySeenCharsTokenizer: artifact vocab exceeds tokenizer.target_vocab_size");

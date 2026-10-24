@@ -4,6 +4,7 @@ add_library(litnice_tracking_runs SHARED
 
 target_include_directories(litnice_tracking_runs PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src/litnicelm_utils/include
 )
 
 set_target_properties(litnice_tracking_runs PROPERTIES

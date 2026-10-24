@@ -10,6 +10,7 @@
 #include "model_algo_factory.hpp"
 #include "runtime_config.hpp"
 #include "safetensors_writer.hpp"
+#include <litnicelm_utils/text_io.hpp>
 #include <tokenizer_factory.hpp>
 
 #include <filesystem>
@@ -169,14 +170,6 @@ std::string number(double v) {
   return out.str();
 }
 
-void write_text(const fs::path &path, const std::string &text) {
-  std::ofstream out(path, std::ios::trunc);
-  out << text;
-  if (!out) {
-    throw std::runtime_error("HfExporter: cannot write " + path.string());
-  }
-}
-
 std::string config_json(const Config &cfg) {
   const std::string &pos = cfg.model_algo.position_encoding;
   std::ostringstream j;
@@ -328,10 +321,10 @@ int HfExporter::run(const Config &cfg, const HfExportOptions &options) {
   const fs::path out = options.out_dir;
   fs::create_directories(out);
   write_weights(model, out / "model.safetensors");
-  write_text(out / "config.json", config_json(model.cfg()));
+  text_io::write_text_file(out / "config.json", config_json(model.cfg()));
   copy_tokenizer_files(model.cfg(), out / "tokenizer");
   const std::string name = fs::absolute(out).lexically_normal().filename().string();
-  write_text(out / "README.md", model_card(cfg, model, name));
+  text_io::write_text_file(out / "README.md", model_card(cfg, model, name));
 
   logger().log(export_events::kExportEnd,
                "wrote model.safetensors, config.json, tokenizer/, README.md to " +

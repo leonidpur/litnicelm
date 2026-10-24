@@ -9,6 +9,8 @@
 // JSONL lines are appended and closed per event, so a crashed run keeps every
 // finished line. Options: dir (default "runs").
 
+#include <litnicelm_utils/json_utils.hpp>
+#include <litnicelm_utils/text_io.hpp>
 #include <tracking_plugin_api.h>
 
 #include <cmath>
@@ -33,37 +35,9 @@ void set_error(char *err, uint32_t err_len, const std::string &msg) {
   }
 }
 
+// Plugin ABI strings may be null.
 std::string json_string(const char *s) {
-  std::string out = "\"";
-  for (const char *p = s != nullptr ? s : ""; *p != '\0'; ++p) {
-    const unsigned char c = static_cast<unsigned char>(*p);
-    switch (c) {
-    case '"':
-      out += "\\\"";
-      break;
-    case '\\':
-      out += "\\\\";
-      break;
-    case '\n':
-      out += "\\n";
-      break;
-    case '\r':
-      out += "\\r";
-      break;
-    case '\t':
-      out += "\\t";
-      break;
-    default:
-      if (c < 0x20) {
-        char buf[8];
-        std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-        out += buf;
-      } else {
-        out.push_back(static_cast<char>(c));
-      }
-    }
-  }
-  return out + "\"";
+  return json_utils::quoted(s != nullptr ? s : "");
 }
 
 // Shortest text that reads back as the same double; NaN/inf have no JSON
@@ -135,13 +109,6 @@ std::string event_json(const TrackingEvent &ev) {
   return out + "}";
 }
 
-void write_file(const fs::path &path, const std::string &content) {
-  std::ofstream out(path, std::ios::trunc);
-  out << content;
-  if (!out) {
-    throw std::runtime_error("failed to write " + path.string());
-  }
-}
 
 void append_line(const fs::path &path, const std::string &line) {
   std::ofstream out(path, std::ios::app);
@@ -168,20 +135,20 @@ void handle_event(const RunsSink &sink, const TrackingEvent &ev) {
   switch (ev.type) {
   case TRACKING_EVENT_RUN_START:
     if (const TrackingField *yaml = find_field(ev, "config_yaml")) {
-      write_file(run_dir / "config.yaml", yaml->str != nullptr ? yaml->str : "");
+      text_io::write_text_file(run_dir / "config.yaml", yaml->str != nullptr ? yaml->str : "");
     }
-    write_file(run_dir / "meta.json", line + "\n");
+    text_io::write_text_file(run_dir / "meta.json", line + "\n");
     append_line(run_dir / "events.jsonl", line);
     break;
   case TRACKING_EVENT_OPERATION:
-    write_file(run_dir / "meta.json", line + "\n");
+    text_io::write_text_file(run_dir / "meta.json", line + "\n");
     append_line(run_dir / "events.jsonl", line);
     break;
   case TRACKING_EVENT_METRICS:
     append_line(run_dir / "metrics.jsonl", line);
     break;
   case TRACKING_EVENT_RUN_END:
-    write_file(run_dir / "summary.json", line + "\n");
+    text_io::write_text_file(run_dir / "summary.json", line + "\n");
     append_line(run_dir / "events.jsonl", line);
     break;
   default:

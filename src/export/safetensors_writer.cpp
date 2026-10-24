@@ -1,29 +1,12 @@
 #include "safetensors_writer.hpp"
 
+#include <litnicelm_utils/json_utils.hpp>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 
 namespace {
-
-// JSON string literal: quotes, backslashes and control characters escaped.
-std::string json_string(const std::string &s) {
-  std::ostringstream out;
-  out << '"';
-  for (const unsigned char c : s) {
-    if (c == '"' || c == '\\') {
-      out << '\\' << c;
-    } else if (c < 0x20) {
-      const char *hex = "0123456789abcdef";
-      out << "\\u00" << hex[c >> 4] << hex[c & 0xF];
-    } else {
-      out << c;
-    }
-  }
-  out << '"';
-  return out.str();
-}
 
 uint64_t byte_count(const std::vector<int64_t> &shape) {
   uint64_t n = sizeof(float);
@@ -35,10 +18,10 @@ uint64_t byte_count(const std::vector<int64_t> &shape) {
 
 // "__metadata__":{"key":"value",...}
 std::string metadata_json(const std::vector<std::pair<std::string, std::string>> &metadata) {
-  std::string out = json_string("__metadata__") + ":{";
+  std::string out = json_utils::quoted("__metadata__") + ":{";
   for (size_t i = 0; i < metadata.size(); ++i) {
-    out += (i ? "," : "") + json_string(metadata[i].first) + ':' +
-           json_string(metadata[i].second);
+    out += (i ? "," : "") + json_utils::quoted(metadata[i].first) + ':' +
+           json_utils::quoted(metadata[i].second);
   }
   return out + '}';
 }
@@ -47,7 +30,7 @@ std::string metadata_json(const std::vector<std::pair<std::string, std::string>>
 std::string entry_json(const std::string &name, const std::vector<int64_t> &shape,
                        uint64_t begin, uint64_t end) {
   std::ostringstream out;
-  out << json_string(name) << ":{\"dtype\":\"F32\",\"shape\":[";
+  out << json_utils::quoted(name) << ":{\"dtype\":\"F32\",\"shape\":[";
   for (size_t d = 0; d < shape.size(); ++d) {
     out << (d ? "," : "") << shape[d];
   }
