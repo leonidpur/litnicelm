@@ -26,6 +26,7 @@ namespace {
 
 // DefaultCpuBackend and the CUDA layernorm kernels use this epsilon.
 constexpr double kLayerNormEpsilon = 1e-5;
+constexpr const char *kLicense = "apache-2.0";  // the repository's LICENSE
 
 // ---------------------------------------------------------------------------
 // Loading: the checkpoint's parameters on the in-process CPU backend.
@@ -162,7 +163,7 @@ void write_weights(const LoadedCheckpoint &model, const fs::path &file) {
 }
 
 // ---------------------------------------------------------------------------
-// config.json
+// config.json, tokenizer/
 // ---------------------------------------------------------------------------
 
 // Text for a value that was a float: 6 significant digits, so 0.0006f
@@ -208,6 +209,115 @@ std::string config_json(const Config &cfg) {
   return j.str();
 }
 
+// The tokenizer's artifact files, copied as they are (none for tokenizers
+// without artifacts).
+void copy_tokenizer_files(const Config &cfg, const fs::path &out) {
+  const std::string &dir = cfg.tokenizer.bpe_artifacts_dir;
+  if (dir.empty() || !fs::is_directory(dir)) {
+    return;
+  }
+  fs::create_directories(out);
+  for (const auto &entry : fs::directory_iterator(dir)) {
+    if (entry.is_regular_file()) {
+      fs::copy_file(entry.path(), out / entry.path().filename(),
+                    fs::copy_options::overwrite_existing);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// README.md model card. No absolute local paths: the dataset is named by its
+// file name.
+// ---------------------------------------------------------------------------
+
+std::string card_header(const std::string &name) {
+  std::ostringstream c;
+  c << "---\n"
+    << "license: " << kLicense << "\n"
+    << "library_name: litnicelm\n"
+    << "tags:\n  - litnicelm\n  - causal-lm\n  - text-generation\n"
+    << "---\n\n"
+    << "# " << name << "\n\n"
+    << "A decoder-only transformer trained with "
+       "[LitniceLM](https://github.com/leonidpur/litnicelm).\n\n";
+  return c.str();
+}
+
+std::string card_architecture(const Config &cfg) {
+  std::ostringstream c;
+  c << "## Architecture\n\n"
+    << "| | |\n|---|---|\n"
+    << "| layers | " << cfg.model.n_layers << " |\n"
+    << "| heads | " << cfg.model.n_heads << " |\n"
+    << "| d_model | " << cfg.model.d_model << " |\n"
+    << "| d_ff | " << cfg.model.d_ff << " |\n"
+    << "| vocabulary | " << cfg.model.vocab_size << " (" << cfg.tokenizer.type
+    << " tokenizer) |\n"
+    << "| context | " << cfg.model.max_seq_len << " tokens |\n"
+    << "| positions | " << cfg.model_algo.position_encoding << " |\n"
+    << "| MLP activation | ReLU |\n\n"
+    << "Pre-LayerNorm blocks (LN, attention, residual; LN, MLP, residual), a final "
+       "LayerNorm (epsilon "
+    << number(kLayerNormEpsilon) << ") and an untied LM head without bias.\n\n";
+  return c.str();
+}
+
+// run_cfg is the run's own config (its precision preset, not the export's).
+std::string card_training(const Config &run_cfg, const LoadedCheckpoint &model) {
+  const std::string dataset = fs::path(run_cfg.tokenization.input_corpus).filename().string();
+  const CheckpointConvergenceState &conv = model.convergence;
+  std::ostringstream c;
+  c << "## Training\n\n"
+    << "| | |\n|---|---|\n"
+    << "| dataset | " << (dataset.empty() ? "unknown" : dataset) << " |\n"
+    << "| precision | "
+    << (run_cfg.precision == Precision::Bf16Mixed ? "bf16_mixed" : "fp32") << " |\n"
+    << "| checkpoint | epoch " << model.epoch << ", optimizer step " << model.step << " |\n"
+    << "| learning rate | " << number(run_cfg.training.learning_rate) << " ("
+    << run_cfg.training.lr_schedule << ") |\n"
+    << "| batch | " << run_cfg.training.batch_size << " x "
+    << run_cfg.training.train_seq_len << " tokens";
+  if (run_cfg.training.batches_per_step > 1) {
+    c << ", " << run_cfg.training.batches_per_step << " batches per optimizer step";
+  }
+  c << " |\n";
+  if (conv.flags & CheckpointConvergenceState::kHasBest) {
+    const bool val = (conv.flags & CheckpointConvergenceState::kBestIsVal) != 0;
+    c << "| best " << (val ? "val" : "train") << " loss | " << number(conv.best_loss)
+      << " (epoch " << conv.best_epoch << ") |\n";
+  }
+  c << "\n";
+  return c.str();
+}
+
+std::string card_files(const Config &cfg) {
+  const bool rope = cfg.model_algo.position_encoding == "rope";
+  std::ostringstream c;
+  c << "## Files\n\n"
+    << "- `model.safetensors`: F32 weights under GPT-2-style names. "
+       "`c_attn`, `c_proj` and `c_fc` weights are stored [in, out] as in GPT-2's "
+       "Conv1D; `c_attn` columns are Q, K, V, each split into heads of "
+       "d_model / heads contiguous columns. `lm_head.weight` is [vocab, d_model].\n"
+    << "- `config.json`: hyperparameters (GPT-2 keys plus `activation_function`, "
+       "`position_encoding` and, for RoPE, `rope_theta` and `rope_layout`).\n"
+    << "- `tokenizer/`: the LitniceLM tokenizer's own files (" << cfg.tokenizer.type
+    << ").\n\n"
+    << "Unlike GPT-2: ReLU instead of GELU, untied LM head without bias";
+  if (rope) {
+    c << ", and rotary position embeddings instead of `wpe` (base "
+      << number(RopePositionEncoding::kBase)
+      << ", element i paired with i + head_dim/2, applied to Q and K)";
+  }
+  c << ". A stock `GPT2LMHeadModel` will not reproduce this model's outputs.\n";
+  return c.str();
+}
+
+std::string model_card(const Config &run_cfg, const LoadedCheckpoint &model,
+                       const std::string &name) {
+  return card_header(name) + card_architecture(model.cfg()) +
+         card_training(run_cfg, model) + card_files(model.cfg());
+}
+
 } // namespace
 
 int HfExporter::run(const Config &cfg, const HfExportOptions &options) {
@@ -224,8 +334,12 @@ int HfExporter::run(const Config &cfg, const HfExportOptions &options) {
   fs::create_directories(out);
   write_weights(model, out / "model.safetensors");
   write_text(out / "config.json", config_json(model.cfg()));
+  copy_tokenizer_files(model.cfg(), out / "tokenizer");
+  const std::string name = fs::absolute(out).lexically_normal().filename().string();
+  write_text(out / "README.md", model_card(cfg, model, name));
 
   logger().log(export_events::kExportEnd,
-               "wrote model.safetensors, config.json to " + options.out_dir);
+               "wrote model.safetensors, config.json, tokenizer/, README.md to " +
+                   options.out_dir);
   return 0;
 }
