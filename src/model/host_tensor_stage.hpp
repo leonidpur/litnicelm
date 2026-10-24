@@ -5,6 +5,7 @@
 
 #include <litnicelm_utils/bf16.hpp>
 #include <litnicelm_utils/checks.hpp>
+#include <litnicelm_utils/view_geometry.hpp>
 
 #include <cstring>
 
@@ -20,32 +21,8 @@ inline void check_row_dense(const TensorView &t, const char *who) {
                   who, "requires row-dense tensor view");
 }
 
-inline uint64_t logical_prefix_count_last1(const TensorView &t) {
-  if (t.rank() == 0) {
-    return 1;
-  }
-  uint64_t count = 1;
-  for (size_t axis = 0; axis + 1 < t.rank(); ++axis) {
-    count *= static_cast<uint64_t>(t.dim(axis));
-  }
-  return count;
-}
-
-inline int64_t prefix_last1_byte_offset(const TensorView &t, uint64_t prefix) {
-  if (t.rank() <= 1) {
-    return static_cast<int64_t>(prefix) *
-           (t.rank() == 0 ? 0 : t.stride_bytes(0));
-  }
-
-  int64_t offset = 0;
-  for (size_t axis = t.rank() - 1; axis-- > 0;) {
-    const uint64_t dim = static_cast<uint64_t>(t.dim(axis));
-    const uint64_t idx = prefix % dim;
-    prefix /= dim;
-    offset += static_cast<int64_t>(idx) * t.stride_bytes(axis);
-  }
-  return offset;
-}
+// Rows run over the leading axes; a rank-0 view is a single row.
+inline size_t row_suffix_rank(const TensorView &t) { return t.rank() == 0 ? 0 : 1; }
 
 inline uint64_t dense_row_bytes(const TensorView &t, const char *who) {
   const uint64_t elem = dtype_size(t.dtype());
@@ -76,12 +53,12 @@ inline void copy_rows_cpu_to_cpu(const TensorView &src, TensorView &dst,
   }
 
   const size_t row_bytes = static_cast<size_t>(dense_row_bytes(src, who));
-  const uint64_t prefix_count = logical_prefix_count_last1(src);
+  const uint64_t prefix_count = view_geometry::prefix_count(src, row_suffix_rank(src));
   auto *dst_base = reinterpret_cast<uint8_t *>(dst.data());
   const auto *src_base = reinterpret_cast<const uint8_t *>(src.data());
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    std::memcpy(dst_base + prefix_last1_byte_offset(dst, prefix),
-                src_base + prefix_last1_byte_offset(src, prefix), row_bytes);
+    std::memcpy(dst_base + view_geometry::prefix_byte_offset(dst, prefix, row_suffix_rank(dst)),
+                src_base + view_geometry::prefix_byte_offset(src, prefix, row_suffix_rank(src)), row_bytes);
   }
 }
 
@@ -99,12 +76,12 @@ inline void copy_to_cpu(DeviceBackend &backend, const TensorView &src,
   }
 
   const uint64_t row_bytes = dense_row_bytes(src, who);
-  const uint64_t prefix_count = logical_prefix_count_last1(src);
+  const uint64_t prefix_count = view_geometry::prefix_count(src, row_suffix_rank(src));
   auto *dst_base = reinterpret_cast<uint8_t *>(dst_cpu.data());
   const auto *src_base = reinterpret_cast<const uint8_t *>(src.data());
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    backend.copy_device2host(dst_base + prefix_last1_byte_offset(dst_cpu, prefix),
-                             src_base + prefix_last1_byte_offset(src, prefix),
+    backend.copy_device2host(dst_base + view_geometry::prefix_byte_offset(dst_cpu, prefix, row_suffix_rank(dst_cpu)),
+                             src_base + view_geometry::prefix_byte_offset(src, prefix, row_suffix_rank(src)),
                              row_bytes);
   }
 }
@@ -123,12 +100,12 @@ inline void copy_from_cpu(DeviceBackend &backend, const TensorView &src_cpu,
   }
 
   const uint64_t row_bytes = dense_row_bytes(src_cpu, who);
-  const uint64_t prefix_count = logical_prefix_count_last1(src_cpu);
+  const uint64_t prefix_count = view_geometry::prefix_count(src_cpu, row_suffix_rank(src_cpu));
   const auto *src_base = reinterpret_cast<const uint8_t *>(src_cpu.data());
   auto *dst_base = reinterpret_cast<uint8_t *>(dst.data());
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
-    backend.copy_host2device(dst_base + prefix_last1_byte_offset(dst, prefix),
-                             src_base + prefix_last1_byte_offset(src_cpu, prefix),
+    backend.copy_host2device(dst_base + view_geometry::prefix_byte_offset(dst, prefix, row_suffix_rank(dst)),
+                             src_base + view_geometry::prefix_byte_offset(src_cpu, prefix, row_suffix_rank(src_cpu)),
                              row_bytes);
   }
 }

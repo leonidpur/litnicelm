@@ -1,6 +1,7 @@
 #include "../../model/backend/backend_plugin_api.hpp"
 #include "../../model/backend/device_backend.hpp"
 
+#include <litnicelm_utils/view_geometry.hpp>
 #include <litnicelm_utils/plugin_log.h>
 
 #include <cblas.h>
@@ -60,42 +61,13 @@ bool is_batched_blas_compatible_f32_row_major(const TensorView &view) {
   return true;
 }
 
-uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank) {
-  if (view.rank() < suffix_rank) {
-    throw std::runtime_error(
-        "openblas plugin: suffix rank exceeds tensor rank");
-  }
-  uint64_t count = 1;
-  for (size_t i = 0; i + suffix_rank < view.rank(); ++i) {
-    count *= static_cast<uint64_t>(view.dim(i));
-  }
-  return count;
-}
-
-int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
-                                  size_t suffix_rank) {
-  if (view.rank() < suffix_rank) {
-    throw std::runtime_error(
-        "openblas plugin: suffix rank exceeds tensor rank");
-  }
-  const size_t prefix_rank = view.rank() - suffix_rank;
-  int64_t offset = 0;
-  for (size_t axis = prefix_rank; axis-- > 0;) {
-    const uint64_t dim = static_cast<uint64_t>(view.dim(axis));
-    const uint64_t idx = prefix % dim;
-    prefix /= dim;
-    offset += static_cast<int64_t>(idx) * view.stride_bytes(axis);
-  }
-  return offset;
-}
-
 float *prefix_matrix_ptr(TensorView &view, uint64_t prefix, int64_t rows,
                          int64_t cols) {
   (void)rows;
   (void)cols;
   auto *base = reinterpret_cast<uint8_t *>(view.data());
   return reinterpret_cast<float *>(
-      base + prefix_matrix_byte_offset(view, prefix, 2));
+      base + view_geometry::prefix_byte_offset(view, prefix, 2));
 }
 
 const float *prefix_matrix_ptr(const TensorView &view, uint64_t prefix,
@@ -104,7 +76,7 @@ const float *prefix_matrix_ptr(const TensorView &view, uint64_t prefix,
   (void)cols;
   auto *base = reinterpret_cast<const uint8_t *>(view.data());
   return reinterpret_cast<const float *>(
-      base + prefix_matrix_byte_offset(view, prefix, 2));
+      base + view_geometry::prefix_byte_offset(view, prefix, 2));
 }
 
 int leading_dim_f32(const TensorView &view) {
@@ -226,7 +198,7 @@ public:
       cpu_backend_.gemm_ranked_matrix_rhs(a, b, out);
       return;
     }
-    const int m = static_cast<int>(logical_prefix_count(a, 2) *
+    const int m = static_cast<int>(view_geometry::prefix_count(a, 2) *
                                    static_cast<uint64_t>(a.dim(a.rank() - 2)));
     const int k = static_cast<int>(a.dim(a.rank() - 1));
     const int n = static_cast<int>(b.dim(1));
@@ -248,7 +220,7 @@ public:
       cpu_backend_.gemm_ranked_matrix_rhs_t(a, b, out);
       return;
     }
-    const int m = static_cast<int>(logical_prefix_count(a, 2) *
+    const int m = static_cast<int>(view_geometry::prefix_count(a, 2) *
                                    static_cast<uint64_t>(a.dim(a.rank() - 2)));
     const int k = static_cast<int>(a.dim(a.rank() - 1));
     const int n = static_cast<int>(b.dim(0));
@@ -270,7 +242,7 @@ public:
       return;
     }
     const int m = static_cast<int>(a.dim(a.rank() - 1));
-    const int k = static_cast<int>(logical_prefix_count(a, 2) *
+    const int k = static_cast<int>(view_geometry::prefix_count(a, 2) *
                                    static_cast<uint64_t>(a.dim(a.rank() - 2)));
     const int n = static_cast<int>(b.dim(b.rank() - 1));
     cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
@@ -284,7 +256,7 @@ public:
     if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
+      const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
       const int m = static_cast<int>(a.dim(a.rank() - 2));
       const int k = static_cast<int>(a.dim(a.rank() - 1));
       const int n = static_cast<int>(b.dim(b.rank() - 1));
@@ -313,7 +285,7 @@ public:
     if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
+      const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
       const int m = static_cast<int>(a.dim(a.rank() - 1));
       const int k = static_cast<int>(a.dim(a.rank() - 2));
       const int n = static_cast<int>(b.dim(b.rank() - 1));
@@ -342,7 +314,7 @@ public:
     if (is_batched_blas_compatible_f32_row_major(a) &&
         is_batched_blas_compatible_f32_row_major(b) &&
         is_batched_blas_compatible_f32_row_major(out)) {
-      const uint64_t prefix_count = logical_prefix_count(a, 2);
+      const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
       const int m = static_cast<int>(a.dim(a.rank() - 2));
       const int k = static_cast<int>(a.dim(a.rank() - 1));
       const int n = static_cast<int>(b.dim(b.rank() - 2));

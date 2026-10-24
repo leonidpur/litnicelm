@@ -1,5 +1,6 @@
 #include "cublas_gemm.hpp"
 
+#include <litnicelm_utils/view_geometry.hpp>
 #include <litnicelm_utils/checks.hpp>
 
 #include <cstdint>
@@ -169,7 +170,7 @@ void run_strided_batched_gemm(PrecisionVariant variant, cublasHandle_t handle,
 
 GemmShape matmul_ranked_matrix_rhs_shape(const TensorView &a,
                                          const TensorView &b) {
-  return {static_cast<int>(logical_prefix_count(a, 2) *
+  return {static_cast<int>(view_geometry::prefix_count(a, 2) *
                            static_cast<uint64_t>(a.dim(a.rank() - 2))),
           static_cast<int>(a.dim(a.rank() - 1)), static_cast<int>(b.dim(1))};
 }
@@ -188,7 +189,7 @@ GemmShape matmul_tensor_shape(const TensorView &a, const TensorView &b) {
 GemmShape left_transposed_ranked_reduce_shape(const TensorView &a,
                                              const TensorView &b) {
   return {static_cast<int>(a.dim(a.rank() - 1)),
-          static_cast<int>(logical_prefix_count(a, 2) *
+          static_cast<int>(view_geometry::prefix_count(a, 2) *
                            static_cast<uint64_t>(a.dim(a.rank() - 2))),
           static_cast<int>(b.dim(b.rank() - 1))};
 }
@@ -208,7 +209,7 @@ GemmShape left_transposed_tensor_shape(const TensorView &a,
 
 GemmShape right_transposed_ranked_matrix_rhs_shape(const TensorView &a,
                                                   const TensorView &b) {
-  return {static_cast<int>(logical_prefix_count(a, 2) *
+  return {static_cast<int>(view_geometry::prefix_count(a, 2) *
                            static_cast<uint64_t>(a.dim(a.rank() - 2))),
           static_cast<int>(a.dim(a.rank() - 1)), static_cast<int>(b.dim(0))};
 }
@@ -256,14 +257,14 @@ bool regular_prefix_stride(const TensorView &view, uint64_t prefix_count,
     return true;
   }
   const int64_t first_offset =
-      prefix_matrix_byte_offset(view, 1, 2) -
-      prefix_matrix_byte_offset(view, 0, 2);
+      view_geometry::prefix_byte_offset(view, 1, 2) -
+      view_geometry::prefix_byte_offset(view, 0, 2);
   if (first_offset % elem != 0) {
     return false;
   }
   for (uint64_t prefix = 2; prefix < prefix_count; ++prefix) {
-    const int64_t delta = prefix_matrix_byte_offset(view, prefix, 2) -
-                          prefix_matrix_byte_offset(view, prefix - 1, 2);
+    const int64_t delta = view_geometry::prefix_byte_offset(view, prefix, 2) -
+                          view_geometry::prefix_byte_offset(view, prefix - 1, 2);
     if (delta != first_offset) {
       return false;
     }
@@ -356,7 +357,7 @@ void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                   "cuda_cublas_plugin",
                   "gemm_batched would run no GEMM for "
                   "zero-sized tensors");
-  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const GemmShape shape = matmul_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
   const int b_leading_dim = leading_dim(b);
@@ -403,7 +404,7 @@ void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,
                   "cuda_cublas_plugin",
                   "gemm_batched_lhs_t would run no GEMM for "
                   "zero-sized tensors");
-  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const GemmShape shape = left_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
   const int b_leading_dim = leading_dim(b);
@@ -450,7 +451,7 @@ void cublas_gemm_batched_rhs_t(cublasHandle_t handle, const TensorView &a,
                   "cuda_cublas_plugin",
                   "gemm_batched_rhs_t would run no GEMM for "
                   "zero-sized tensors");
-  const uint64_t prefix_count = logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const GemmShape shape = right_transposed_ranked_batch_shape(a, b);
   const int a_leading_dim = leading_dim(a);
   const int b_leading_dim = leading_dim(b);

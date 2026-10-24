@@ -33,9 +33,6 @@ bool has_storage(const TensorView &view);
 bool is_cuda_row_major(const TensorView &view);
 bool is_cuda_f32_row_major(const TensorView &view);
 bool is_cuda_f32_contiguous_row_major(const TensorView &view);
-uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank);
-int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
-                                  size_t suffix_rank);
 // Address of the prefix-th matrix (last two dims) of view.
 void *prefix_matrix_ptr(TensorView &view, uint64_t prefix);
 const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix);

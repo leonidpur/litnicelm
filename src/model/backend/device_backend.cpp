@@ -5,6 +5,7 @@
 #include <litnicelm_utils/bf16.hpp>
 #include <litnicelm_utils/checks.hpp>
 #include <litnicelm_utils/log.hpp>
+#include <litnicelm_utils/view_geometry.hpp>
 
 #include <cerrno>
 #include <cmath>
@@ -47,45 +48,20 @@ struct CpuMemOperations {
                     "index tensor must be i32");
   }
 
-  static int64_t logical_offset_bytes_for_linear_index(const TensorView &t,
-                                                       uint64_t linear_index,
-                                                       size_t axis_count) {
-    int64_t offset = 0;
-    for (size_t axis = axis_count; axis > 0; --axis) {
-      const int64_t dim = t.dim(axis - 1);
-      checker().check(CheckKind::Layout, dim > 0,
-                      "DeviceBackend", "invalid non-positive dimension");
-      const uint64_t coord = linear_index % static_cast<uint64_t>(dim);
-      linear_index /= static_cast<uint64_t>(dim);
-      offset += static_cast<int64_t>(coord) * t.stride_bytes(axis - 1);
-    }
-    return offset;
-  }
-
   static int64_t load_index_linear(const TensorView &t, uint64_t linear_index) {
     const uint8_t *base = reinterpret_cast<const uint8_t *>(t.data());
     const uint8_t *p =
-        base + logical_offset_bytes_for_linear_index(t, linear_index, t.rank());
+        base + view_geometry::prefix_byte_offset(t, linear_index, 0);
     int32_t out;
     std::memcpy(&out, p, sizeof(int32_t));
     return static_cast<int64_t>(out);
-  }
-
-  static uint64_t logical_prefix_count(const TensorView &t, size_t suffix_rank) {
-    checker().check(CheckKind::Layout, t.rank() >= suffix_rank,
-                    "DeviceBackend", "tensor rank smaller than suffix rank");
-    uint64_t count = 1;
-    for (size_t axis = 0; axis + suffix_rank < t.rank(); ++axis) {
-      count *= static_cast<uint64_t>(t.dim(axis));
-    }
-    return count;
   }
 
   static float load_f32_prefix_last1(const TensorView &t,
                                      uint64_t prefix_index, int64_t c) {
     const uint8_t *base = reinterpret_cast<const uint8_t *>(t.data());
     const int64_t prefix_offset =
-        logical_offset_bytes_for_linear_index(t, prefix_index, t.rank() - 1);
+        view_geometry::prefix_byte_offset(t, prefix_index, 1);
     const uint8_t *p = base + prefix_offset + c * t.stride_bytes(t.rank() - 1);
     float out;
     std::memcpy(&out, p, sizeof(float));
@@ -97,7 +73,7 @@ struct CpuMemOperations {
                                      float v) {
     uint8_t *base = reinterpret_cast<uint8_t *>(t.data());
     const int64_t prefix_offset =
-        logical_offset_bytes_for_linear_index(t, prefix_index, t.rank() - 1);
+        view_geometry::prefix_byte_offset(t, prefix_index, 1);
     uint8_t *p = base + prefix_offset + c * t.stride_bytes(t.rank() - 1);
     std::memcpy(p, &v, sizeof(float));
   }
@@ -107,7 +83,7 @@ struct CpuMemOperations {
                                      int64_t c) {
     const uint8_t *base = reinterpret_cast<const uint8_t *>(t.data());
     const int64_t prefix_offset =
-        logical_offset_bytes_for_linear_index(t, prefix_index, t.rank() - 2);
+        view_geometry::prefix_byte_offset(t, prefix_index, 2);
     const uint8_t *p = base + prefix_offset +
                        r * t.stride_bytes(t.rank() - 2) +
                        c * t.stride_bytes(t.rank() - 1);
@@ -121,7 +97,7 @@ struct CpuMemOperations {
                                      int64_t c, float v) {
     uint8_t *base = reinterpret_cast<uint8_t *>(t.data());
     const int64_t prefix_offset =
-        logical_offset_bytes_for_linear_index(t, prefix_index, t.rank() - 2);
+        view_geometry::prefix_byte_offset(t, prefix_index, 2);
     uint8_t *p = base + prefix_offset +
                  r * t.stride_bytes(t.rank() - 2) +
                  c * t.stride_bytes(t.rank() - 1);
@@ -605,17 +581,17 @@ void DefaultCpuBackend::cast(const TensorView &src, TensorView &dst) {
     return;
   }
   const size_t last = src.rank() - 1;
-  const uint64_t rows = CpuMemOperations::logical_prefix_count(src, 1);
+  const uint64_t rows = view_geometry::prefix_count(src, 1);
   const int64_t cols = src.dim(last);
   const auto *src_base = static_cast<const uint8_t *>(src.data());
   auto *dst_base = static_cast<uint8_t *>(dst.data());
   for (uint64_t r = 0; r < rows; ++r) {
     const uint8_t *s =
         src_base +
-        CpuMemOperations::logical_offset_bytes_for_linear_index(src, r, last);
+        view_geometry::prefix_byte_offset(src, r, 1);
     uint8_t *d =
         dst_base +
-        CpuMemOperations::logical_offset_bytes_for_linear_index(dst, r, last);
+        view_geometry::prefix_byte_offset(dst, r, 1);
     for (int64_t c = 0; c < cols; ++c) {
       const uint8_t *from = s + c * src.stride_bytes(last);
       uint8_t *to = d + c * dst.stride_bytes(last);
@@ -643,7 +619,7 @@ void DefaultCpuBackend::fill(TensorView &t, float v) {
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(t, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(t, 1);
   const int64_t col_count = t.dim(t.rank() - 1);
   for (uint64_t p = 0; p < prefix_count; ++p) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -688,7 +664,7 @@ void DefaultCpuBackend::add(const TensorView &a, const TensorView &b, TensorView
       out.dim(2) == a.dim(2)) {
     const int64_t seq_len = a.dim(1);
     const int64_t col_count = a.dim(2);
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 1);
+    const uint64_t prefix_count = view_geometry::prefix_count(a, 1);
     for (uint64_t p = 0; p < prefix_count; ++p) {
       const int64_t semantic_row =
           static_cast<int64_t>(p % static_cast<uint64_t>(seq_len));
@@ -704,7 +680,7 @@ void DefaultCpuBackend::add(const TensorView &a, const TensorView &b, TensorView
   checker().check(CheckKind::Contract,
                   an == b.numel() && an == out.numel(),
                   "DefaultCpuBackend add", "numel mismatch");
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 1);
   const int64_t col_count = a.dim(a.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -728,7 +704,7 @@ void DefaultCpuBackend::add_inplace(TensorView &a, const TensorView &b) {
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 1);
   const int64_t col_count = a.dim(a.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -762,7 +738,7 @@ void DefaultCpuBackend::add_bias_rowwise(const TensorView &x,
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -798,7 +774,7 @@ void DefaultCpuBackend::add_bias_relu_rowwise(const TensorView &x,
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -830,7 +806,7 @@ void DefaultCpuBackend::add_bias_relu_rowwise_inplace(
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -855,7 +831,7 @@ void DefaultCpuBackend::mul_scalar(const TensorView &x, float s, TensorView &out
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -891,7 +867,7 @@ void DefaultCpuBackend::relu(const TensorView &x, TensorView &out) {
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -919,7 +895,7 @@ void DefaultCpuBackend::relu_backward(const TensorView &preact, const TensorView
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(preact, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(preact, 1);
   const int64_t col_count = preact.dim(preact.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -947,7 +923,7 @@ void DefaultCpuBackend::relu_backward_inplace(const TensorView &preact,
     return;
   }
   const uint64_t prefix_count =
-      CpuMemOperations::logical_prefix_count(preact, 1);
+      view_geometry::prefix_count(preact, 1);
   const int64_t col_count = preact.dim(preact.rank() - 1);
   for (uint64_t r = 0; r < prefix_count; ++r) {
     for (int64_t c = 0; c < col_count; ++c) {
@@ -983,7 +959,7 @@ void DefaultCpuBackend::row_sum(const TensorView &x, TensorView &out_1xC) {
     }
     return;
   }
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t col_count = x.dim(x.rank() - 1);
   for (int64_t c = 0; c < col_count; ++c) {
     float acc = 0.0f;
@@ -1013,7 +989,7 @@ void DefaultCpuBackend::gemm(const TensorView &a, const TensorView &b,
 void DefaultCpuBackend::gemm_ranked_matrix_rhs(const TensorView &a,
                                                const TensorView &b,
                                                TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t m = a.dim(a.rank() - 2);
   const int64_t k = a.dim(a.rank() - 1);
   const int64_t n = b.dim(1);
@@ -1034,7 +1010,7 @@ void DefaultCpuBackend::gemm_ranked_matrix_rhs(const TensorView &a,
 void DefaultCpuBackend::gemm_ranked_matrix_rhs_t(const TensorView &a,
                                                  const TensorView &b,
                                                  TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t m = a.dim(a.rank() - 2);
   const int64_t k = a.dim(a.rank() - 1);
   const int64_t n = b.dim(0);
@@ -1055,7 +1031,7 @@ void DefaultCpuBackend::gemm_ranked_matrix_rhs_t(const TensorView &a,
 void DefaultCpuBackend::gemm_ranked_reduce_lhs_t(const TensorView &a,
                                                  const TensorView &b,
                                                  TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t shared_dim = a.dim(a.rank() - 2);
   const int64_t out_rows = a.dim(a.rank() - 1);
   const int64_t out_cols = b.dim(b.rank() - 1);
@@ -1075,7 +1051,7 @@ void DefaultCpuBackend::gemm_ranked_reduce_lhs_t(const TensorView &a,
 
 void DefaultCpuBackend::gemm_batched(const TensorView &a, const TensorView &b,
                                      TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t m = a.dim(a.rank() - 2);
   const int64_t k = a.dim(a.rank() - 1);
   const int64_t n = b.dim(b.rank() - 1);
@@ -1096,7 +1072,7 @@ void DefaultCpuBackend::gemm_batched(const TensorView &a, const TensorView &b,
 void DefaultCpuBackend::gemm_batched_lhs_t(const TensorView &a,
                                            const TensorView &b,
                                            TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t shared_dim = a.dim(a.rank() - 2);
   const int64_t out_rows = a.dim(a.rank() - 1);
   const int64_t out_cols = b.dim(b.rank() - 1);
@@ -1117,7 +1093,7 @@ void DefaultCpuBackend::gemm_batched_lhs_t(const TensorView &a,
 void DefaultCpuBackend::gemm_batched_rhs_t(const TensorView &a,
                                            const TensorView &b,
                                            TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(a, 2);
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
   const int64_t m = a.dim(a.rank() - 2);
   const int64_t k = a.dim(a.rank() - 1);
   const int64_t n = b.dim(b.rank() - 2);
@@ -1149,7 +1125,7 @@ void DefaultCpuBackend::layernorm_forward(const TensorView &x,
                                    const TensorView &gamma_1xC,
                                    const TensorView &beta_1xC,
                                    TensorView &out) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t model_dim = x.dim(x.rank() - 1);
   const float eps = 1e-5f;
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
@@ -1184,7 +1160,7 @@ void DefaultCpuBackend::layernorm_backward(const TensorView &x,
                                     const TensorView &dout, TensorView &dx,
                                     TensorView &dgamma_1xC,
                                     TensorView &dbeta_1xC) {
-  const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
   const int64_t model_dim = x.dim(x.rank() - 1);
   const float eps = 1e-5f;
   for (int64_t c = 0; c < model_dim; ++c) {
@@ -1249,7 +1225,6 @@ void DefaultCpuBackend::embedding_lookup(const TensorView &table, const TensorVi
   const int64_t vocab_size = table.dim(0);
   const int64_t model_dim = table.dim(1);
   const uint64_t token_count = ids.numel();
-  const size_t out_prefix_rank = out.rank() - 1;
   const size_t out_last_axis = out.rank() - 1;
   for (uint64_t t = 0; t < token_count; ++t) {
     const int64_t idx = CpuMemOperations::load_index_linear(ids, t);
@@ -1258,8 +1233,7 @@ void DefaultCpuBackend::embedding_lookup(const TensorView &table, const TensorVi
     }
     uint8_t *dst =
         reinterpret_cast<uint8_t *>(out.data()) +
-        CpuMemOperations::logical_offset_bytes_for_linear_index(out, t,
-                                                               out_prefix_rank);
+        view_geometry::prefix_byte_offset(out, t, 1);
     for (int64_t d = 0; d < model_dim; ++d) {
       const float v = CpuMemOperations::load_f32(table, idx, d);
       std::memcpy(dst + d * out.stride_bytes(out_last_axis), &v, sizeof(float));
@@ -1366,7 +1340,7 @@ void DefaultCpuBackend::backward_from_logits_targets(TensorView &logits,
 
 void DefaultCpuBackend::softmax_rows(const TensorView &x, TensorView &out) {
   if (x.rank() >= 2 && out.rank() == x.rank()) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(x, 1);
+    const uint64_t prefix_count = view_geometry::prefix_count(x, 1);
     const int64_t col_count = x.dim(x.rank() - 1);
     for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
       float max_value = CpuMemOperations::load_f32_prefix_last1(x, prefix, 0);
@@ -1421,7 +1395,7 @@ void DefaultCpuBackend::softmax_backward_rows(const TensorView &softmax,
                                        const TensorView &dout,
                                        TensorView &dx) {
   if (softmax.rank() >= 2 && dx.rank() == softmax.rank()) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(softmax, 1);
+    const uint64_t prefix_count = view_geometry::prefix_count(softmax, 1);
     const int64_t col_count = softmax.dim(softmax.rank() - 1);
     for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
       float dot = 0.0f;
@@ -1456,7 +1430,7 @@ void DefaultCpuBackend::scaled_causal_softmax_rows(const TensorView &scores,
                                                    float scale,
                                                    TensorView &out) {
   const uint64_t prefix_count =
-      CpuMemOperations::logical_prefix_count(scores, 1);
+      view_geometry::prefix_count(scores, 1);
   const int64_t col_count = scores.dim(scores.rank() - 1);
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
     const int64_t local_row = static_cast<int64_t>(prefix % col_count);
@@ -1551,7 +1525,7 @@ void DefaultCpuBackend::softmax_backward_causal_rows(const TensorView &softmax,
                                                      const TensorView &dout,
                                                      TensorView &dx) {
   const uint64_t prefix_count =
-      CpuMemOperations::logical_prefix_count(softmax, 1);
+      view_geometry::prefix_count(softmax, 1);
   const int64_t col_count = softmax.dim(softmax.rank() - 1);
   for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
     const int64_t local_row = static_cast<int64_t>(prefix % col_count);
@@ -1575,7 +1549,7 @@ void DefaultCpuBackend::softmax_backward_causal_rows(const TensorView &softmax,
 
 void DefaultCpuBackend::apply_causal_mask_inplace(TensorView &scores, float neg_inf) {
   if (scores.rank() >= 2) {
-    const uint64_t prefix_count = CpuMemOperations::logical_prefix_count(scores, 2);
+    const uint64_t prefix_count = view_geometry::prefix_count(scores, 2);
     const int64_t token_rows = scores.dim(scores.rank() - 2);
     const int64_t token_cols = scores.dim(scores.rank() - 1);
     checker().check(CheckKind::Contract, token_rows == token_cols,
@@ -1620,7 +1594,7 @@ void DefaultCpuBackend::rotary_embedding_inplace(TensorView &x,
                            static_cast<float>(head_dim));
   }
   const float sign = inverse ? -1.0f : 1.0f;
-  const uint64_t row_count = CpuMemOperations::logical_prefix_count(x, 1);
+  const uint64_t row_count = view_geometry::prefix_count(x, 1);
   for (uint64_t row = 0; row < row_count; ++row) {
     const float pos = static_cast<float>(
         static_cast<int64_t>(row % static_cast<uint64_t>(seq_len)));

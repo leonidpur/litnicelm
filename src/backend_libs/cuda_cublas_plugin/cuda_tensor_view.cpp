@@ -1,5 +1,6 @@
 #include "cuda_tensor_view.hpp"
 
+#include <litnicelm_utils/view_geometry.hpp>
 #include <litnicelm_utils/checks.hpp>
 
 #include <array>
@@ -113,39 +114,14 @@ bool is_cuda_f32_contiguous_row_major(const TensorView &view) {
   return is_cuda_f32_row_major(view) && view.is_contiguous_row_major();
 }
 
-uint64_t logical_prefix_count(const TensorView &view, size_t suffix_rank) {
-  checker().check(CheckKind::Layout, view.rank() >= suffix_rank,
-                  "cuda_cublas_plugin", "suffix rank exceeds tensor rank");
-  uint64_t count = 1;
-  for (size_t i = 0; i + suffix_rank < view.rank(); ++i) {
-    count *= static_cast<uint64_t>(view.dim(i));
-  }
-  return count;
-}
-
-int64_t prefix_matrix_byte_offset(const TensorView &view, uint64_t prefix,
-                                  size_t suffix_rank) {
-  checker().check(CheckKind::Layout, view.rank() >= suffix_rank,
-                  "cuda_cublas_plugin", "suffix rank exceeds tensor rank");
-  const size_t prefix_rank = view.rank() - suffix_rank;
-  int64_t offset = 0;
-  for (size_t axis = prefix_rank; axis-- > 0;) {
-    const uint64_t dim = static_cast<uint64_t>(view.dim(axis));
-    const uint64_t idx = prefix % dim;
-    prefix /= dim;
-    offset += static_cast<int64_t>(idx) * view.stride_bytes(axis);
-  }
-  return offset;
-}
-
 void *prefix_matrix_ptr(TensorView &view, uint64_t prefix) {
   return static_cast<uint8_t *>(view.data()) +
-         prefix_matrix_byte_offset(view, prefix, 2);
+         view_geometry::prefix_byte_offset(view, prefix, 2);
 }
 
 const void *prefix_matrix_ptr(const TensorView &view, uint64_t prefix) {
   return static_cast<const uint8_t *>(view.data()) +
-         prefix_matrix_byte_offset(view, prefix, 2);
+         view_geometry::prefix_byte_offset(view, prefix, 2);
 }
 
 PrecisionVariant precision_variant_of(const TensorView &activation) {
