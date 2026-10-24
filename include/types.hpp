@@ -233,6 +233,7 @@ struct Command {
     INFER,
     INSPECT,
     INFERLOOP,
+    EXPORT,
   };
 
   Target target;
@@ -247,6 +248,11 @@ struct Command {
   // Stop after this epoch (0: run the plan to its end); the LR schedule
   // still spans the whole plan, as in a run interrupted there.
   uint32_t stop_after_epoch;
+
+  // export: output directory, and a checkpoint to export instead of
+  // paths.model_file_best (empty: the best checkpoint).
+  std::string export_out_dir;
+  std::string export_checkpoint;
 
   bool has_prompt_override;
   std::string prompt;

@@ -157,6 +157,18 @@ Dry run:
 ./build/litnicelm dry_run --config <config.yaml>
 ```
 
+Export a trained model as a Hugging Face model directory (model.safetensors
+with GPT-2-style tensor names, config.json, tokenizer files, a README.md
+model card); runs on the CPU:
+
+```bash
+./build/litnicelm export --config <config.yaml> --out <dir> [--checkpoint <path>]
+tools/verify_export.py <dir>                      # official safetensors reader
+tools/hf_upload.py <dir> --repo user/name [--tb-dir <tensorboard run dir>]
+```
+
+The Python tools need `pip install -r tools/requirements.txt`.
+
 Train tokenizer artifacts:
 
 ```bash

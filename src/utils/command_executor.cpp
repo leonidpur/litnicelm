@@ -1,5 +1,6 @@
 #include "command_executor.hpp"
 
+#include "hf_exporter.hpp"
 #include <inference.hpp>
 #include "program_terminal.hpp"
 #include "trainer.hpp"
@@ -18,6 +19,8 @@ int CommandExecutor::run(const Command &cmd, const Config &cfg) {
     return run_inspect_mode(cfg, terminal);
   case Command::Target::INFERLOOP:
     return run_inferloop_mode(cfg, terminal);
+  case Command::Target::EXPORT:
+    return HfExporter::run(cfg, {cmd.export_out_dir, cmd.export_checkpoint});
   case Command::Target::DRY_RUN:
   case Command::Target::TRAIN:
     return Trainer::train_entry_point(cfg, cmd);

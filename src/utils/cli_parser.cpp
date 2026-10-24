@@ -321,6 +321,40 @@ void parse_infer_args(const std::vector<std::string> &args, Command &cmd,
     cmd.prompt = positional[0];
   }
 }
+// export --out <dir> [--checkpoint <path>]
+void parse_export_args(const std::vector<std::string> &args, Command &cmd) {
+  for (size_t i = 0; i < args.size(); ++i) {
+    const std::string &arg = args[i];
+    std::string *field = nullptr;
+    std::string name;
+    for (const char *flag : {"--out", "--checkpoint"}) {
+      const std::string f = flag;
+      field = f == "--out" ? &cmd.export_out_dir : &cmd.export_checkpoint;
+      if (arg == f) {
+        if (i + 1 >= args.size()) {
+          throw std::runtime_error(f + " requires a value");
+        }
+        *field = args[++i];
+        name = f;
+        break;
+      }
+      if (arg.rfind(f + "=", 0) == 0) {
+        *field = arg.substr(f.size() + 1);
+        name = f;
+        break;
+      }
+    }
+    if (name.empty()) {
+      throw std::runtime_error("export: unknown argument " + arg +
+                               ". Usage: ./build/litnicelm export --config <config.yaml> "
+                               "--out <dir> [--checkpoint <path>]");
+    }
+  }
+  if (cmd.export_out_dir.empty()) {
+    throw std::runtime_error("export requires --out <dir>");
+  }
+}
+
 } // namespace
 
 bool CliParser::wants_help(int argc, char **argv) {
@@ -356,6 +390,9 @@ std::string CliParser::usage_text() {
          "[--prompt TEXT] [--max_new N] [--temp X] [--top_k K] [--top_p P] [--seed N]\n"
       << "  Interactive inference:\n"
       << "    ./build/litnicelm inferloop --config <config.yaml>\n"
+      << "  Export to a Hugging Face model directory:\n"
+      << "    ./build/litnicelm export --config <config.yaml> --out <dir> "
+         "[--checkpoint <path>]\n"
       << "  Train tokenizer artifacts:\n"
       << "    ./build/litnicelm tokenizer_training --config <config.yaml>\n"
       << "    ./build/litnicelm --tokenizer_training --config <config.yaml>\n"
@@ -399,6 +436,8 @@ Command CliParser::parse(int argc, char **argv) {
   cmd.top_p_override = 0.0f;
   cmd.has_seed_override = false;
   cmd.seed_override = 0;
+  cmd.export_out_dir.clear();
+  cmd.export_checkpoint.clear();
 
   size_t arg_start = 1;
   if (argc > 1) {
@@ -422,6 +461,9 @@ Command CliParser::parse(int argc, char **argv) {
       arg_start = 2;
     } else if (candidate == "inferloop") {
       cmd.target = Command::Target::INFERLOOP;
+      arg_start = 2;
+    } else if (candidate == "export") {
+      cmd.target = Command::Target::EXPORT;
       arg_start = 2;
     } else if (candidate == "dry_run" || candidate == "--dry_run") {
       cmd.target = Command::Target::DRY_RUN;
@@ -463,6 +505,9 @@ Command CliParser::parse(int argc, char **argv) {
     break;
   case Command::Target::INFERLOOP:
     parse_infer_args(args, cmd, /*allow_prompt_positional=*/false);
+    break;
+  case Command::Target::EXPORT:
+    parse_export_args(args, cmd);
     break;
   case Command::Target::DRY_RUN:
   case Command::Target::TRAIN:
