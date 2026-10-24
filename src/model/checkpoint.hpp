@@ -5,9 +5,12 @@
 #include "tensor.hpp"
 
 #include <cstdint>
+#include <memory>
+#include <stdexcept>
 #include <string>
 
 class IPositionEncoding;
+class ModelAlgoFactory;
 
 struct ArenaView {
   void *base = nullptr;
@@ -34,29 +37,43 @@ struct CheckpointConvergenceState {
   uint32_t stop_reason = 0;
 };
 
-bool save_checkpoint(const std::string &path, const ModelConfig &model,
-                     const IPositionEncoding &position_encoding,
-                     const std::string &conf_version,
-                     uint64_t alignment_bytes, DeviceBackend &backend,
-                     const ArenaView &data_arena,
-                     const AdamStateView &adam_state, uint64_t optimizer_steps,
-                     uint32_t epoch,
-                     const CheckpointConvergenceState *convergence_state = nullptr);
+// Thrown when a checkpoint cannot be saved or loaded; the message names the
+// checkpoint and the reason.
+class CheckpointError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
 
-bool load_checkpoint(const std::string &path, const ModelConfig &model,
-                     const IPositionEncoding &position_encoding,
-                     const std::string &conf_version,
-                     uint64_t alignment_bytes, DeviceBackend &backend,
-                     const ArenaView &data_arena,
-                     const AdamStateView &adam_state,
-                     uint64_t &restored_step, uint32_t &restored_epoch,
-                     CheckpointConvergenceState *restored_convergence_state = nullptr,
-                     std::string *error_detail = nullptr);
+// What a checkpoint restores besides the arenas.
+struct LoadedCheckpointState {
+  uint64_t step = 0;   // optimizer steps taken
+  uint32_t epoch = 0;  // epochs completed
+  CheckpointConvergenceState convergence;
+};
 
-std::string checkpoint_tokenizer_fingerprint(const Config &cfg);
-bool write_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
-                                            const std::string &fingerprint,
-                                            std::string *error_detail = nullptr);
-bool verify_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
-                                             const std::string &fingerprint,
-                                             std::string *error_detail = nullptr);
+// Saves and loads checkpoints (format v7) of one model: the model
+// dimensions, position encoding, conf version and alignment from cfg; the
+// tokenizer, whose fingerprint goes in the path + ".tokfp" sidecar; and
+// the parameter and optimizer arenas the payloads come from and go to.
+// cfg, backend and the arenas must outlive it.
+class CheckpointIO {
+public:
+  CheckpointIO(const Config &cfg, const ModelAlgoFactory &algo, DeviceBackend &backend,
+               const ArenaView &params, const AdamStateView &adam);
+  ~CheckpointIO();
+
+  // Writes the checkpoint and its fingerprint sidecar, creating the
+  // directory; throws CheckpointError.
+  void save(const std::string &path, uint64_t step, uint32_t epoch,
+            const CheckpointConvergenceState &convergence) const;
+  // Checks the header against this model and the sidecar against this
+  // tokenizer, then fills the arenas; throws CheckpointError.
+  LoadedCheckpointState load(const std::string &path) const;
+
+private:
+  const Config &cfg_;
+  std::unique_ptr<IPositionEncoding> position_encoding_;
+  DeviceBackend &backend_;
+  ArenaView params_;
+  AdamStateView adam_;
+};

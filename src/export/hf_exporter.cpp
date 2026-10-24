@@ -52,17 +52,12 @@ public:
         algo_(ModelAlgoConfig::from_config(cfg_)),
         precision_(PrecisionPolicy::create(cfg_, backend_->precision_variants())),
         memory_(cfg_, algo_, *backend_, precision_) {
-    std::string error;
-    if (!load_checkpoint(path, cfg_.model, *algo_.create_position_encoding(cfg_),
-                         cfg_.conf_version, cfg_.memory.alignment_bytes, *backend_,
-                         memory_.data_arena(), memory_.adam_state(), step, epoch,
-                         &convergence, &error)) {
-      throw std::runtime_error("export: failed to load checkpoint " + path + ": " + error);
-    }
-    if (!verify_checkpoint_tokenizer_fingerprint(
-            path, checkpoint_tokenizer_fingerprint(cfg_), &error)) {
-      throw std::runtime_error("export: " + path + ": " + error);
-    }
+    const LoadedCheckpointState state =
+        CheckpointIO(cfg_, algo_, *backend_, memory_.data_arena(), memory_.adam_state())
+            .load(path);
+    step = state.step;
+    epoch = state.epoch;
+    convergence = state.convergence;
   }
 
   // The loading config: the run's, with the tokenizer's vocabulary size.

@@ -33,10 +33,6 @@ inline constexpr EventDef kCheckpointConfVersionTruncated{
     "model.checkpoint_conf_version_truncated",
     EventType::Warning,
     "Checkpoint warning: conf.version is too long, truncating to"};
-inline constexpr EventDef kCheckpointLegacyHeader{
-    "model.checkpoint_legacy_header",
-    EventType::Warning,
-    "Checkpoint note:"};
 
 // dataset.cpp
 inline constexpr EventDef kDatasetFileSelected{

@@ -72,34 +72,10 @@ struct InferRuntime {
 };
 
 void load_weights_or_throw(InferRuntime &rt) {
-  uint64_t restored_step = 0;
-  uint32_t restored_epoch = 0;
-  std::string ckpt_error;
-  const std::string &checkpoint_path = rt.cfg.paths.model_file_best;
-  const bool ok =
-      load_checkpoint(checkpoint_path, rt.cfg.model,
-                      *rt.algo.create_position_encoding(rt.cfg),
-                      rt.cfg.conf_version, rt.cfg.memory.alignment_bytes,
-                      *rt.backend, rt.memory_manager->data_arena(),
-                      rt.memory_manager->adam_state(), restored_step,
-                      restored_epoch, nullptr, &ckpt_error);
-  if (!ok) {
-    std::string msg = "Failed to load checkpoint: " + checkpoint_path;
-    if (!ckpt_error.empty()) {
-      msg += " | mismatch: " + ckpt_error;
-    }
-    throw std::runtime_error(msg);
-  }
+  CheckpointIO(rt.cfg, rt.algo, *rt.backend, rt.memory_manager->data_arena(),
+               rt.memory_manager->adam_state())
+      .load(rt.cfg.paths.model_file_best);
   rt.memory_manager->sync_compute_weights();
-  const std::string tokfp = checkpoint_tokenizer_fingerprint(rt.cfg);
-  if (!verify_checkpoint_tokenizer_fingerprint(checkpoint_path, tokfp,
-                                               &ckpt_error)) {
-    std::string msg = "Failed to load checkpoint: " + checkpoint_path;
-    if (!ckpt_error.empty()) {
-      msg += " | mismatch: " + ckpt_error;
-    }
-    throw std::runtime_error(msg);
-  }
 }
 
 std::vector<float> read_last_row_logits(DeviceBackend &backend,

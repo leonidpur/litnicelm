@@ -187,16 +187,8 @@ int main(int argc, char **argv) {
   const ModelAlgoFactory algo(ModelAlgoConfig::from_config(cfg));
   const PrecisionPolicy precision = PrecisionPolicy::create(cfg, backend->precision_variants());
   InferenceMemoryManager memory(cfg, algo, *backend, precision);
-  uint64_t step = 0;
-  uint32_t epoch = 0;
-  std::string error;
-  if (!load_checkpoint(cfg.paths.model_file_best, cfg.model, *algo.create_position_encoding(cfg),
-                       cfg.conf_version, cfg.memory.alignment_bytes, *backend,
-                       memory.data_arena(), memory.adam_state(), step, epoch, nullptr,
-                       &error)) {
-    std::cerr << "cannot load " << cfg.paths.model_file_best << ": " << error << "\n";
-    return 1;
-  }
+  CheckpointIO(cfg, algo, *backend, memory.data_arena(), memory.adam_state())
+      .load(cfg.paths.model_file_best);
   const TensorStore &store = memory.tensor_store();
 
   // Expected tensors, named independently of the exporter.

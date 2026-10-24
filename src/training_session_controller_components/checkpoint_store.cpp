@@ -32,22 +32,11 @@ CheckpointLoad CheckpointStore::load_latest(DeviceBackend &device_backend,
   CheckpointLoad result;
   try {
     reporters_.on_checkpoint_load_start();
-    std::string error_detail;
-    if (!load_checkpoint(latest_path(), cfg_.model,
-                         *algo_.create_position_encoding(cfg_),
-                         cfg_.conf_version, cfg_.memory.alignment_bytes,
-                         device_backend, data_arena, adam_state,
-                         result.position.optimizer_steps, result.position.epoch,
-                         &result.convergence, &error_detail)) {
-      throw std::runtime_error("Failed to load checkpoint: " + latest_path() +
-                               " | " + error_detail);
-    }
-    const std::string tokfp = checkpoint_tokenizer_fingerprint(cfg_);
-    if (!verify_checkpoint_tokenizer_fingerprint(latest_path(), tokfp,
-                                                 &error_detail)) {
-      throw std::runtime_error("Failed to load checkpoint: " + latest_path() +
-                               " | " + error_detail);
-    }
+    const LoadedCheckpointState state =
+        CheckpointIO(cfg_, algo_, device_backend, data_arena, adam_state).load(latest_path());
+    result.position.optimizer_steps = state.step;
+    result.position.epoch = state.epoch;
+    result.convergence = state.convergence;
     reporters_.on_checkpoint_load_end(true);
     result.ok = true;
   } catch (const std::exception &e) {
@@ -70,27 +59,8 @@ bool CheckpointStore::save_latest(DeviceBackend &device_backend,
   const uint32_t epoch = training_position.epoch;
   try {
     reporters_.on_checkpoint_save_start(optimizer_steps, epoch);
-    std::filesystem::path p(path);
-    if (p.has_parent_path()) {
-      std::filesystem::create_directories(p.parent_path());
-    }
-
-    const bool ok = save_checkpoint(path, cfg_.model,
-                                    *algo_.create_position_encoding(cfg_),
-                                    cfg_.conf_version,
-                                    cfg_.memory.alignment_bytes, device_backend,
-                                    data_arena, adam_state, optimizer_steps, epoch,
-                                    &convergence);
-    if (!ok) {
-      throw std::runtime_error("save_checkpoint failed");
-    }
-    std::string fingerprint_error;
-    const std::string tokfp = checkpoint_tokenizer_fingerprint(cfg_);
-    if (!write_checkpoint_tokenizer_fingerprint(path, tokfp,
-                                                &fingerprint_error)) {
-      throw std::runtime_error("write tokenizer fingerprint failed: " +
-                               fingerprint_error);
-    }
+    CheckpointIO(cfg_, algo_, device_backend, data_arena, adam_state)
+        .save(path, optimizer_steps, epoch, convergence);
     std::ostringstream losses;
     losses << std::fixed << std::setprecision(4) << "train " << train_loss;
     if (val_loss) {
