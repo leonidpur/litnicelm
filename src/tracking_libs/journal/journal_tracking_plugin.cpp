@@ -3,6 +3,7 @@
 //
 // Options: path (defaults to context.journal_file; empty disables writing).
 
+#include <litnicelm_utils/text_io.hpp>
 #include <tracking_plugin_api.h>
 
 #include <cstdio>
@@ -178,9 +179,7 @@ std::string operation_details(const TrackingEvent &ev) {
 void append_entry(const std::string &path, int64_t unix_ms,
                   const std::string &op_name, const std::string &details) {
   const std::filesystem::path p(path);
-  if (!p.parent_path().empty()) {
-    std::filesystem::create_directories(p.parent_path());
-  }
+  text_io::ensure_parent_directory(p);
   std::ofstream journal(p, std::ios::app);
   if (!journal) {
     throw std::runtime_error("failed to open journal: " + p.string());

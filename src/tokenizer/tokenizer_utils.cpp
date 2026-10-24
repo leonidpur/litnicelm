@@ -1,5 +1,6 @@
 #include "tokenizer_utils.hpp"
 #include "corpus_input.hpp"
+#include <litnicelm_utils/text_io.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "tokenizer_events.hpp"
 
@@ -47,10 +48,7 @@ void stream_tokenize(TokenizerPlugin *plugin, const std::string &input_path,
   const std::vector<std::string> input_files =
       CorpusInput::resolve_files(input_path);
 
-  const fs::path out_path(output_path);
-  if (!out_path.parent_path().empty()) {
-    fs::create_directories(out_path.parent_path());
-  }
+  text_io::ensure_parent_directory(output_path);
 
   std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
   if (!out) {

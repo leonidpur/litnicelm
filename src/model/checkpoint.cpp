@@ -1,6 +1,7 @@
 #include "checkpoint.hpp"
 #include "i_position_encoding.hpp"
 #include "model_algo_factory.hpp"
+#include <litnicelm_utils/text_io.hpp>
 #include <litnicelm_utils/hash_utils.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "model_events.hpp"
@@ -269,10 +270,7 @@ bool write_checkpoint_tokenizer_fingerprint(const std::string &checkpoint_path,
                                             std::string *error_detail) {
   try {
     const std::string sidecar = fingerprint_sidecar_path(checkpoint_path);
-    std::filesystem::path path(sidecar);
-    if (path.has_parent_path()) {
-      std::filesystem::create_directories(path.parent_path());
-    }
+    text_io::ensure_parent_directory(sidecar);
     std::ofstream out(sidecar, std::ios::binary | std::ios::trunc);
     if (!out) {
       throw std::runtime_error("failed to open tokenizer fingerprint sidecar");
@@ -524,10 +522,7 @@ CheckpointIO::~CheckpointIO() = default;
 
 void CheckpointIO::save(const std::string &path, uint64_t step, uint32_t epoch,
                         const CheckpointConvergenceState &convergence) const {
-  const std::filesystem::path file(path);
-  if (file.has_parent_path()) {
-    std::filesystem::create_directories(file.parent_path());
-  }
+  text_io::ensure_parent_directory(path);
   if (!save_checkpoint(path, cfg_.model, *position_encoding_, cfg_.conf_version,
                        cfg_.memory.alignment_bytes, backend_, params_, adam_, step, epoch,
                        &convergence)) {

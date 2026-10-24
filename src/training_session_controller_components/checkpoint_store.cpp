@@ -1,6 +1,7 @@
 #include "checkpoint_store.hpp"
 
 #include "backend/device_backend.hpp"
+#include <litnicelm_utils/text_io.hpp>
 #include <litnicelm_utils/log.hpp>
 #include "training_session_controller_components_events.hpp"
 #include "model_algo_factory.hpp"
@@ -105,10 +106,7 @@ bool CheckpointStore::promote_latest_to_best(float best_loss,
                   fields);
       return true;
     }
-    std::filesystem::path best_fs(best);
-    if (best_fs.has_parent_path()) {
-      std::filesystem::create_directories(best_fs.parent_path());
-    }
+    text_io::ensure_parent_directory(best);
     std::filesystem::copy_file(latest, best,
                                std::filesystem::copy_options::overwrite_existing);
     // Sidecars: tokenizer fingerprint and the run that wrote the checkpoint.

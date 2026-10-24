@@ -6,9 +6,17 @@
 #include <stdexcept>
 #include <string>
 
-// Whole text files in one call; errors throw std::runtime_error naming the
-// file.
+// Files in one call: whole text files and the directories they go in;
+// errors throw naming the file.
 namespace text_io {
+
+// Creates the directory path will be in, when path has one and it is
+// missing.
+inline void ensure_parent_directory(const std::filesystem::path &path) {
+  if (path.has_parent_path()) {
+    std::filesystem::create_directories(path.parent_path());
+  }
+}
 
 // Writes text to path, replacing the file.
 inline void write_text_file(const std::filesystem::path &path, const std::string &text) {
