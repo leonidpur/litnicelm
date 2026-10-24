@@ -332,6 +332,26 @@ add_test(NAME train_infer_e2e
 set_tests_properties(train_infer_e2e PROPERTIES LABELS e2e SKIP_RETURN_CODE 77
                                                 TIMEOUT 300)
 
+# Export to a Hugging Face model directory: tiny CPU models (learned and
+# rope positions) exported and checked against their checkpoints.
+add_executable(litnice_hf_export_test tests/hf_export_test.cpp)
+target_include_directories(litnice_hf_export_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+    src/tokenizer
+)
+target_link_libraries(litnice_hf_export_test PRIVATE litnice_core)
+add_test(NAME hf_export
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/hf_export_test.sh
+                 $<TARGET_FILE:litnicelm>
+                 $<TARGET_FILE:litnice_hf_export_test>
+                 $<TARGET_FILE:litnice_backend_cpu>
+                 ${CMAKE_CURRENT_BINARY_DIR}/hf_export_test_tmp)
+
 # Checker: named checks pass on valid input, report and throw otherwise.
 add_executable(litnicelm_checks_test tests/checks_test.cpp)
 target_include_directories(litnicelm_checks_test PRIVATE src/model)
