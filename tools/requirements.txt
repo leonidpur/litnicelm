@@ -1,0 +1,4 @@
+# Python tools: tools/hf_upload.py, tools/verify_export.py
+huggingface_hub
+safetensors
+numpy
