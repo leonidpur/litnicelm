@@ -158,14 +158,19 @@ def table(runs):
     groups = {}
     for r in runs:
         groups.setdefault((r["engine"], r["precision"], r["sync"]), []).append(r)
-    lines = ["| engine | precision | loss read | tokens/s | step (ms) | process peak (MiB) | "
-             "engine memory (MiB) | SM clock (MHz) |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = ["| engine | precision | loss read | tokens/s | tokens/s per GHz | step (ms) | "
+             "process peak (MiB) | engine memory (MiB) | SM clock (MHz) |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for (engine, precision, sync), rs in groups.items():
         med = lambda k: statistics.median(r[k] for r in rs)  # noqa: E731
         tps = [r["tokens_per_s"] for r in rs]
+        # Throughput per GHz of the run's mean SM clock: comparable across
+        # runs that ran at different boost clocks (approximately: memory-
+        # bound work does not scale with the SM clock).
+        per_ghz = statistics.median(r["tokens_per_s"] / r["sm_clock_mhz"] * 1000 for r in rs)
         lines.append(f"| {engine} | {precision} | {sync} | {med('tokens_per_s'):,.0f} "
-                     f"({min(tps):,.0f}–{max(tps):,.0f}) | {med('step_ms_mean'):.1f} | "
+                     f"({min(tps):,.0f}–{max(tps):,.0f}) | {per_ghz:,.0f} | "
+                     f"{med('step_ms_mean'):.1f} | "
                      f"{med('process_peak_mib'):.0f} | {med('engine_memory_mib'):.0f} | "
                      f"{med('sm_clock_mhz'):.0f} |")
     return "\n".join(lines)
@@ -174,14 +179,21 @@ def table(runs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", required=True, type=Path, help="LitniceLM training config")
+    parser.add_argument("--config", type=Path, help="LitniceLM training config")
     parser.add_argument("--litnicelm", default=str(REPO / "build" / "litnicelm"))
     parser.add_argument("--python", default=sys.executable, help="python with torch")
     parser.add_argument("--epochs", type=int, default=2, help="LitniceLM epochs per run")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--json", type=Path, help="write every run here")
+    parser.add_argument("--table-from", type=Path,
+                        help="print the table of a saved --json file instead of running")
     args = parser.parse_args()
+    if args.table_from:
+        print(table(json.loads(args.table_from.read_text())["runs"]))
+        return
 
+    if args.config is None:
+        parser.error("--config is required unless --table-from is given")
     cfg_yaml = yaml.safe_load(args.config.read_text())
     runs = []
     with tempfile.TemporaryDirectory(prefix="litnicelm_bench_") as tmp:
