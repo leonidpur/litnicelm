@@ -26,6 +26,7 @@ file(GLOB MODEL_SOURCES CONFIGURE_DEPENDS
     src/profiling/*.cpp
     src/config/*.cpp
     src/utils/*.cpp
+    src/export/*.cpp
 )
 list(REMOVE_ITEM MODEL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/model/backend/backend_plugin_cpu.cpp
@@ -67,6 +68,7 @@ target_include_directories(litnice_core PRIVATE
     src/config
     src/utils
     src/tokenizer
+    src/export
     ${SPM_INCLUDE_DIRS}
 )
 
