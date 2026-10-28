@@ -22,6 +22,7 @@ Example:
 import argparse
 import json
 import re
+import shlex
 import statistics
 import subprocess
 import sys
@@ -77,6 +78,7 @@ class GpuSampler:
 
 def run_sampled(cmd, cwd=REPO):
     """Runs cmd while sampling its GPU use; returns (stdout+stderr, samples)."""
+    print(f"\033[32m$ {shlex.join(map(str, cmd))}\033[0m", file=sys.stderr, flush=True)
     with GpuSampler() as sampler:
         proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True)
@@ -176,6 +178,38 @@ def table(runs):
     return "\n".join(lines)
 
 
+def print_preflight(args):
+    """Explain the benchmark before starting any training processes."""
+    json_output = str(args.json) if args.json else "not saved"
+    print(
+        f"""LitniceLM vs PyTorch benchmark
+
+Configuration:
+  Config:      {args.config}
+  LitniceLM:   {args.litnicelm}
+  Python:      {args.python}
+  Epochs:      {args.epochs}
+  Repeats:     {args.repeats}
+  JSON output: {json_output}
+
+This benchmark will run:
+  1. LitniceLM FP32
+  2. LitniceLM BF16 mixed
+  3. PyTorch FP32 with a loss read after every batch
+  4. PyTorch FP32 with loss reads deferred until the end
+  5. PyTorch BF16 with a loss read after every batch
+  6. PyTorch BF16 with loss reads deferred until the end
+
+Each variant is run once per repetition. Runs are sequential and the
+complete benchmark may take several minutes.
+
+GPU clocks are not locked. Use multiple repetitions for more reliable
+results. Starting benchmark...
+""",
+        file=sys.stderr,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -195,6 +229,7 @@ def main():
     if args.config is None:
         parser.error("--config is required unless --table-from is given")
     cfg_yaml = yaml.safe_load(args.config.read_text())
+    print_preflight(args)
     runs = []
     with tempfile.TemporaryDirectory(prefix="litnicelm_bench_") as tmp:
         workdir = Path(tmp)
