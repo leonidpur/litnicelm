@@ -27,8 +27,19 @@ class ComparisonSpec:
     batch_size: int
     validation_fraction: float
     validation_chunk_tokens: int
+    window_stride: int
     accumulation_steps: int
     steps: int
+    seed: int
+    learning_rate: float
+    beta1: float
+    beta2: float
+    epsilon: float
+    weight_decay: float
+    grad_clip: float
+    lr_schedule: str
+    warmup_steps: int
+    min_lr_ratio: float
     precisions: tuple[str, ...]
     repeats: int
     clock_mhz: int

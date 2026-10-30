@@ -15,6 +15,14 @@ class EngineResult:
     metrics: dict[str, bool | int | float | str]
 
 
+@dataclass(frozen=True)
+class SpeedVariant:
+    """One engine-neutral precision and loss-read timing combination."""
+
+    precision: str
+    loss_read: str
+
+
 class Engine(ABC):
     """Translate an engine-neutral spec into one engine's native execution."""
 
@@ -30,6 +38,21 @@ class Engine(ABC):
     def supports(self, operation: str) -> bool:
         """Return whether this adapter implements the named vertical operation."""
         return False
+
+    @property
+    def determines_step_count(self) -> bool:
+        """Whether this engine's native run determines peer measured steps."""
+        return False
+
+    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
+        """Return training-speed variants supported by this adapter."""
+        return ()
+
+    def run_speed(
+        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+    ) -> EngineResult:
+        """Run one isolated training-speed variant."""
+        raise NotImplementedError(f"{self.name} does not implement training speed")
 
     @abstractmethod
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:

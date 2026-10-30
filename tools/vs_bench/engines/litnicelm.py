@@ -1,13 +1,13 @@
 """LitniceLM configuration, subprocess, and profiler adapter."""
 
 import re
-import subprocess
 import tempfile
 from pathlib import Path
 from types import MappingProxyType
 
 from ..spec import ComparisonSpec
-from .base import Engine, EngineResult
+from ..measure.process import run_sampled_process
+from .base import Engine, EngineResult, SpeedVariant
 
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -93,6 +93,19 @@ class LitniceLMEngine(Engine):
     def name(self) -> str:
         return "LitniceLM"
 
+    @property
+    def determines_step_count(self) -> bool:
+        return True
+
+    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
+        return tuple(SpeedVariant(precision, "per_batch") for precision in spec.precisions)
+
+    def run_speed(
+        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+    ) -> EngineResult:
+        del steps  # The unchanged LitniceLM path is epoch-driven.
+        return self.train(spec, variant.precision)
+
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
         precisions = (self._native_precision(value) for value in spec.precisions)
         settings = tuple(f"native setting {key}: {value}" for key, value in NATIVE_SETTINGS.items())
@@ -122,8 +135,18 @@ class LitniceLMEngine(Engine):
             ("model_algo", "position_encoding", spec.position_encoding),
             ("tokenization", "output_binary", spec.tokenized_corpus_path),
             ("training", "train_seq_len", spec.seq_len),
+            ("training", "window_stride", spec.window_stride),
             ("training", "batch_size", spec.batch_size),
             ("training", "batches_per_step", spec.accumulation_steps),
+            ("training", "learning_rate", spec.learning_rate),
+            ("training", "beta1", spec.beta1),
+            ("training", "beta2", spec.beta2),
+            ("training", "eps", spec.epsilon),
+            ("training", "weight_decay", spec.weight_decay),
+            ("training", "grad_clip", spec.grad_clip),
+            ("training", "lr_schedule", spec.lr_schedule),
+            ("training", "warmup_steps", spec.warmup_steps),
+            ("training", "min_lr_ratio", spec.min_lr_ratio),
             ("training", "validation_fraction", spec.validation_fraction),
             ("training", "validation_chunk_tokens", spec.validation_chunk_tokens),
         )
@@ -188,19 +211,18 @@ class LitniceLMEngine(Engine):
                 "--epochs",
                 str(NATIVE_SETTINGS["benchmark.epochs"]),
             ]
-            completed = subprocess.run(
-                command,
-                cwd=REPOSITORY,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+            measured = run_sampled_process(command, REPOSITORY)
+            result = self.parse_training_output(spec, precision, measured.output)
+            return EngineResult(
+                engine=result.engine,
+                operation=result.operation,
+                metrics={
+                    **result.metrics,
+                    "process_wall_seconds": measured.wall_seconds,
+                    "process_peak_mib": measured.gpu.process_peak_mib,
+                    "sm_clock_mhz": measured.gpu.mean_clock_mhz,
+                },
             )
-            if completed.returncode != 0:
-                raise RuntimeError(
-                    f"LitniceLM failed ({completed.returncode}): {' '.join(command)}\n"
-                    f"{completed.stdout[-2000:]}"
-                )
-            return self.parse_training_output(spec, precision, completed.stdout)
 
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
         if operation != "train_speed":
