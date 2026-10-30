@@ -21,6 +21,7 @@ out/
 # Editor/runtime noise
 .codex
 CLAUDE.md
+__pycache__/
 *.swp
 *.swo
 conf/local/
