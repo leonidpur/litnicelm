@@ -18,7 +18,7 @@ class ParityVertical(Vertical):
     @staticmethod
     def _card_validation_loss(spec: ComparisonSpec) -> float | None:
         """Read LitniceLM's best validation loss from the export model card."""
-        card = (spec.export_dir / "README.md").read_text()
+        card = (spec.parity.export_dir / "README.md").read_text()
         match = re.search(r"\| best val loss \| ([0-9.eE+-]+)", card)
         return float(match.group(1)) if match else None
 
@@ -29,9 +29,9 @@ class ParityVertical(Vertical):
                 engine=engine.name,
                 actions=engine.describe_setup(spec)
                 + (
-                    f"load existing export: {spec.export_dir}",
-                    f"evaluate identical corpus windows as {spec.parity_precision}",
-                    f"compare validation loss with tolerance {spec.parity_tolerance:g}",
+                    f"load existing export: {spec.parity.export_dir}",
+                    f"evaluate identical corpus windows as {spec.parity.precision}",
+                    f"compare validation loss with tolerance {spec.parity.tolerance:g}",
                 ),
             )
             for engine in supported
@@ -45,7 +45,9 @@ class ParityVertical(Vertical):
     def run(self, spec: ComparisonSpec, engines: Sequence[Engine]) -> VerticalResult:
         reference = self._card_validation_loss(spec)
         if reference is None:
-            raise ValueError(f"no best validation loss in {spec.export_dir / 'README.md'}")
+            raise ValueError(
+                f"no best validation loss in {spec.parity.export_dir / 'README.md'}"
+            )
         results = []
         for engine in engines:
             if not engine.supports(self.name):
@@ -57,8 +59,8 @@ class ParityVertical(Vertical):
                 {
                     "reference_loss": reference,
                     "difference": difference,
-                    "tolerance": spec.parity_tolerance,
-                    "passed": difference <= spec.parity_tolerance,
+                    "tolerance": spec.parity.tolerance,
+                    "passed": difference <= spec.parity.tolerance,
                 }
             )
             results.append(

@@ -8,20 +8,22 @@ from ..verticals.base import VerticalPlan
 
 def print_plan(spec: ComparisonSpec, plans: Sequence[VerticalPlan]) -> None:
     """Render the skeleton's plan without executing any benchmark work."""
+    workload = spec.workload
     print("LitniceLM comparison plan")
     print("===========================")
     print(
-        f"Model: {spec.n_layers} layers, {spec.n_heads} heads, "
-        f"d_model {spec.d_model}, d_ff {spec.d_ff}"
+        f"Model: {workload.n_layers} layers, {workload.n_heads} heads, "
+        f"d_model {workload.d_model}, d_ff {workload.d_ff}"
     )
-    print(f"Corpus: {spec.corpus_id}")
+    print(f"Corpus: {workload.corpus_id}")
     print(
-        f"Training: seq {spec.seq_len}, batch {spec.batch_size}, "
-        f"accumulation {spec.accumulation_steps}, {spec.tokens_per_step} tokens/step"
+        f"Training: seq {workload.seq_len}, batch {workload.batch_size}, "
+        f"accumulation {workload.accumulation_steps}, {workload.tokens_per_step} tokens/step"
     )
-    print(f"Run: {spec.steps} steps, {spec.repeats} repeats")
-    print(f"Precisions: {', '.join(spec.precisions)}")
-    clock = f"{spec.clock_mhz} MHz" if spec.clock_mhz else "not selected"
+    print(f"Run: {spec.train_speed.steps} steps, {spec.train_speed.repeats} repeats")
+    print(f"Precisions: {', '.join(workload.precisions)}")
+    clock_mhz = spec.environment.clock_mhz
+    clock = f"{clock_mhz} MHz" if clock_mhz else "not selected"
     print(f"Locked GPU clock: {clock}")
 
     for plan in plans:

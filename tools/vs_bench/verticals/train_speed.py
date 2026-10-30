@@ -20,7 +20,7 @@ class TrainSpeedVertical(Vertical):
                 engine=engine.name,
                 actions=engine.describe_setup(spec)
                 + (
-                    f"run each supported speed variant, repeated {spec.repeats} times",
+                    f"run each supported speed variant, repeated {spec.train_speed.repeats} times",
                     "launch every row in a fresh sampled subprocess",
                 ),
             )
@@ -38,8 +38,8 @@ class TrainSpeedVertical(Vertical):
         if not sources:
             raise ValueError("training speed requires an engine that determines measured steps")
         results = []
-        for repeat in range(1, spec.repeats + 1):
-            measured_steps = spec.steps
+        for repeat in range(1, spec.train_speed.repeats + 1):
+            measured_steps = spec.train_speed.steps
             for engine in sources + peers:
                 for variant in engine.speed_variants(spec):
                     result = engine.run_speed(spec, variant, measured_steps)

@@ -118,7 +118,9 @@ class LitniceLMEngine(Engine):
         return True
 
     def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
-        return tuple(SpeedVariant(precision, "per_batch") for precision in spec.precisions)
+        return tuple(
+            SpeedVariant(precision, "per_batch") for precision in spec.workload.precisions
+        )
 
     def run_speed(
         self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
@@ -127,7 +129,7 @@ class LitniceLMEngine(Engine):
         return self.train(spec, variant.precision)
 
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
-        precisions = (self._native_precision(value) for value in spec.precisions)
+        precisions = (self._native_precision(value) for value in spec.workload.precisions)
         native = tuple(f"native config {key}: {value}" for key, value in NATIVE_CONFIG.items())
         adapter = tuple(
             f"adapter parameter {key}: {value}" for key, value in ADAPTER_PARAMS.items()
@@ -149,29 +151,30 @@ class LitniceLMEngine(Engine):
     def config_text(self, spec: ComparisonSpec, precision: str, workdir: Path) -> str:
         """Translate the shared spec and native settings into LitniceLM YAML."""
         text = self.base_config.read_text()
+        workload = spec.workload
         shared_values = (
-            ("model", "max_seq_len", spec.seq_len),
-            ("model", "n_layers", spec.n_layers),
-            ("model", "n_heads", spec.n_heads),
-            ("model", "d_model", spec.d_model),
-            ("model", "d_ff", spec.d_ff),
-            ("model_algo", "position_encoding", spec.position_encoding),
-            ("tokenization", "output_binary", spec.tokenized_corpus_path),
-            ("training", "train_seq_len", spec.seq_len),
-            ("training", "window_stride", spec.window_stride),
-            ("training", "batch_size", spec.batch_size),
-            ("training", "batches_per_step", spec.accumulation_steps),
-            ("training", "learning_rate", spec.learning_rate),
-            ("training", "beta1", spec.beta1),
-            ("training", "beta2", spec.beta2),
-            ("training", "eps", spec.epsilon),
-            ("training", "weight_decay", spec.weight_decay),
-            ("training", "grad_clip", spec.grad_clip),
-            ("training", "lr_schedule", spec.lr_schedule),
-            ("training", "warmup_steps", spec.warmup_steps),
-            ("training", "min_lr_ratio", spec.min_lr_ratio),
-            ("training", "validation_fraction", spec.validation_fraction),
-            ("training", "validation_chunk_tokens", spec.validation_chunk_tokens),
+            ("model", "max_seq_len", workload.seq_len),
+            ("model", "n_layers", workload.n_layers),
+            ("model", "n_heads", workload.n_heads),
+            ("model", "d_model", workload.d_model),
+            ("model", "d_ff", workload.d_ff),
+            ("model_algo", "position_encoding", workload.position_encoding),
+            ("tokenization", "output_binary", workload.tokenized_corpus_path),
+            ("training", "train_seq_len", workload.seq_len),
+            ("training", "window_stride", workload.window_stride),
+            ("training", "batch_size", workload.batch_size),
+            ("training", "batches_per_step", workload.accumulation_steps),
+            ("training", "learning_rate", workload.learning_rate),
+            ("training", "beta1", workload.beta1),
+            ("training", "beta2", workload.beta2),
+            ("training", "eps", workload.epsilon),
+            ("training", "weight_decay", workload.weight_decay),
+            ("training", "grad_clip", workload.grad_clip),
+            ("training", "lr_schedule", workload.lr_schedule),
+            ("training", "warmup_steps", workload.warmup_steps),
+            ("training", "min_lr_ratio", workload.min_lr_ratio),
+            ("training", "validation_fraction", workload.validation_fraction),
+            ("training", "validation_chunk_tokens", workload.validation_chunk_tokens),
         )
         text = _set_key(text, None, "precision", self._native_precision(precision))
         for section, key, value in shared_values:
@@ -207,8 +210,8 @@ class LitniceLMEngine(Engine):
         total_seconds = _seconds(batch_lines[0][0])
         batches = sum(int(count) for _, count in batch_lines)
         managed = re.search(r"\| Total managed\s*\|\s*([0-9.]+)", output)
-        tokens = batches * spec.batch_size * spec.seq_len
-        steps = batches // spec.accumulation_steps
+        tokens = batches * spec.workload.batch_size * spec.workload.seq_len
+        steps = batches // spec.workload.accumulation_steps
         return EngineResult(
             engine=self.name,
             operation="train_speed",
@@ -216,7 +219,7 @@ class LitniceLMEngine(Engine):
                 "precision": precision,
                 "sync": "per batch",
                 "steps": steps,
-                "tokens_per_step": spec.tokens_per_step,
+                "tokens_per_step": spec.workload.tokens_per_step,
                 "tokens_per_s": tokens / total_seconds,
                 "step_ms_mean": 1000 * total_seconds / steps,
                 "engine_memory_mib": float(managed.group(1)) if managed else "unknown",
@@ -251,5 +254,5 @@ class LitniceLMEngine(Engine):
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
         if operation != "train_speed":
             raise NotImplementedError(f"LitniceLM operation is not implemented: {operation}")
-        return self.train(spec, spec.precisions[0])
+        return self.train(spec, spec.workload.precisions[0])
 

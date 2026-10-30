@@ -44,7 +44,7 @@ class TorchEngine(Engine):
         return "PyTorch"
 
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
-        precisions = (self._native_precision(value) for value in spec.precisions)
+        precisions = (self._native_precision(value) for value in spec.workload.precisions)
         settings = tuple(f"native setting {key}: {value}" for key, value in NATIVE_SETTINGS.items())
         return (
             "construct an equivalent PyTorch model and optimizer from the shared spec",
@@ -58,7 +58,7 @@ class TorchEngine(Engine):
     def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
         return tuple(
             SpeedVariant(precision, loss_read)
-            for precision in spec.precisions
+            for precision in spec.workload.precisions
             for loss_read in ("per_batch", "end")
         )
 
@@ -97,16 +97,18 @@ class TorchEngine(Engine):
 
     def _evaluate_export(self, spec: ComparisonSpec) -> EngineResult:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model, config = load_export(spec.export_dir, device)
+        model, config = load_export(spec.parity.export_dir, device)
         corpus = CorpusManager().load(spec)
         starts = validation_windows(len(corpus.tokens), spec)
-        autocast_dtype = self._autocast_dtype(spec.parity_precision)
+        autocast_dtype = self._autocast_dtype(spec.parity.precision)
         losses = []
         model.eval()
         with torch.no_grad():
-            for offset in range(0, len(starts), spec.batch_size):
+            for offset in range(0, len(starts), spec.workload.batch_size):
                 input_ids, targets = window_batch(
-                    corpus.tokens, starts[offset : offset + spec.batch_size], spec
+                    corpus.tokens,
+                    starts[offset : offset + spec.workload.batch_size],
+                    spec,
                 )
                 input_ids = torch.from_numpy(input_ids).to(device)
                 targets = torch.from_numpy(targets).to(device)
@@ -122,10 +124,10 @@ class TorchEngine(Engine):
             engine=self.name,
             operation="parity",
             metrics={
-                "precision": spec.parity_precision,
+                "precision": spec.parity.precision,
                 "loss": float(np.mean(losses)),
                 "batches": len(losses),
-                "tokens": len(starts) * spec.seq_len,
+                "tokens": len(starts) * spec.workload.seq_len,
                 "n_layers": int(config["n_layer"]),
                 "d_model": int(config["n_embd"]),
                 "position_encoding": str(config["position_encoding"]),
