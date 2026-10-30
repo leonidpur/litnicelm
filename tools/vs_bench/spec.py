@@ -5,7 +5,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ComparisonSpec:
-    """All workload conditions shared by every engine and vertical."""
+    """All workload conditions shared by every engine and vertical.
+
+    Precision names are engine-neutral. ``fp32`` means FP32 throughout;
+    ``bf16`` means BF16 activations and activation gradients with FP32 master
+    weights. Each engine adapter translates these names to its native setup.
+    """
 
     n_layers: int
     n_heads: int

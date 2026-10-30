@@ -19,7 +19,7 @@ SPEC = ComparisonSpec(
     batch_size=1,
     accumulation_steps=4,
     steps=300,
-    precisions=("fp32", "bf16_mixed"),
+    precisions=("fp32", "bf16"),
     repeats=3,
     clock_mhz=0,  # Replace with the clock selected for the verified run.
 )
