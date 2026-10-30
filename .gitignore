@@ -20,6 +20,7 @@ out/
 
 # Editor/runtime noise
 .codex
+CLAUDE.md
 *.swp
 *.swo
 conf/local/

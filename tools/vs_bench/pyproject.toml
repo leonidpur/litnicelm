@@ -1,0 +1,7 @@
+[project]
+name = "litnicelm-bench"
+version = "0.1.0"
+description = "Standalone LitniceLM comparison runner"
+requires-python = ">=3.11"
+dependencies = []
+

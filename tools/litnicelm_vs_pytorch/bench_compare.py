@@ -7,7 +7,7 @@ Runs, interleaved and repeated:
              directory); throughput from the run's profiler (all training
              batches, without validation and checkpoint saving);
   pytorch    fp32 and bf16 autocast, with per-batch loss reads like
-             LitniceLM, and again with --no-sync (tools/bench_torch.py), for
+             LitniceLM, and again with --no-sync (bench_torch.py), for
              the same number of optimizer steps.
 During every run nvidia-smi samples the process's GPU memory and the SM
 clock (clocks are not locked: the clock column shows the state each run
@@ -15,7 +15,8 @@ ran in). Reports the median over repeats, writes all runs as JSON and
 prints a Markdown table.
 
 Example:
-  tools/bench_compare.py --config conf/local/doyle/run.yaml --repeats 3 \\
+  tools/litnicelm_vs_pytorch/bench_compare.py \\
+      --config conf/local/doyle/run.yaml --repeats 3 \\
       --json docs/comparison_results.json
 """
 
@@ -34,7 +35,7 @@ from pathlib import Path
 import yaml
 
 TOOLS = Path(__file__).resolve().parent
-REPO = TOOLS.parent
+REPO = TOOLS.parents[1]
 
 
 class GpuSampler:

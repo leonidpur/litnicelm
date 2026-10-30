@@ -7,10 +7,10 @@ run. Prints a table of the metric per epoch; with --plot, also draws it
 (needs matplotlib).
 
 Examples:
-  tools/plot_runs.py runs                          # every run under runs/
-  tools/plot_runs.py runs/2026..._learned runs/2026..._rope
-  tools/plot_runs.py runs --metric train_loss --plot loss.png
-  tools/plot_runs.py runs --x step --plot steps.png   # per-step metrics
+  tools/plot_runs/plot_runs.py runs                          # every run under runs/
+  tools/plot_runs/plot_runs.py runs/2026..._learned runs/2026..._rope
+  tools/plot_runs/plot_runs.py runs --metric train_loss --plot loss.png
+  tools/plot_runs/plot_runs.py runs --x step --plot steps.png   # per-step metrics
 """
 
 import argparse

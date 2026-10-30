@@ -12,8 +12,8 @@ checkpoints trained with precision: bf16_mixed (whose recorded val loss was
 computed with BF16 activations, so only an approximate match is expected).
 
 Examples:
-  tools/reference_torch.py exports/run_fp32 --config conf/run.yaml --tolerance 1e-4
-  tools/reference_torch.py exports/run_16mix --config conf/run_16mix.yaml --bf16
+  tools/litnicelm_vs_pytorch/reference_torch.py exports/run_fp32 --config conf/run.yaml --tolerance 1e-4
+  tools/litnicelm_vs_pytorch/reference_torch.py exports/run_16mix --config conf/run_16mix.yaml --bf16
 """
 
 import argparse

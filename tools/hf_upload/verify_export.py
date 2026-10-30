@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Load a `litnicelm export` model.safetensors with the official safetensors
 reader and print its metadata and every tensor's name, shape and dtype, plus
-config.json. A manual check of the format (needs tools/requirements.txt).
+config.json. A manual check of the format (needs this directory's requirements.txt).
 
 Example:
-  tools/verify_export.py hf_out
+  tools/hf_upload/verify_export.py hf_out
 """
 
 import argparse

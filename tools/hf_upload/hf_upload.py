@@ -6,9 +6,9 @@ the repo root; with --tb-dir, the run's TensorBoard logs go under runs/.
 Authentication: HF_TOKEN, `huggingface-cli login`, or --token.
 
 Examples:
-  tools/hf_upload.py hf_out --repo user/litnicelm-doyle --dry-run
-  tools/hf_upload.py hf_out --repo user/litnicelm-doyle --tb-dir tensorboard/<run_id>
-  tools/hf_upload.py hf_out --repo user/litnicelm-doyle --private
+  tools/hf_upload/hf_upload.py hf_out --repo user/litnicelm-doyle --dry-run
+  tools/hf_upload/hf_upload.py hf_out --repo user/litnicelm-doyle --tb-dir tensorboard/<run_id>
+  tools/hf_upload/hf_upload.py hf_out --repo user/litnicelm-doyle --private
 """
 
 import argparse

@@ -163,11 +163,11 @@ model card); runs on the CPU:
 
 ```bash
 ./build/litnicelm export --config <config.yaml> --out <dir> [--checkpoint <path>]
-tools/verify_export.py <dir>                      # official safetensors reader
-tools/hf_upload.py <dir> --repo user/name [--tb-dir <tensorboard run dir>]
+tools/hf_upload/verify_export.py <dir>            # official safetensors reader
+tools/hf_upload/hf_upload.py <dir> --repo user/name [--tb-dir <tensorboard run dir>]
 ```
 
-The Python tools need `pip install -r tools/requirements.txt`.
+Install the requirements listed beside the Python tool being used.
 
 Train tokenizer artifacts:
 

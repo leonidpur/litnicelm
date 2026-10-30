@@ -20,7 +20,7 @@ Prints one JSON object: tokens/s, per-step milliseconds (median, min, max),
 allocator peak memory.
 
 Example:
-  tools/bench_torch.py --config conf/run.yaml --precision bf16 --steps 214
+  tools/litnicelm_vs_pytorch/bench_torch.py --config conf/run.yaml --precision bf16 --steps 214
 """
 
 import argparse

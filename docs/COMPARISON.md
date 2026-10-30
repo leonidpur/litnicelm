@@ -19,7 +19,8 @@ Config: `conf/local/doyle/doyle_clean_spm512_seq1024_l4_d256_b1_rope_val_cosine_
 
 ## Correctness: same weights, same data, same loss
 
-`tools/reference_torch.py` loads a `litnicelm export` (model.safetensors and
+`tools/litnicelm_vs_pytorch/reference_torch.py` loads a `litnicelm export`
+(model.safetensors and
 config.json) into a PyTorch model written from config.json alone, and
 evaluates it over exactly the validation windows LitniceLM uses (37 batches,
 37,888 tokens), averaging per-batch mean cross-entropy as LitniceLM does.
@@ -35,12 +36,12 @@ FP32 agrees to float32 rounding (tolerance used: 1e-5). The bf16 rows compare
 two different BF16 implementations and are informational.
 
 ```
-tools/reference_torch.py <export dir> --config <config.yaml> --tolerance 1e-5
+tools/litnicelm_vs_pytorch/reference_torch.py <export dir> --config <config.yaml> --tolerance 1e-5
 ```
 
 ## Speed and memory
 
-`tools/bench_compare.py --config <config.yaml> --repeats 3` trains each
+`tools/litnicelm_vs_pytorch/bench_compare.py --config <config.yaml> --repeats 3` trains each
 engine for 214 optimizer steps (876,544 tokens), interleaved, 3 repeats;
 medians shown, tokens/s range in brackets.
 
