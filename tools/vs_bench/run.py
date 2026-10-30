@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Print the plan for the hard-coded LitniceLM comparison specification."""
+"""Run the hard-coded LitniceLM comparison specification."""
 
+from datetime import date
 from pathlib import Path
 
 from .engines.litnicelm import LitniceLMEngine
 from .engines.torch_engine import TorchEngine
-from .report.console import print_plan
+from .measure.process import configure_raw_logs, raw_artifact_path
+from .report.console import print_phase_result, print_phase_start, print_plan
+from .report.json_report import write_json
+from .report.markdown import render_markdown
 from .spec import (
     ComparisonSpec,
     EnvironmentSpec,
@@ -58,13 +62,28 @@ SPEC = ComparisonSpec(
     train_speed=TrainSpeedSettings(steps=300, repeats=3),
 )
 
+RAW_LOG_ROOT = Path("/mnt/ext_ssd/litnicelm/bench")
+
 
 def main() -> None:
-    """Build the comparison objects, print their plan, and exit."""
+    """Explain, execute, and report every configured comparison vertical."""
     engines = (LitniceLMEngine(), TorchEngine())
     verticals = (ParityVertical(), TrainSpeedVertical())
     plans = tuple(vertical.plan(SPEC, engines) for vertical in verticals)
     print_plan(SPEC, plans)
+    raw_log_directory = RAW_LOG_ROOT / date.today().isoformat()
+    configure_raw_logs(raw_log_directory)
+    results_path = raw_artifact_path("results.json")
+    results = []
+    for vertical, plan in zip(verticals, plans, strict=True):
+        print_phase_start(plan)
+        result = vertical.run(SPEC, engines)
+        results.append(result)
+        print_phase_result(result)
+    write_json(results_path, SPEC, results, raw_log_directory)
+    print(f"\nResults JSON: {results_path}")
+    print(f"Raw logs: {raw_log_directory}\n")
+    print(render_markdown(results))
 
 
 if __name__ == "__main__":

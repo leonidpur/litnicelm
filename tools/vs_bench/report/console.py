@@ -3,7 +3,7 @@
 from typing import Sequence
 
 from ..spec import ComparisonSpec
-from ..verticals.base import VerticalPlan
+from ..verticals.base import VerticalPlan, VerticalResult
 
 
 def print_plan(spec: ComparisonSpec, plans: Sequence[VerticalPlan]) -> None:
@@ -33,5 +33,15 @@ def print_plan(spec: ComparisonSpec, plans: Sequence[VerticalPlan]) -> None:
             for action in engine.actions:
                 print(f"    - {action}")
 
-    print("\nPlan only: no commands were executed.")
+    print("\nStarting comparison. Commands appear in green before execution.", flush=True)
+
+
+def print_phase_start(plan: VerticalPlan) -> None:
+    """Announce one vertical immediately before it executes."""
+    print(f"\nRunning [{plan.vertical}]: {plan.purpose}", flush=True)
+
+
+def print_phase_result(result: VerticalResult) -> None:
+    """Print a concise completion line for one vertical."""
+    print(f"Completed [{result.vertical}]: {len(result.engines)} result rows", flush=True)
 

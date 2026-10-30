@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from ..corpus.corpus import CorpusManager, validation_windows, window_batch
-from ..measure.process import run_sampled_process
+from ..measure.process import run_sampled_process, write_process_request
 from ..spec import ComparisonSpec
 from .base import Engine, EngineResult, SpeedVariant
 from .torch_model import load_export
@@ -73,8 +73,14 @@ class TorchEngine(Engine):
                 "benchmark_warmup_steps": NATIVE_SETTINGS["benchmark_warmup_steps"],
             }
         )
-        command = [sys.executable, "-m", "vs_bench.engines.torch_worker"]
-        measured = run_sampled_process(command, REPOSITORY / "tools", request)
+        request_path = write_process_request("pytorch", request)
+        command = [
+            sys.executable,
+            "-m",
+            "vs_bench.engines.torch_worker",
+            str(request_path),
+        ]
+        measured = run_sampled_process(command, REPOSITORY / "tools")
         metrics = json.loads(measured.output.strip().splitlines()[-1])
         metrics.update(
             {

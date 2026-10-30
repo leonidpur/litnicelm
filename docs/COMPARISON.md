@@ -19,11 +19,10 @@ Config: `conf/local/doyle/doyle_clean_spm512_seq1024_l4_d256_b1_rope_val_cosine_
 
 ## Correctness: same weights, same data, same loss
 
-`tools/litnicelm_vs_pytorch/reference_torch.py` loads a `litnicelm export`
-(model.safetensors and
-config.json) into a PyTorch model written from config.json alone, and
-evaluates it over exactly the validation windows LitniceLM uses (37 batches,
-37,888 tokens), averaging per-batch mean cross-entropy as LitniceLM does.
+The `vs_bench` parity vertical loads a `litnicelm export` (`model.safetensors`
+and `config.json`) into a PyTorch model written from `config.json` alone. It
+evaluates exactly the validation windows LitniceLM uses (37 batches, 37,888
+tokens), averaging per-batch mean cross-entropy as LitniceLM does.
 
 | checkpoint | evaluated as | PyTorch | LitniceLM | difference |
 |---|---|---|---|---|
@@ -32,18 +31,33 @@ evaluates it over exactly the validation windows LitniceLM uses (37 batches,
 | RoPE, trained bf16_mixed | bf16 autocast | 2.4286395 | 2.4287624 | 1.2e-4 |
 | learned, trained bf16_mixed | bf16 autocast | 3.5783493 | 3.5783910 | 4.2e-5 |
 
-FP32 agrees to float32 rounding (tolerance used: 1e-5). The bf16 rows compare
-two different BF16 implementations and are informational.
+The currently configured `vs_bench` run reproduces the RoPE FP32 row: its
+measured difference is 1.35e-8 with a tolerance of 1e-5. The learned-position
+and BF16 rows predate the standalone runner and remain historical until they
+are represented as explicit parity settings. The BF16 rows compare two
+different BF16 implementations and are informational.
 
+```bash
+cd tools
+../.venv/bin/python -m vs_bench
 ```
-tools/litnicelm_vs_pytorch/reference_torch.py <export dir> --config <config.yaml> --tolerance 1e-5
-```
+
+The corpus, export directory, tolerance, and all other conditions are the
+hard-coded `SPEC` in `tools/vs_bench/run.py`; there is intentionally no CLI.
 
 ## Speed and memory
 
-`tools/litnicelm_vs_pytorch/bench_compare.py --config <config.yaml> --repeats 3` trains each
-engine for 214 optimizer steps (876,544 tokens), interleaved, 3 repeats;
-medians shown, tokens/s range in brackets.
+The same `vs_bench` command runs each engine in isolated, GPU-sampled
+subprocesses. It writes raw child logs outside the repository under
+`/mnt/ext_ssd/litnicelm/bench/<date>/`, together with compact results,
+environment metadata, and the request file named by every rerunnable PyTorch
+worker command. It does not overwrite the historical result JSON under
+`docs/`.
+
+The table below records an earlier unlocked-clock run and is retained for
+historical comparison. It is not a current speed claim. Publication results
+will replace it only after the locked-clock and differential-timing checks are
+complete.
 
 | engine | precision | loss read | tokens/s | tokens/s per GHz | process peak (MiB) | engine memory (MiB) | SM clock (MHz) |
 |---|---|---|---|---|---|---|---|
@@ -72,18 +86,26 @@ bf16), `torch.optim.AdamW(fused=True)`, `clip_grad_norm_`, TF32 off,
 cuBLAS SGEMM (fp32) or GemmEx BF16 with FP32 accumulation (bf16_mixed),
 attention unfused (per-head GEMMs and softmax kernels).
 
-## Where LitniceLM is behind
+## Historical observations pending re-verification
 
-- **Memory**: 1.6× PyTorch at process level (538 vs 330 MiB in fp32). The
+- **Memory in the earlier run**: 1.6× PyTorch at process level (538 vs 330 MiB
+  in fp32). The
   temp arena keeps every layer's activations and work buffers, including
   transpose buffers that are never used.
-- **fp32 speed**: on par with PyTorch reading the loss every batch, about 10%
+- **FP32 speed in the earlier run**: on par with PyTorch reading the loss every
+  batch, about 10%
   behind PyTorch reading it at the end. LitniceLM reads every batch's loss on
   the host, which synchronizes the GPU; in PyTorch that read costs about 12%
   in fp32 at this size.
-- **Attention** is unfused and launched per head; PyTorch uses fused kernels.
+- **Implementation difference**: attention is unfused and launched per head;
+  PyTorch uses fused kernels.
 
-In bf16, LitniceLM is ahead (about 1.6× per GHz): at d_model 256 PyTorch's
-eager autocast pays per-op casting and launch overhead that outweighs its
-tensor-core gains (its bf16 is slower than its fp32 here). This is one small
-model; larger models will shift the balance toward GEMM throughput.
+The earlier BF16 run showed LitniceLM ahead by about 1.6× per GHz. That result
+is not a current claim: it used an unlocked clock and one small model. The
+final comparison must establish it again under the locked-clock protocol.
+
+## Tool status
+
+`tools/vs_bench/` is the maintained comparison workflow. The earlier scripts
+under `tools/litnicelm_vs_pytorch/` are retained temporarily as historical
+verification material; they are not the documented reproduction path.

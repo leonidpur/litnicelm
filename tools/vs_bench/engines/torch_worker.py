@@ -1,7 +1,8 @@
-"""Fresh-process PyTorch training worker; reads one JSON request from stdin."""
+"""Fresh-process PyTorch training worker; reads one JSON request file."""
 
 import json
 import math
+from pathlib import Path
 import sys
 import time
 
@@ -151,8 +152,10 @@ def train(request: dict[str, object]) -> dict[str, object]:
 
 
 def main() -> None:
-    """Read one request, train once, and emit one JSON result."""
-    request = json.load(sys.stdin)
+    """Read one persistent request file, train once, and emit one JSON result."""
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: python -m vs_bench.engines.torch_worker <request.json>")
+    request = json.loads(Path(sys.argv[1]).read_text())
     print(json.dumps(train(request)))
 
 
