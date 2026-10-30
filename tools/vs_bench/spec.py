@@ -17,6 +17,7 @@ class ComparisonSpec:
     n_heads: int
     d_model: int
     d_ff: int
+    position_encoding: str
     corpus_id: str
     tokenized_corpus_path: Path
     export_dir: Path

@@ -16,6 +16,7 @@ SPEC = ComparisonSpec(
     n_heads=4,
     d_model=256,
     d_ff=1024,
+    position_encoding="rope",
     corpus_id="conan-doyle-clean-spm512",
     tokenized_corpus_path=Path(
         "/mnt/ext_ssd/litnicelm/data/conan-doyle-clean-spm512_tokenized_dataset.bin"
