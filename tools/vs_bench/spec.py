@@ -1,6 +1,7 @@
 """Engine-neutral specification for a comparison run."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -17,8 +18,11 @@ class ComparisonSpec:
     d_model: int
     d_ff: int
     corpus_id: str
+    tokenized_corpus_path: Path
     seq_len: int
     batch_size: int
+    validation_fraction: float
+    validation_chunk_tokens: int
     accumulation_steps: int
     steps: int
     precisions: tuple[str, ...]
