@@ -71,6 +71,13 @@ def validation_windows(num_tokens: int, spec: ComparisonSpec) -> list[int]:
     return starts[: len(starts) // spec.batch_size * spec.batch_size]
 
 
+def training_windows(num_tokens: int, spec: ComparisonSpec) -> NDArray[np.int64]:
+    """Reproduce the old benchmark's seeded shuffled training starts."""
+    starts = np.arange(0, num_tokens - spec.seq_len - 1, spec.window_stride)
+    np.random.default_rng(spec.seed).shuffle(starts)
+    return starts
+
+
 def window_batch(
     tokens: NDArray[np.int64], starts: list[int], spec: ComparisonSpec
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:

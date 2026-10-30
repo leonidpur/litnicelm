@@ -2,7 +2,7 @@
 
 from typing import Sequence
 
-from ..engines.base import Engine
+from ..engines.base import Engine, EngineResult
 from ..spec import ComparisonSpec
 from .base import EnginePlan, Vertical, VerticalPlan, VerticalResult
 
@@ -20,8 +20,8 @@ class TrainSpeedVertical(Vertical):
                 engine=engine.name,
                 actions=engine.describe_setup(spec)
                 + (
-                    f"run {spec.steps} optimizer steps, repeated {spec.repeats} times",
-                    "measure external differential time, engine time, and GPU memory",
+                    f"run each supported speed variant, repeated {spec.repeats} times",
+                    "launch every row in a fresh sampled subprocess",
                 ),
             )
             for engine in engines
@@ -33,5 +33,25 @@ class TrainSpeedVertical(Vertical):
         )
 
     def run(self, spec: ComparisonSpec, engines: Sequence[Engine]) -> VerticalResult:
-        raise NotImplementedError("training execution is not part of skeleton step 1")
+        sources = tuple(engine for engine in engines if engine.determines_step_count)
+        peers = tuple(engine for engine in engines if not engine.determines_step_count)
+        if not sources:
+            raise ValueError("training speed requires an engine that determines measured steps")
+        results = []
+        for repeat in range(1, spec.repeats + 1):
+            measured_steps = spec.steps
+            for engine in sources + peers:
+                for variant in engine.speed_variants(spec):
+                    result = engine.run_speed(spec, variant, measured_steps)
+                    metrics = {**result.metrics, "repeat": repeat}
+                    results.append(
+                        EngineResult(
+                            engine=result.engine,
+                            operation=result.operation,
+                            metrics=metrics,
+                        )
+                    )
+                    if engine.determines_step_count:
+                        measured_steps = int(metrics["steps"])
+        return VerticalResult(vertical=self.name, engines=tuple(results))
 

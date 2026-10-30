@@ -122,6 +122,18 @@ class LitniceLM(nn.Module):
             hidden = block(hidden, rope)
         return F.linear(self.ln_f(hidden), self.lm_head)
 
+    def init_weights(self, seed: int = 0) -> None:
+        """Initialize benchmark weights exactly as the old reference does."""
+        generator = torch.Generator().manual_seed(seed)
+        with torch.no_grad():
+            for name, parameter in self.named_parameters():
+                if name.endswith(("ln_1.weight", "ln_2.weight", "ln_f.weight")):
+                    parameter.fill_(1.0)
+                elif name.endswith(("_b", ".bias")):
+                    parameter.zero_()
+                else:
+                    parameter.copy_(torch.randn(parameter.shape, generator=generator) * 0.02)
+
     def export_names(self) -> dict[str, str]:
         """Map Safetensors names to this module's parameter names."""
         names = {

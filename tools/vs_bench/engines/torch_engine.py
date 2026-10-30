@@ -1,13 +1,34 @@
 """PyTorch adapter for exported-model evaluation."""
 
+import json
+from pathlib import Path
+from types import MappingProxyType
+import sys
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 
 from ..corpus.corpus import CorpusManager, validation_windows, window_batch
+from ..measure.process import run_sampled_process
 from ..spec import ComparisonSpec
-from .base import Engine, EngineResult
+from .base import Engine, EngineResult, SpeedVariant
 from .torch_model import load_export
+
+
+REPOSITORY = Path(__file__).resolve().parents[3]
+NATIVE_SETTINGS = MappingProxyType(
+    {
+        "device": "cuda",
+        "attention": "torch.nn.functional.scaled_dot_product_attention",
+        "optimizer": "torch.optim.AdamW(fused=True)",
+        "mixed_precision": "torch.autocast(bfloat16)",
+        "master_weights": "fp32",
+        "matmul_tf32": False,
+        "benchmark_warmup_steps": 5,
+        "worker": "python -m vs_bench.engines.torch_worker",
+    }
+)
 
 
 class TorchEngine(Engine):
@@ -24,14 +45,45 @@ class TorchEngine(Engine):
 
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
         precisions = (self._native_precision(value) for value in spec.precisions)
+        settings = tuple(f"native setting {key}: {value}" for key, value in NATIVE_SETTINGS.items())
         return (
             "construct an equivalent PyTorch model and optimizer from the shared spec",
             "use the same corpus windows and optimizer-step count",
             f"translate shared precisions: {', '.join(precisions)}",
-        )
+        ) + settings
 
     def supports(self, operation: str) -> bool:
-        return operation == "parity"
+        return operation in {"parity", "train_speed"}
+
+    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
+        return tuple(
+            SpeedVariant(precision, loss_read)
+            for precision in spec.precisions
+            for loss_read in ("per_batch", "end")
+        )
+
+    def run_speed(
+        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+    ) -> EngineResult:
+        request = json.dumps(
+            {
+                "precision": variant.precision,
+                "loss_read": variant.loss_read,
+                "steps": steps,
+                "benchmark_warmup_steps": NATIVE_SETTINGS["benchmark_warmup_steps"],
+            }
+        )
+        command = [sys.executable, "-m", "vs_bench.engines.torch_worker"]
+        measured = run_sampled_process(command, REPOSITORY / "tools", request)
+        metrics = json.loads(measured.output.strip().splitlines()[-1])
+        metrics.update(
+            {
+                "process_wall_seconds": measured.wall_seconds,
+                "process_peak_mib": measured.gpu.process_peak_mib,
+                "sm_clock_mhz": measured.gpu.mean_clock_mhz,
+            }
+        )
+        return EngineResult(engine=self.name, operation="train_speed", metrics=metrics)
 
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
         if operation != "parity":
