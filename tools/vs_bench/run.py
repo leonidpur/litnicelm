@@ -20,6 +20,12 @@ SPEC = ComparisonSpec(
     tokenized_corpus_path=Path(
         "/mnt/ext_ssd/litnicelm/data/conan-doyle-clean-spm512_tokenized_dataset.bin"
     ),
+    export_dir=Path(
+        "/mnt/ext_ssd/litnicelm/doyle/exports/"
+        "doyle_clean_spm512_seq1024_l4_d256_b1_rope_val_cosine_e12_accum4_fp32"
+    ),
+    parity_precision="fp32",
+    parity_tolerance=1e-5,
     seq_len=1024,
     batch_size=1,
     validation_fraction=0.1,

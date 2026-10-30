@@ -19,6 +19,9 @@ class ComparisonSpec:
     d_ff: int
     corpus_id: str
     tokenized_corpus_path: Path
+    export_dir: Path
+    parity_precision: str
+    parity_tolerance: float
     seq_len: int
     batch_size: int
     validation_fraction: float

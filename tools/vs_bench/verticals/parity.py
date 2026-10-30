@@ -1,8 +1,9 @@
 """Numerical-parity vertical skeleton."""
 
+import re
 from typing import Sequence
 
-from ..engines.base import Engine
+from ..engines.base import Engine, EngineResult
 from ..spec import ComparisonSpec
 from .base import EnginePlan, Vertical, VerticalPlan, VerticalResult
 
@@ -14,17 +15,26 @@ class ParityVertical(Vertical):
     def name(self) -> str:
         return "parity"
 
+    @staticmethod
+    def _card_validation_loss(spec: ComparisonSpec) -> float | None:
+        """Read LitniceLM's best validation loss from the export model card."""
+        card = (spec.export_dir / "README.md").read_text()
+        match = re.search(r"\| best val loss \| ([0-9.eE+-]+)", card)
+        return float(match.group(1)) if match else None
+
     def plan(self, spec: ComparisonSpec, engines: Sequence[Engine]) -> VerticalPlan:
+        supported = tuple(engine for engine in engines if engine.supports(self.name))
         plans = tuple(
             EnginePlan(
                 engine=engine.name,
                 actions=engine.describe_setup(spec)
                 + (
-                    "load identical exported weights",
-                    "evaluate identical corpus windows and report loss differences",
+                    f"load existing export: {spec.export_dir}",
+                    f"evaluate identical corpus windows as {spec.parity_precision}",
+                    f"compare validation loss with tolerance {spec.parity_tolerance:g}",
                 ),
             )
-            for engine in engines
+            for engine in supported
         )
         return VerticalPlan(
             vertical=self.name,
@@ -33,5 +43,28 @@ class ParityVertical(Vertical):
         )
 
     def run(self, spec: ComparisonSpec, engines: Sequence[Engine]) -> VerticalResult:
-        raise NotImplementedError("parity execution is not part of skeleton step 1")
+        reference = self._card_validation_loss(spec)
+        if reference is None:
+            raise ValueError(f"no best validation loss in {spec.export_dir / 'README.md'}")
+        results = []
+        for engine in engines:
+            if not engine.supports(self.name):
+                continue
+            result = engine.run(spec, self.name)
+            metrics = dict(result.metrics)
+            difference = abs(float(metrics["loss"]) - reference)
+            metrics.update(
+                {
+                    "reference_loss": reference,
+                    "difference": difference,
+                    "tolerance": spec.parity_tolerance,
+                    "passed": difference <= spec.parity_tolerance,
+                }
+            )
+            results.append(
+                EngineResult(engine=result.engine, operation=result.operation, metrics=metrics)
+            )
+        if not results:
+            raise ValueError("no engine supports the parity vertical")
+        return VerticalResult(vertical=self.name, engines=tuple(results))
 

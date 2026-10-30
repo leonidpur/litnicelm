@@ -12,7 +12,7 @@ class EngineResult:
 
     engine: str
     operation: str
-    metrics: dict[str, int | float | str]
+    metrics: dict[str, bool | int | float | str]
 
 
 class Engine(ABC):
@@ -26,6 +26,10 @@ class Engine(ABC):
     @abstractmethod
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
         """Describe how this engine will realize the shared specification."""
+
+    def supports(self, operation: str) -> bool:
+        """Return whether this adapter implements the named vertical operation."""
+        return False
 
     @abstractmethod
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
