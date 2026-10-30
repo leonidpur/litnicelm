@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Print the plan for the hard-coded LitniceLM comparison specification."""
 
-from engines.litnicelm import LitniceLMEngine
-from engines.torch import TorchEngine
-from report.console import print_plan
-from spec import ComparisonSpec
-from verticals.parity import ParityVertical
-from verticals.train_speed import TrainSpeedVertical
+from .engines.litnicelm import LitniceLMEngine
+from .engines.torch_engine import TorchEngine
+from .report.console import print_plan
+from .spec import ComparisonSpec
+from .verticals.parity import ParityVertical
+from .verticals.train_speed import TrainSpeedVertical
 
 
 SPEC = ComparisonSpec(

@@ -1,7 +1,7 @@
 """LitniceLM adapter skeleton."""
 
-from engines.base import Engine, EngineResult
-from spec import ComparisonSpec
+from ..spec import ComparisonSpec
+from .base import Engine, EngineResult
 
 
 class LitniceLMEngine(Engine):

@@ -2,9 +2,9 @@
 
 from typing import Sequence
 
-from engines.base import Engine
-from spec import ComparisonSpec
-from verticals.base import EnginePlan, Vertical, VerticalPlan, VerticalResult
+from ..engines.base import Engine
+from ..spec import ComparisonSpec
+from .base import EnginePlan, Vertical, VerticalPlan, VerticalResult
 
 
 class ParityVertical(Vertical):

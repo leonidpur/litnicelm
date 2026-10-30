@@ -2,7 +2,7 @@
 
 from typing import Sequence
 
-from verticals.base import VerticalResult
+from ..verticals.base import VerticalResult
 
 
 def render_markdown(results: Sequence[VerticalResult]) -> str:

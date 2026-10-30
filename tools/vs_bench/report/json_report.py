@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Sequence
 
-from verticals.base import VerticalResult
+from ..verticals.base import VerticalResult
 
 
 def write_json(path: Path, results: Sequence[VerticalResult]) -> None:

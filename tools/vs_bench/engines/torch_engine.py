@@ -1,7 +1,7 @@
 """PyTorch adapter skeleton with no PyTorch dependency yet."""
 
-from engines.base import Engine, EngineResult
-from spec import ComparisonSpec
+from ..spec import ComparisonSpec
+from .base import Engine, EngineResult
 
 
 class TorchEngine(Engine):

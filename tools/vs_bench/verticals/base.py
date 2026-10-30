@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Sequence
 
-from engines.base import Engine, EngineResult
-from spec import ComparisonSpec
+from ..engines.base import Engine, EngineResult
+from ..spec import ComparisonSpec
 
 
 @dataclass(frozen=True)

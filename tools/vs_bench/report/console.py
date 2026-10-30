@@ -2,8 +2,8 @@
 
 from typing import Sequence
 
-from spec import ComparisonSpec
-from verticals.base import VerticalPlan
+from ..spec import ComparisonSpec
+from ..verticals.base import VerticalPlan
 
 
 def print_plan(spec: ComparisonSpec, plans: Sequence[VerticalPlan]) -> None:
