@@ -66,6 +66,7 @@ class TrainSpeedSettings:
 
     steps: int
     repeats: int
+    differential_epochs: tuple[int, int]
 
 
 @dataclass(frozen=True)

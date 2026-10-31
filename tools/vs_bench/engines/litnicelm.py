@@ -128,6 +128,32 @@ class LitniceLMEngine(Engine):
         del steps  # The unchanged LitniceLM path is epoch-driven.
         return self.train(spec, variant.precision)
 
+    def run_differential(
+        self,
+        spec: ComparisonSpec,
+        variant: SpeedVariant,
+        step_counts: tuple[int, int] | None,
+    ) -> tuple[EngineResult, EngineResult]:
+        """Measure two checkpoint-free, validation-free whole-epoch runs."""
+        del step_counts
+        low, high = spec.train_speed.differential_epochs
+        return (
+            self.train(
+                spec,
+                variant.precision,
+                epochs=low,
+                operation="dry_run",
+                validation_fraction=0.0,
+            ),
+            self.train(
+                spec,
+                variant.precision,
+                epochs=high,
+                operation="dry_run",
+                validation_fraction=0.0,
+            ),
+        )
+
     def describe_setup(self, spec: ComparisonSpec) -> tuple[str, ...]:
         precisions = (self._native_precision(value) for value in spec.workload.precisions)
         native = tuple(f"native config {key}: {value}" for key, value in NATIVE_CONFIG.items())
@@ -148,7 +174,13 @@ class LitniceLMEngine(Engine):
     def base_config(self) -> Path:
         return REPOSITORY / str(ADAPTER_PARAMS["base_config"])
 
-    def config_text(self, spec: ComparisonSpec, precision: str, workdir: Path) -> str:
+    def config_text(
+        self,
+        spec: ComparisonSpec,
+        precision: str,
+        workdir: Path,
+        validation_fraction: float | None = None,
+    ) -> str:
         """Translate the shared spec and native settings into LitniceLM YAML."""
         text = self.base_config.read_text()
         workload = spec.workload
@@ -179,6 +211,10 @@ class LitniceLMEngine(Engine):
         text = _set_key(text, None, "precision", self._native_precision(precision))
         for section, key, value in shared_values:
             text = _set_key(text, section, key, value)
+        if validation_fraction is not None:
+            text = _set_key(
+                text, "training", "validation_fraction", validation_fraction
+            )
         for dotted, value in NATIVE_CONFIG.items():
             if dotted == "training.diagnostics":
                 text = _disable_diagnostics(text)
@@ -194,10 +230,18 @@ class LitniceLMEngine(Engine):
             text = _set_key(text, "paths", key, value)
         return text
 
-    def write_config(self, spec: ComparisonSpec, precision: str, workdir: Path) -> Path:
+    def write_config(
+        self,
+        spec: ComparisonSpec,
+        precision: str,
+        workdir: Path,
+        validation_fraction: float | None = None,
+    ) -> Path:
         """Write one temporary native configuration and return its path."""
         path = workdir / f"litnicelm_{self._native_precision(precision)}.yaml"
-        path.write_text(self.config_text(spec, precision, workdir))
+        path.write_text(
+            self.config_text(spec, precision, workdir, validation_fraction)
+        )
         return path
 
     def parse_training_output(
@@ -231,17 +275,26 @@ class LitniceLMEngine(Engine):
             },
         )
 
-    def train(self, spec: ComparisonSpec, precision: str) -> EngineResult:
+    def train(
+        self,
+        spec: ComparisonSpec,
+        precision: str,
+        epochs: int | None = None,
+        operation: str = "train",
+        validation_fraction: float | None = None,
+    ) -> EngineResult:
         """Run the old epoch-driven LitniceLM benchmark path once."""
         with tempfile.TemporaryDirectory(prefix="litnicelm_vs_bench_") as temporary:
-            config = self.write_config(spec, precision, Path(temporary))
+            config = self.write_config(
+                spec, precision, Path(temporary), validation_fraction
+            )
             command = [
                 str(self.binary),
-                "train",
+                operation,
                 "--config",
                 str(config),
                 "--epochs",
-                str(ADAPTER_PARAMS["benchmark.epochs"]),
+                str(epochs or ADAPTER_PARAMS["benchmark.epochs"]),
             ]
             measured = run_sampled_process(command, REPOSITORY)
             result = self.parse_training_output(spec, precision, measured.output)
@@ -253,6 +306,9 @@ class LitniceLMEngine(Engine):
                     "process_wall_seconds": measured.wall_seconds,
                     "process_peak_mib": measured.gpu.process_peak_mib,
                     "sm_clock_mhz": measured.gpu.mean_clock_mhz,
+                    "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
+                    "validation_enabled": validation_fraction != 0.0,
+                    "checkpointing_enabled": operation != "dry_run",
                 },
             )
 

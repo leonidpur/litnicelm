@@ -60,7 +60,7 @@ SPEC = ComparisonSpec(
         precision="fp32",
         tolerance=1e-5,
     ),
-    train_speed=TrainSpeedSettings(steps=300, repeats=3),
+    train_speed=TrainSpeedSettings(steps=300, repeats=3, differential_epochs=(1, 3)),
 )
 
 RAW_LOG_ROOT = Path("/mnt/ext_ssd/litnicelm/bench")

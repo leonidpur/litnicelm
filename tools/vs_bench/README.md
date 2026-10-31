@@ -23,3 +23,8 @@ environment metadata, and PyTorch worker request JSON files are written there
 as well. Each green PyTorch command names its request file and can be rerun
 directly. The runner does not overwrite files under `docs/`.
 
+Whole-process timing is differential: LitniceLM runs one and three complete
+epochs with validation and checkpointing disabled, and PyTorch runs the exact
+optimizer-step counts observed at those endpoints. Startup and teardown cost
+cancel in `(T3 - T1) / (steps3 - steps1)`.
+

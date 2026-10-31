@@ -54,6 +54,19 @@ class Engine(ABC):
         """Run one isolated training-speed variant."""
         raise NotImplementedError(f"{self.name} does not implement training speed")
 
+    def run_differential(
+        self,
+        spec: ComparisonSpec,
+        variant: SpeedVariant,
+        step_counts: tuple[int, int] | None,
+    ) -> tuple[EngineResult, EngineResult]:
+        """Run the two whole-process endpoints used for differential timing."""
+        if step_counts is None:
+            raise ValueError(f"{self.name} requires explicit differential step counts")
+        return tuple(
+            self.run_speed(spec, variant, steps) for steps in step_counts
+        )  # type: ignore[return-value]
+
     @abstractmethod
     def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
         """Execute one vertical operation and return structured measurements."""

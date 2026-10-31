@@ -22,6 +22,7 @@ class TrainSpeedVertical(Vertical):
                 + (
                     f"run each supported speed variant, repeated {spec.train_speed.repeats} times",
                     "launch every row in a fresh sampled subprocess",
+                    "derive whole-process timing from the difference between two run lengths",
                 ),
             )
             for engine in engines
@@ -40,10 +41,23 @@ class TrainSpeedVertical(Vertical):
         results = []
         for repeat in range(1, spec.train_speed.repeats + 1):
             measured_steps = spec.train_speed.steps
-            for engine in sources + peers:
+            differential_steps: dict[str, tuple[int, int]] = {}
+            for engine in sources:
                 for variant in engine.speed_variants(spec):
                     result = engine.run_speed(spec, variant, measured_steps)
-                    metrics = {**result.metrics, "repeat": repeat}
+                    endpoints = engine.run_differential(spec, variant, None)
+                    steps = tuple(int(endpoint.metrics["steps"]) for endpoint in endpoints)
+                    previous = differential_steps.setdefault(variant.precision, steps)
+                    if previous != steps:
+                        raise ValueError(
+                            f"differential step counts disagree for {variant.precision}: "
+                            f"{previous} vs {steps}"
+                        )
+                    metrics = {
+                        **result.metrics,
+                        **self._differential_metrics(endpoints),
+                        "repeat": repeat,
+                    }
                     results.append(
                         EngineResult(
                             engine=result.engine,
@@ -51,7 +65,50 @@ class TrainSpeedVertical(Vertical):
                             metrics=metrics,
                         )
                     )
-                    if engine.determines_step_count:
-                        measured_steps = int(metrics["steps"])
+                    measured_steps = int(metrics["steps"])
+            for engine in peers:
+                for variant in engine.speed_variants(spec):
+                    result = engine.run_speed(spec, variant, measured_steps)
+                    endpoints = engine.run_differential(
+                        spec, variant, differential_steps[variant.precision]
+                    )
+                    metrics = {
+                        **result.metrics,
+                        **self._differential_metrics(endpoints),
+                        "repeat": repeat,
+                    }
+                    results.append(
+                        EngineResult(
+                            engine=result.engine,
+                            operation=result.operation,
+                            metrics=metrics,
+                        )
+                    )
         return VerticalResult(vertical=self.name, engines=tuple(results))
+
+    @staticmethod
+    def _differential_metrics(
+        endpoints: tuple[EngineResult, EngineResult],
+    ) -> dict[str, int | float]:
+        low, high = endpoints
+        low_steps = int(low.metrics["steps"])
+        high_steps = int(high.metrics["steps"])
+        step_delta = high_steps - low_steps
+        wall_delta = float(high.metrics["process_wall_seconds"]) - float(
+            low.metrics["process_wall_seconds"]
+        )
+        if step_delta <= 0 or wall_delta <= 0:
+            raise ValueError(
+                f"invalid differential endpoints: steps {low_steps}/{high_steps}, "
+                f"wall {low.metrics['process_wall_seconds']}/{high.metrics['process_wall_seconds']}"
+            )
+        tokens_per_step = int(low.metrics["tokens_per_step"])
+        return {
+            "differential_low_steps": low_steps,
+            "differential_high_steps": high_steps,
+            "differential_low_wall_seconds": float(low.metrics["process_wall_seconds"]),
+            "differential_high_wall_seconds": float(high.metrics["process_wall_seconds"]),
+            "differential_step_ms": 1000 * wall_delta / step_delta,
+            "differential_tokens_per_s": tokens_per_step * step_delta / wall_delta,
+        }
 

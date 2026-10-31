@@ -34,8 +34,8 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
             lines = [
                 "## Training speed",
                 "",
-                "| engine | precision | loss read | tokens/s | tokens/s per GHz | step (ms) | process peak (MiB) | engine memory (MiB) | SM clock (MHz) |",
-                "|---|---|---|---:|---:|---:|---:|---:|---:|",
+                "| engine | precision | loss read | profiler tokens/s | process wall (s) | differential tokens/s | differential step (ms) | process peak (MiB) | engine memory (MiB) | SM clock (MHz) |",
+                "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
             ]
             for (engine, precision, sync), rows in groups.items():
                 median = lambda key: statistics.median(float(row[key]) for row in rows)
@@ -46,14 +46,12 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                     if all(isinstance(value, (int, float)) for value in engine_memory)
                     else "unknown"
                 )
-                per_ghz = statistics.median(
-                    float(row["tokens_per_s"]) / float(row["sm_clock_mhz"]) * 1000
-                    for row in rows
-                )
                 lines.append(
                     f"| {engine} | {precision} | {sync} | {median('tokens_per_s'):,.0f} "
                     f"({min(throughputs):,.0f}–{max(throughputs):,.0f}) | "
-                    f"{per_ghz:,.0f} | {median('step_ms_mean'):.1f} | "
+                    f"{median('process_wall_seconds'):.2f} | "
+                    f"{median('differential_tokens_per_s'):,.0f} | "
+                    f"{median('differential_step_ms'):.1f} | "
                     f"{median('process_peak_mib'):.0f} | "
                     f"{memory} | {median('sm_clock_mhz'):.0f} |"
                 )
