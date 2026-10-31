@@ -41,50 +41,53 @@ class TrainSpeedVertical(Vertical):
             raise ValueError("training speed requires an engine that determines measured steps")
         results = []
         for repeat in range(1, spec.train_speed.repeats + 1):
-            measured_steps = spec.train_speed.steps
-            differential_steps: dict[str, tuple[int, int]] = {}
-            for engine in sources:
-                for variant in engine.speed_variants(spec):
-                    result = engine.run_speed(spec, variant, measured_steps)
-                    endpoints = engine.run_differential(spec, variant, None)
-                    steps = tuple(int(endpoint.metrics["steps"]) for endpoint in endpoints)
-                    previous = differential_steps.setdefault(variant.precision, steps)
-                    if previous != steps:
-                        raise ValueError(
-                            f"differential step counts disagree for {variant.precision}: "
-                            f"{previous} vs {steps}"
+            for precision in spec.workload.precisions:
+                measured_steps = spec.train_speed.steps
+                differential_steps: tuple[int, int] | None = None
+                for engine in sources:
+                    for variant in engine.variants(spec, self.name, precision):
+                        result = engine.run_speed(spec, variant, measured_steps)
+                        endpoints = engine.run_differential(spec, variant, None)
+                        steps = tuple(int(endpoint.metrics["steps"]) for endpoint in endpoints)
+                        if differential_steps is not None and differential_steps != steps:
+                            raise ValueError(
+                                f"differential step counts disagree for {precision}: "
+                                f"{differential_steps} vs {steps}"
+                            )
+                        differential_steps = steps
+                        metrics = {
+                            **result.metrics,
+                            **self._differential_metrics(endpoints),
+                            "repeat": repeat,
+                        }
+                        results.append(
+                            EngineResult(
+                                engine=result.engine,
+                                operation=result.operation,
+                                metrics=metrics,
+                            )
                         )
-                    metrics = {
-                        **result.metrics,
-                        **self._differential_metrics(endpoints),
-                        "repeat": repeat,
-                    }
-                    results.append(
-                        EngineResult(
-                            engine=result.engine,
-                            operation=result.operation,
-                            metrics=metrics,
+                        measured_steps = int(metrics["steps"])
+                if differential_steps is None:
+                    raise ValueError(f"no differential source for precision {precision}")
+                for engine in peers:
+                    for variant in engine.variants(spec, self.name, precision):
+                        result = engine.run_speed(spec, variant, measured_steps)
+                        endpoints = engine.run_differential(
+                            spec, variant, differential_steps
                         )
-                    )
-                    measured_steps = int(metrics["steps"])
-            for engine in peers:
-                for variant in engine.speed_variants(spec):
-                    result = engine.run_speed(spec, variant, measured_steps)
-                    endpoints = engine.run_differential(
-                        spec, variant, differential_steps[variant.precision]
-                    )
-                    metrics = {
-                        **result.metrics,
-                        **self._differential_metrics(endpoints),
-                        "repeat": repeat,
-                    }
-                    results.append(
-                        EngineResult(
-                            engine=result.engine,
-                            operation=result.operation,
-                            metrics=metrics,
+                        metrics = {
+                            **result.metrics,
+                            **self._differential_metrics(endpoints),
+                            "repeat": repeat,
+                        }
+                        results.append(
+                            EngineResult(
+                                engine=result.engine,
+                                operation=result.operation,
+                                metrics=metrics,
+                            )
                         )
-                    )
         return VerticalResult(
             vertical=self.name,
             engines=self._check_equivalence(spec, sources, tuple(results)),

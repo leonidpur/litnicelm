@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from ..corpus.corpus import CorpusManager, validation_windows, window_batch
 from ..measure.process import run_sampled_process, write_process_request
 from ..spec import ComparisonSpec
-from .base import Engine, EngineResult, SpeedVariant
+from .base import Engine, EngineResult, EngineVariant
 from .torch_model import load_export
 
 
@@ -26,6 +26,7 @@ NATIVE_SETTINGS = MappingProxyType(
         "master_weights": "fp32",
         "matmul_tf32": False,
         "benchmark_warmup_steps": 5,
+        "compile_modes": "none, compiled (end loss read only)",
         "worker": "python -m vs_bench.engines.torch_worker",
     }
 )
@@ -55,15 +56,22 @@ class TorchEngine(Engine):
     def supports(self, operation: str) -> bool:
         return operation in {"parity", "train_speed"}
 
-    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
-        return tuple(
-            SpeedVariant(precision, loss_read)
-            for precision in spec.workload.precisions
-            for loss_read in ("per_batch", "end")
-        )
+    def variants(
+        self, spec: ComparisonSpec, vertical: str, precision: str
+    ) -> tuple[EngineVariant, ...]:
+        del spec
+        if vertical == "parity":
+            return (EngineVariant(precision, "end", "none"),)
+        if vertical == "train_speed":
+            return (
+                EngineVariant(precision, "per_batch", "none"),
+                EngineVariant(precision, "end", "none"),
+                EngineVariant(precision, "end", "compiled"),
+            )
+        return ()
 
     def run_speed(
-        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+        self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
         request = json.dumps(
             {
@@ -71,6 +79,7 @@ class TorchEngine(Engine):
                 "loss_read": variant.loss_read,
                 "steps": steps,
                 "benchmark_warmup_steps": NATIVE_SETTINGS["benchmark_warmup_steps"],
+                "compile_mode": variant.compile_mode,
             }
         )
         request_path = write_process_request("pytorch", request)
@@ -91,22 +100,28 @@ class TorchEngine(Engine):
         )
         return EngineResult(engine=self.name, operation="train_speed", metrics=metrics)
 
-    def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
+    def run(
+        self, spec: ComparisonSpec, operation: str, variant: EngineVariant | None = None
+    ) -> EngineResult:
         if operation != "parity":
             raise NotImplementedError(f"PyTorch operation is not implemented: {operation}")
-        return self._evaluate_export(spec)
+        if variant is None:
+            raise ValueError("PyTorch parity requires an engine variant")
+        return self._evaluate_export(spec, variant)
 
     @staticmethod
     def _autocast_dtype(precision: str) -> torch.dtype | None:
         """Translate the shared precision to PyTorch's autocast dtype."""
         return {"fp32": None, "bf16": torch.bfloat16}[precision]
 
-    def _evaluate_export(self, spec: ComparisonSpec) -> EngineResult:
+    def _evaluate_export(
+        self, spec: ComparisonSpec, variant: EngineVariant
+    ) -> EngineResult:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model, config = load_export(spec.parity.export_dir, device)
         corpus = CorpusManager().load(spec)
         starts = validation_windows(len(corpus.tokens), spec)
-        autocast_dtype = self._autocast_dtype(spec.parity.precision)
+        autocast_dtype = self._autocast_dtype(variant.precision)
         losses = []
         model.eval()
         with torch.no_grad():
@@ -130,7 +145,8 @@ class TorchEngine(Engine):
             engine=self.name,
             operation="parity",
             metrics={
-                "precision": spec.parity.precision,
+                "precision": variant.precision,
+                "compile_mode": variant.compile_mode,
                 "loss": float(np.mean(losses)),
                 "batches": len(losses),
                 "tokens": len(starts) * spec.workload.seq_len,

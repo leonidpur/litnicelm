@@ -7,7 +7,7 @@ from types import MappingProxyType
 
 from ..spec import ComparisonSpec
 from ..measure.process import run_sampled_process
-from .base import Engine, EngineResult, SpeedVariant
+from .base import Engine, EngineResult, EngineVariant
 
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -117,13 +117,16 @@ class LitniceLMEngine(Engine):
     def determines_step_count(self) -> bool:
         return True
 
-    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
-        return tuple(
-            SpeedVariant(precision, "per_batch") for precision in spec.workload.precisions
-        )
+    def variants(
+        self, spec: ComparisonSpec, vertical: str, precision: str
+    ) -> tuple[EngineVariant, ...]:
+        del spec
+        if vertical != "train_speed":
+            return ()
+        return (EngineVariant(precision, "per_batch", "none"),)
 
     def run_speed(
-        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+        self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
         del steps  # The unchanged LitniceLM path is epoch-driven.
         return self.train(spec, variant.precision)
@@ -131,7 +134,7 @@ class LitniceLMEngine(Engine):
     def run_differential(
         self,
         spec: ComparisonSpec,
-        variant: SpeedVariant,
+        variant: EngineVariant,
         step_counts: tuple[int, int] | None,
     ) -> tuple[EngineResult, EngineResult]:
         """Measure two checkpoint-free, validation-free whole-epoch runs."""
@@ -268,6 +271,7 @@ class LitniceLMEngine(Engine):
             operation="train_speed",
             metrics={
                 "precision": precision,
+                "compile_mode": "none",
                 "sync": "per batch",
                 "steps": steps,
                 "tokens_per_step": spec.workload.tokens_per_step,
@@ -316,10 +320,14 @@ class LitniceLMEngine(Engine):
                     "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
                     "validation_enabled": validation_fraction != 0.0,
                     "checkpointing_enabled": operation != "dry_run",
+                "compile_warmup_seconds": 0.0,
                 },
             )
 
-    def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
+    def run(
+        self, spec: ComparisonSpec, operation: str, variant: EngineVariant | None = None
+    ) -> EngineResult:
+        del variant
         if operation != "train_speed":
             raise NotImplementedError(f"LitniceLM operation is not implemented: {operation}")
         return self.train(spec, spec.workload.precisions[0])

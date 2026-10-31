@@ -49,23 +49,25 @@ class ParityVertical(Vertical):
                 f"no best validation loss in {spec.parity.export_dir / 'README.md'}"
             )
         results = []
+        precision = spec.parity.precision
         for engine in engines:
-            if not engine.supports(self.name):
-                continue
-            result = engine.run(spec, self.name)
-            metrics = dict(result.metrics)
-            difference = abs(float(metrics["loss"]) - reference)
-            metrics.update(
-                {
-                    "reference_loss": reference,
-                    "difference": difference,
-                    "tolerance": spec.parity.tolerance,
-                    "passed": difference <= spec.parity.tolerance,
-                }
-            )
-            results.append(
-                EngineResult(engine=result.engine, operation=result.operation, metrics=metrics)
-            )
+            for variant in engine.variants(spec, self.name, precision):
+                result = engine.run(spec, self.name, variant)
+                metrics = dict(result.metrics)
+                difference = abs(float(metrics["loss"]) - reference)
+                metrics.update(
+                    {
+                        "reference_loss": reference,
+                        "difference": difference,
+                        "tolerance": spec.parity.tolerance,
+                        "passed": difference <= spec.parity.tolerance,
+                    }
+                )
+                results.append(
+                    EngineResult(
+                        engine=result.engine, operation=result.operation, metrics=metrics
+                    )
+                )
         if not results:
             raise ValueError("no engine supports the parity vertical")
         return VerticalResult(vertical=self.name, engines=tuple(results))

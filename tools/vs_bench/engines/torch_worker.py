@@ -65,17 +65,21 @@ def train(request: dict[str, object]) -> dict[str, object]:
     """Execute one old-style PyTorch timing row entirely in this process."""
     precision = str(request["precision"])
     loss_read = str(request["loss_read"])
+    compile_mode = str(request["compile_mode"])
+    if compile_mode == "compiled" and loss_read != "end":
+        raise ValueError("compiled PyTorch variants require end-only loss reads")
     measured_steps = int(request["steps"])
     benchmark_warmup = int(request["benchmark_warmup_steps"])
     corpus = CorpusManager().load(SPEC)
     device = "cuda"
     torch.backends.cuda.matmul.allow_tf32 = False
-    model = LitniceLM(_model_config(corpus.vocab_size))
-    model.init_weights(WORKLOAD.seed)
-    model.to(device).train()
+    eager_model = LitniceLM(_model_config(corpus.vocab_size))
+    eager_model.init_weights(WORKLOAD.seed)
+    eager_model.to(device).train()
+    model = torch.compile(eager_model) if compile_mode == "compiled" else eager_model
     def new_optimizer() -> torch.optim.AdamW:
         return torch.optim.AdamW(
-            _parameter_groups(model),
+            _parameter_groups(eager_model),
             lr=WORKLOAD.learning_rate,
             betas=(WORKLOAD.beta1, WORKLOAD.beta2),
             eps=WORKLOAD.epsilon,
@@ -97,11 +101,12 @@ def train(request: dict[str, object]) -> dict[str, object]:
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
     cursor = 0
+    compile_warmup_seconds = 0.0
     for step in range(total_steps):
         if step == benchmark_warmup:
             # Warm-up populates CUDA/kernel caches but must not advance the
             # matched training state used for loss equivalence.
-            model.init_weights(WORKLOAD.seed)
+            eager_model.init_weights(WORKLOAD.seed)
             optimizer = new_optimizer()
             cursor = 0
             losses_on_device.clear()
@@ -109,6 +114,9 @@ def train(request: dict[str, object]) -> dict[str, object]:
             torch.cuda.synchronize()
             torch.cuda.reset_peak_memory_stats()
             wall_start = time.perf_counter()
+        if step == 0 and compile_mode == "compiled":
+            torch.cuda.synchronize()
+            compile_started = time.perf_counter()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
         start_event.record()
@@ -139,6 +147,9 @@ def train(request: dict[str, object]) -> dict[str, object]:
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
         end_event.record()
+        if step == 0 and compile_mode == "compiled":
+            torch.cuda.synchronize()
+            compile_warmup_seconds = time.perf_counter() - compile_started
         if step >= benchmark_warmup:
             step_events.append((start_event, end_event))
     torch.cuda.synchronize()
@@ -151,6 +162,7 @@ def train(request: dict[str, object]) -> dict[str, object]:
     step_ms = np.array([start.elapsed_time(end) for start, end in step_events])
     return {
         "precision": precision,
+        "compile_mode": compile_mode,
         "sync": "end" if loss_read == "end" else "per batch",
         "steps": measured_steps,
         "tokens_per_step": WORKLOAD.tokens_per_step,
@@ -169,6 +181,7 @@ def train(request: dict[str, object]) -> dict[str, object]:
         "d_model": WORKLOAD.d_model,
         "d_ff": WORKLOAD.d_ff,
         "final_train_loss": final_train_loss,
+        "compile_warmup_seconds": compile_warmup_seconds,
     }
 
 

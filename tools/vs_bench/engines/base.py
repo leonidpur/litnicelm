@@ -16,11 +16,12 @@ class EngineResult:
 
 
 @dataclass(frozen=True)
-class SpeedVariant:
-    """One engine-neutral precision and loss-read timing combination."""
+class EngineVariant:
+    """One engine expansion inside a vertical's neutral precision group."""
 
     precision: str
-    loss_read: str
+    loss_read: str = "end"
+    compile_mode: str = "none"
 
 
 class Engine(ABC):
@@ -44,12 +45,14 @@ class Engine(ABC):
         """Whether this engine's native run determines peer measured steps."""
         return False
 
-    def speed_variants(self, spec: ComparisonSpec) -> tuple[SpeedVariant, ...]:
-        """Return training-speed variants supported by this adapter."""
+    def variants(
+        self, spec: ComparisonSpec, vertical: str, precision: str
+    ) -> tuple[EngineVariant, ...]:
+        """Expand only this engine's axes inside one neutral precision group."""
         return ()
 
     def run_speed(
-        self, spec: ComparisonSpec, variant: SpeedVariant, steps: int
+        self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
         """Run one isolated training-speed variant."""
         raise NotImplementedError(f"{self.name} does not implement training speed")
@@ -57,7 +60,7 @@ class Engine(ABC):
     def run_differential(
         self,
         spec: ComparisonSpec,
-        variant: SpeedVariant,
+        variant: EngineVariant,
         step_counts: tuple[int, int] | None,
     ) -> tuple[EngineResult, EngineResult]:
         """Run the two whole-process endpoints used for differential timing."""
@@ -68,6 +71,8 @@ class Engine(ABC):
         )  # type: ignore[return-value]
 
     @abstractmethod
-    def run(self, spec: ComparisonSpec, operation: str) -> EngineResult:
+    def run(
+        self, spec: ComparisonSpec, operation: str, variant: EngineVariant | None = None
+    ) -> EngineResult:
         """Execute one vertical operation and return structured measurements."""
 
