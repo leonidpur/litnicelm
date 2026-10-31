@@ -39,7 +39,7 @@ ADAPTER_PARAMS = MappingProxyType(
             "doyle_clean_spm512_seq1024_l4_d256_b1_rope_val_cosine_e12_accum4.yaml"
         ),
         "benchmark.epochs": 2,
-        "profiler.batch_step_pattern": r"^\s*- batch_step total=(.+?) count=(\d+)",
+        "profiler.batch_step_pattern": r"^- batch_step total=(.+?) count=(\d+)",
     }
 )
 
@@ -257,13 +257,12 @@ class LitniceLMEngine(Engine):
                 f"found {len(batch_lines)}"
             )
         total_seconds = _seconds(batch_lines[0][0])
-        batches = sum(int(count) for _, count in batch_lines)
+        steps = int(batch_lines[0][1])
         managed = re.search(r"\| Total managed\s*\|\s*([0-9.]+)", output)
         losses = re.findall(
             r"Validation epoch \d+:.*?\| train ([0-9.eE+-]+),", output
         )
-        tokens = batches * spec.workload.batch_size * spec.workload.seq_len
-        steps = batches // spec.workload.accumulation_steps
+        tokens = steps * spec.workload.tokens_per_step
         return EngineResult(
             engine=self.name,
             operation="train_speed",

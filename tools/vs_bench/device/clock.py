@@ -65,7 +65,14 @@ class LockedGpuClock:
                 f"'sudo /usr/bin/nvidia-smi -lgc {self.clock_mhz},{self.clock_mhz}' "
                 f"yourself. sudo -n said: {detail}"
             )
-        self.state = ClockState(self.clock_mhz, self._query_clock())
+        try:
+            observed = self._query_clock()
+        except BaseException:
+            # __exit__ is not entered when __enter__ fails, so undo the lock
+            # here before propagating a query/setup failure.
+            self._run_sudo(["-rgc"])
+            raise
+        self.state = ClockState(self.clock_mhz, observed)
         print(
             f"GPU clock lock requested: {self.clock_mhz} MHz; "
             f"current clock after lock: {self.state.observed_mhz} MHz",
