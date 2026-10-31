@@ -207,6 +207,11 @@ class LitniceLMEngine(Engine):
         batch_lines = re.findall(
             str(ADAPTER_PARAMS["profiler.batch_step_pattern"]), output, re.MULTILINE
         )
+        if len(batch_lines) != 1:
+            raise ValueError(
+                "expected exactly one top-level batch_step profiler line, "
+                f"found {len(batch_lines)}"
+            )
         total_seconds = _seconds(batch_lines[0][0])
         batches = sum(int(count) for _, count in batch_lines)
         managed = re.search(r"\| Total managed\s*\|\s*([0-9.]+)", output)

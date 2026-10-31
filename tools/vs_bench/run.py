@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .engines.litnicelm import LitniceLMEngine
 from .engines.torch_engine import TorchEngine
+from .device.clock import LockedGpuClock
 from .measure.process import configure_raw_logs, raw_artifact_path
 from .report.console import print_phase_result, print_phase_start, print_plan
 from .report.json_report import write_json
@@ -50,7 +51,7 @@ SPEC = ComparisonSpec(
         min_lr_ratio=0.1,
         precisions=("fp32", "bf16"),
     ),
-    environment=EnvironmentSpec(clock_mhz=0),
+    environment=EnvironmentSpec(clock_mhz=1500),
     parity=ParitySettings(
         export_dir=Path(
             "/mnt/ext_ssd/litnicelm/doyle/exports/"
@@ -75,11 +76,13 @@ def main() -> None:
     configure_raw_logs(raw_log_directory)
     results_path = raw_artifact_path("results.json")
     results = []
-    for vertical, plan in zip(verticals, plans, strict=True):
-        print_phase_start(plan)
-        result = vertical.run(SPEC, engines)
-        results.append(result)
-        print_phase_result(result)
+    with LockedGpuClock(SPEC.environment.clock_mhz) as clock:
+        for vertical, plan in zip(verticals, plans, strict=True):
+            print_phase_start(plan)
+            result = vertical.run(SPEC, engines)
+            results.append(result)
+            print_phase_result(result)
+        clock.verify_under_load(results)
     write_json(results_path, SPEC, results, raw_log_directory)
     print(f"\nResults JSON: {results_path}")
     print(f"Raw logs: {raw_log_directory}\n")
