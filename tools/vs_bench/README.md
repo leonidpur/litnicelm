@@ -28,3 +28,11 @@ epochs with validation and checkpointing disabled, and PyTorch runs the exact
 optimizer-step counts observed at those endpoints. Startup and teardown cost
 cancel in `(T3 - T1) / (steps3 - steps1)`.
 
+Every matched-step row also reports the realized layer/head/hidden/FFN
+dimensions, tokens per optimizer step, and final training loss. The run fails
+if dimensions or token counts differ, or if PyTorch's final loss is more than
+the configured tolerance from LitniceLM's loss for the same precision and
+repeat. PyTorch warms its CUDA kernels first, then resets model weights,
+optimizer state, and the data cursor so warm-up updates do not enter the
+matched-step loss.
+

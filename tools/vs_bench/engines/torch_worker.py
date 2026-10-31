@@ -73,28 +73,41 @@ def train(request: dict[str, object]) -> dict[str, object]:
     model = LitniceLM(_model_config(corpus.vocab_size))
     model.init_weights(WORKLOAD.seed)
     model.to(device).train()
-    optimizer = torch.optim.AdamW(
-        _parameter_groups(model),
-        lr=WORKLOAD.learning_rate,
-        betas=(WORKLOAD.beta1, WORKLOAD.beta2),
-        eps=WORKLOAD.epsilon,
-        fused=True,
-    )
+    def new_optimizer() -> torch.optim.AdamW:
+        return torch.optim.AdamW(
+            _parameter_groups(model),
+            lr=WORKLOAD.learning_rate,
+            betas=(WORKLOAD.beta1, WORKLOAD.beta2),
+            eps=WORKLOAD.epsilon,
+            fused=True,
+        )
+
+    optimizer = new_optimizer()
     autocast_dtype = {"fp32": None, "bf16": torch.bfloat16}[precision]
     total_steps = benchmark_warmup + measured_steps
     starts = training_windows(len(corpus.tokens), SPEC)
+    batches_per_epoch = len(starts)
     starts = np.resize(
         starts, total_steps * WORKLOAD.accumulation_steps * WORKLOAD.batch_size
     )
 
     losses_on_device = []
+    losses_on_host = []
     step_events = []
     torch.cuda.synchronize()
     torch.cuda.reset_peak_memory_stats()
     cursor = 0
     for step in range(total_steps):
         if step == benchmark_warmup:
+            # Warm-up populates CUDA/kernel caches but must not advance the
+            # matched training state used for loss equivalence.
+            model.init_weights(WORKLOAD.seed)
+            optimizer = new_optimizer()
+            cursor = 0
+            losses_on_device.clear()
+            losses_on_host.clear()
             torch.cuda.synchronize()
+            torch.cuda.reset_peak_memory_stats()
             wall_start = time.perf_counter()
         start_event = torch.cuda.Event(enable_timing=True)
         end_event = torch.cuda.Event(enable_timing=True)
@@ -116,10 +129,11 @@ def train(request: dict[str, object]) -> dict[str, object]:
             if loss_read == "end":
                 losses_on_device.append(loss.detach())
             else:
-                loss.item()
+                losses_on_host.append(loss.item())
         if WORKLOAD.grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), WORKLOAD.grad_clip)
-        learning_rate = _learning_rate(step, total_steps)
+        measured_step = max(0, step - benchmark_warmup)
+        learning_rate = _learning_rate(measured_step, measured_steps)
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
         optimizer.step()
@@ -130,7 +144,9 @@ def train(request: dict[str, object]) -> dict[str, object]:
     torch.cuda.synchronize()
     wall_seconds = time.perf_counter() - wall_start
     if losses_on_device:
-        torch.stack(losses_on_device).sum().item()
+        final_train_loss = torch.stack(losses_on_device[-batches_per_epoch:]).mean().item()
+    else:
+        final_train_loss = float(np.mean(losses_on_host[-batches_per_epoch:]))
 
     step_ms = np.array([start.elapsed_time(end) for start, end in step_events])
     return {
@@ -148,6 +164,11 @@ def train(request: dict[str, object]) -> dict[str, object]:
         "torch": torch.__version__,
         "cuda": str(torch.version.cuda),
         "gpu": torch.cuda.get_device_name(),
+        "n_layers": WORKLOAD.n_layers,
+        "n_heads": WORKLOAD.n_heads,
+        "d_model": WORKLOAD.d_model,
+        "d_ff": WORKLOAD.d_ff,
+        "final_train_loss": final_train_loss,
     }
 
 

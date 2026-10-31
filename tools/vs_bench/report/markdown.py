@@ -55,6 +55,23 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                     f"{median('process_peak_mib'):.0f} | "
                     f"{memory} | {median('sm_clock_mhz'):.0f} |"
                 )
-            sections.append("\n".join(lines))
+            equivalence = [
+                "## Training equivalence",
+                "",
+                "| engine | precision | loss read | model (L/H/D/FF) | tokens/step | final train loss | vs LitniceLM | tolerance | passed |",
+                "|---|---|---|---|---:|---:|---:|---:|---|",
+            ]
+            for (engine, precision, sync), rows in groups.items():
+                first = rows[0]
+                equivalence.append(
+                    f"| {engine} | {precision} | {sync} | "
+                    f"{first['n_layers']}/{first['n_heads']}/{first['d_model']}/{first['d_ff']} | "
+                    f"{first['tokens_per_step']} | "
+                    f"{statistics.median(float(row['final_train_loss']) for row in rows):.4f} | "
+                    f"{statistics.median(float(row['loss_difference']) for row in rows):.4f} | "
+                    f"{float(first['loss_tolerance']):.3g} | "
+                    f"{str(all(bool(row['equivalence_passed']) for row in rows)).lower()} |"
+                )
+            sections.append("\n".join(lines) + "\n\n" + "\n".join(equivalence))
     return "\n\n".join(sections)
 

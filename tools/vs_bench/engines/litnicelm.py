@@ -259,6 +259,9 @@ class LitniceLMEngine(Engine):
         total_seconds = _seconds(batch_lines[0][0])
         batches = sum(int(count) for _, count in batch_lines)
         managed = re.search(r"\| Total managed\s*\|\s*([0-9.]+)", output)
+        losses = re.findall(
+            r"Validation epoch \d+:.*?\| train ([0-9.eE+-]+),", output
+        )
         tokens = batches * spec.workload.batch_size * spec.workload.seq_len
         steps = batches // spec.workload.accumulation_steps
         return EngineResult(
@@ -272,6 +275,11 @@ class LitniceLMEngine(Engine):
                 "tokens_per_s": tokens / total_seconds,
                 "step_ms_mean": 1000 * total_seconds / steps,
                 "engine_memory_mib": float(managed.group(1)) if managed else "unknown",
+                "n_layers": spec.workload.n_layers,
+                "n_heads": spec.workload.n_heads,
+                "d_model": spec.workload.d_model,
+                "d_ff": spec.workload.d_ff,
+                **({"final_train_loss": float(losses[-1])} if losses else {}),
             },
         )
 
