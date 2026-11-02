@@ -2,18 +2,31 @@
 #include <litnicelm_utils/log.hpp>
 #include "observers_events.hpp"
 
+ProfilingObserver::ProfilingObserver(bool profile_backend_ops)
+    : profile_backend_ops_(profile_backend_ops) {}
+
+GpuOpTimer *ProfilingObserver::backend_timer() {
+  return profile_backend_ops_ ? &gpu_op_timer_ : nullptr;
+}
+
 void ProfilingObserver::on_training_start(
     const TrainingPosition &training_position, uint64_t batches_per_epoch) {
   (void)training_position;
   (void)batches_per_epoch;
   profiling_.reset();
+  if (profile_backend_ops_) gpu_op_timer_.start();
 }
 
 void ProfilingObserver::on_training_end(const TrainingPosition &training_position) {
   (void)training_position;
+  if (profile_backend_ops_) gpu_op_timer_.stop();
   std::string summary = profiling_.summary();
   if (!summary.empty() && summary.back() == '\n') {
     summary.pop_back();
+  }
+  if (profile_backend_ops_) {
+    if (!summary.empty()) summary += '\n';
+    summary += gpu_op_timer_.summary();
   }
   logger().log(observers_events::kProfilingSummary, summary);
 }

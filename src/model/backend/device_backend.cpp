@@ -1,6 +1,8 @@
 #include "device_backend.hpp"
 #include "backend_plugin_api.hpp"
 #include "backend_events.hpp"
+#include "backend_observer.hpp"
+#include "observed_backend.hpp"
 
 #include <litnicelm_utils/bf16.hpp>
 #include <litnicelm_utils/checks.hpp>
@@ -1698,9 +1700,17 @@ void DefaultCpuBackend::read_file2device(const std::string &path, void *dst,
   }
 }
 
-std::unique_ptr<DeviceBackend> DeviceBackend::create_instance(const Config &cfg) {
+std::unique_ptr<DeviceBackend> DeviceBackend::create_instance(
+    const Config &cfg, const std::vector<IBackendObserver *> &observers) {
+  std::unique_ptr<DeviceBackend> backend;
   if (!cfg.backend.library.empty()) {
-    return std::make_unique<DynamicLibraryBackend>(cfg.backend.library);
+    backend = std::make_unique<DynamicLibraryBackend>(cfg.backend.library);
+  } else {
+    backend = std::make_unique<DefaultCpuBackend>();
   }
-  return std::make_unique<DefaultCpuBackend>();
+  if (observers.empty()) return backend;
+  for (IBackendObserver *observer : observers) {
+    if (observer != nullptr) observer->on_backend_ready(*backend);
+  }
+  return std::make_unique<ObservedBackend>(std::move(backend), observers);
 }

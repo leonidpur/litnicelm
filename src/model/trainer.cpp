@@ -277,7 +277,8 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   // Asset construction
   //////////////////////////
   const std::unique_ptr<DeviceBackend> backend =
-      DeviceBackend::create_instance(runtime_cfg);
+      DeviceBackend::create_instance(runtime_cfg,
+                                     session_controller.backend_observers());
   const PrecisionPolicy precision =
       PrecisionPolicy::create(runtime_cfg, backend->precision_variants());
   TrainingMemoryManager memory_manager(runtime_cfg, algo, *backend, precision,

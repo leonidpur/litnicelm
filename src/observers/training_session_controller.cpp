@@ -41,11 +41,20 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
   add_observer(std::make_unique<TrackingObserver>(cfg, cmd, *this));
   add_observer(
       std::make_unique<ReportingObserver>(report_renderer, cmd.runtime_flags.probe));
-  add_observer(std::make_unique<ProfilingObserver>());
+  auto profiling =
+      std::make_unique<ProfilingObserver>(cfg.logging.profile_backend_ops);
+  profiling_observer_ = profiling.get();
+  add_observer(std::move(profiling));
   add_observer(std::make_unique<EtaObserver>(
       cfg, training_plan_, cmd.runtime_flags.epoch_report_every == 0
                                     ? cfg.logging.epoch_report_every
                                     : cmd.runtime_flags.epoch_report_every));
+}
+
+std::vector<IBackendObserver *> TrainingSessionController::backend_observers() {
+  GpuOpTimer *timer = profiling_observer_->backend_timer();
+  return timer == nullptr ? std::vector<IBackendObserver *>{}
+                          : std::vector<IBackendObserver *>{timer};
 }
 
 void TrainingSessionController::add_observer(

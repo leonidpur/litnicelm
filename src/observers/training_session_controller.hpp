@@ -19,6 +19,8 @@
 
 class ReportRenderer;
 class ModelAlgoFactory;
+class IBackendObserver;
+class ProfilingObserver;
 
 class TrainingSessionController : public ITrainingObserver {
 public:
@@ -55,6 +57,7 @@ public:
   uint32_t best_epoch() const { return convergence_monitor_.best_epoch(); }
   std::string best_checkpoint_path() const { return checkpoint_store_.best_path(); }
   void add_observer(std::unique_ptr<ITrainingObserver> observer);
+  std::vector<IBackendObserver *> backend_observers();
   void runtime_cfg_ready(const Config &cfg) override;
   void init_config_ready(const Config &cfg, const TrainingLayouts &layouts) override;
   void init_topology_ready(const NamedLayout &param_layout, void *param_base,
@@ -124,6 +127,7 @@ private:
   const Config &cfg_;
   const TrainingPlan training_plan_;
   std::vector<std::unique_ptr<ITrainingObserver>> observers_;
+  ProfilingObserver *profiling_observer_ = nullptr;
   // Report access to observers_, shared with the components below.
   Reporters reporters_{observers_};
   ConvergenceMonitor convergence_monitor_;

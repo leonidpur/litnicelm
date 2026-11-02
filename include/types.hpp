@@ -138,6 +138,7 @@ struct LoggingConfig {
   bool show_inference;
   int32_t report_every_n_steps;
   uint32_t epoch_report_every;
+  bool profile_backend_ops = false;
 };
 
 struct ReportingConfig {

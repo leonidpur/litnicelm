@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+class DeviceBackend;
+
 enum class OpId : uint32_t {
   Alloc,
   Free,
@@ -58,6 +60,7 @@ const char *op_name(OpId op);
 class IBackendObserver {
 public:
   virtual ~IBackendObserver() = default;
+  virtual void on_backend_ready(DeviceBackend &backend) { (void)backend; }
   virtual void on_op_begin(OpId op) = 0;
   virtual void on_op_end(OpId op) = 0;
 };

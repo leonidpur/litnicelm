@@ -9,10 +9,15 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
+
+class IBackendObserver;
 
 class DeviceBackend {
 public:
-  static std::unique_ptr<DeviceBackend> create_instance(const Config &cfg);
+  static std::unique_ptr<DeviceBackend> create_instance(
+      const Config &cfg,
+      const std::vector<IBackendObserver *> &observers = {});
 
   virtual ~DeviceBackend() = default;
   virtual Device device() const = 0;

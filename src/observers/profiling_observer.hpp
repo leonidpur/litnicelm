@@ -1,13 +1,16 @@
 #pragma once
 
 #include "profiling.hpp"
+#include "gpu_op_timer.hpp"
 #include "training_observer.hpp"
 
 #include <cstdint>
 
 class ProfilingObserver final : public ITrainingObserver {
 public:
-  ProfilingObserver() = default;
+  explicit ProfilingObserver(bool profile_backend_ops);
+
+  GpuOpTimer *backend_timer();
 
   void on_training_start(const TrainingPosition &training_position,
                          uint64_t batches_per_epoch) override;
@@ -37,4 +40,6 @@ public:
 
 private:
   ProfilingController profiling_;
+  GpuOpTimer gpu_op_timer_;
+  bool profile_backend_ops_ = false;
 };

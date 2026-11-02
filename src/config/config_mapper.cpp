@@ -748,6 +748,10 @@ bool map_logging_fields(const std::string &key, const std::string &value, Config
     cfg.logging.epoch_report_every = parse_u32_or_throw(value, key);
     return true;
   }
+  if (key == "logging.profile_backend_ops") {
+    cfg.logging.profile_backend_ops = parse_bool_or_throw(value, key);
+    return true;
+  }
   if (key == "reporting.verbose_epoch_index") {
     const auto p = parse_i32_pair_or_throw(value, key);
     cfg.reporting.verbose_epoch_index = {p.first, p.second};
