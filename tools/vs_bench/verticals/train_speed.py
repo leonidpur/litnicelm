@@ -103,6 +103,7 @@ class TrainSpeedVertical(Vertical):
                 operation=result.operation,
                 metrics={
                     **result.metrics,
+                    **self._timing_cross_check(result.metrics),
                     **profile_evidence[
                         (
                             result.engine,
@@ -163,6 +164,18 @@ class TrainSpeedVertical(Vertical):
             "differential_high_wall_seconds": float(high.metrics["process_wall_seconds"]),
             "differential_step_ms": 1000 * wall_delta / step_delta,
             "differential_tokens_per_s": tokens_per_step * step_delta / wall_delta,
+        }
+
+    @staticmethod
+    def _timing_cross_check(
+        metrics: dict[str, bool | int | float | str],
+    ) -> dict[str, bool | float]:
+        steady = float(metrics["tokens_per_s"])
+        differential = float(metrics["differential_tokens_per_s"])
+        difference_pct = 100.0 * abs(steady - differential) / steady
+        return {
+            "throughput_cross_check_difference_pct": difference_pct,
+            "throughput_cross_check_flagged": difference_pct > 3.0,
         }
 
     @staticmethod

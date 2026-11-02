@@ -425,6 +425,10 @@ BackendTimingReport plugin_timing_report(void *backend) {
   return to_cpu_backend(backend).timing_report();
 }
 
+void plugin_timing_prepare(void *backend, uint64_t max_marks) {
+  to_cpu_backend(backend).timing_prepare(max_marks);
+}
+
 const BackendApiV1 kBackendApi = {
     kBackendApiVersion,
     &plugin_create,
@@ -488,6 +492,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_timing_mark_begin,
     &plugin_timing_mark_end,
     &plugin_timing_report,
+    &plugin_timing_prepare,
 };
 
 } // namespace

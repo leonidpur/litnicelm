@@ -14,6 +14,7 @@ from .report.markdown import render_markdown
 from .spec import (
     ComparisonSpec,
     EnvironmentSpec,
+    LitniceLMSettings,
     ParitySettings,
     TrainSpeedSettings,
     WorkloadSpec,
@@ -66,6 +67,7 @@ SPEC = ComparisonSpec(
         differential_epochs=(1, 3),
         equivalence_loss_tolerance=0.5,
     ),
+    litnicelm=LitniceLMSettings(),
 )
 
 RAW_LOG_ROOT = Path("/mnt/ext_ssd/litnicelm/bench")

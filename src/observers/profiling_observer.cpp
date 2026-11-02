@@ -1,9 +1,14 @@
 #include "profiling_observer.hpp"
 #include <litnicelm_utils/log.hpp>
 #include "observers_events.hpp"
+#include <utility>
 
-ProfilingObserver::ProfilingObserver(bool profile_backend_ops)
-    : profile_backend_ops_(profile_backend_ops) {}
+ProfilingObserver::ProfilingObserver(bool profile_backend_ops,
+                                     uint32_t skip_batches,
+                                     uint32_t requested_steps,
+                                     std::string attention_mode)
+    : gpu_op_timer_(skip_batches, requested_steps, std::move(attention_mode)),
+      profile_backend_ops_(profile_backend_ops) {}
 
 GpuOpTimer *ProfilingObserver::backend_timer() {
   return profile_backend_ops_ ? &gpu_op_timer_ : nullptr;
@@ -14,7 +19,6 @@ void ProfilingObserver::on_training_start(
   (void)training_position;
   (void)batches_per_epoch;
   profiling_.reset();
-  if (profile_backend_ops_) gpu_op_timer_.start();
 }
 
 void ProfilingObserver::on_training_end(const TrainingPosition &training_position) {
@@ -40,6 +44,7 @@ void ProfilingObserver::on_batch_end(uint64_t batch_idx, double loss) {
   (void)batch_idx;
   (void)loss;
   profiling_.leave();
+  if (profile_backend_ops_) gpu_op_timer_.on_batch_end();
 }
 
 void ProfilingObserver::on_batch_load_start(uint64_t batch_idx) {
@@ -55,6 +60,7 @@ void ProfilingObserver::on_batch_load_end(uint64_t batch_idx, bool has_batch) {
 
 void ProfilingObserver::on_train_step_start(uint64_t optimizer_steps) {
   (void)optimizer_steps;
+  if (profile_backend_ops_) gpu_op_timer_.on_optimizer_step_start();
   profiling_.enter(Stage::TRAIN_STEP);
 }
 
@@ -62,6 +68,7 @@ void ProfilingObserver::on_train_step_end(uint64_t optimizer_steps, double loss)
   (void)optimizer_steps;
   (void)loss;
   profiling_.leave();
+  if (profile_backend_ops_) gpu_op_timer_.on_optimizer_step_end();
 }
 
 void ProfilingObserver::on_forward_start() { profiling_.enter(Stage::FORWARD); }

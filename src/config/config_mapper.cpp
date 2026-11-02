@@ -752,6 +752,17 @@ bool map_logging_fields(const std::string &key, const std::string &value, Config
     cfg.logging.profile_backend_ops = parse_bool_or_throw(value, key);
     return true;
   }
+  if (key == "logging.profile_backend_skip_batches") {
+    cfg.logging.profile_backend_skip_batches = parse_u32_or_throw(value, key);
+    return true;
+  }
+  if (key == "logging.profile_backend_steps") {
+    cfg.logging.profile_backend_steps = parse_u32_or_throw(value, key);
+    if (cfg.logging.profile_backend_steps == 0) {
+      throw std::runtime_error(key + " must be at least 1");
+    }
+    return true;
+  }
   if (key == "reporting.verbose_epoch_index") {
     const auto p = parse_i32_pair_or_throw(value, key);
     cfg.reporting.verbose_epoch_index = {p.first, p.second};

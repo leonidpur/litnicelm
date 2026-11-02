@@ -45,18 +45,17 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
             for precision in dict.fromkeys(key[0] for key in groups):
                 precision_groups = {key: rows for key, rows in groups.items() if key[0] == precision}
                 medians = {
-                    key: statistics.median(float(row["differential_tokens_per_s"]) for row in rows)
+                    key: statistics.median(float(row["tokens_per_s"]) for row in rows)
                     for key, rows in precision_groups.items()
                 }
                 pytorch_keys = [key for key in precision_groups if key[1] == "PyTorch"]
                 best_pytorch = max(pytorch_keys, key=medians.__getitem__)
-                litnice_key = next(key for key in precision_groups if key[1] == "LitniceLM")
-                ratio = medians[litnice_key] / medians[best_pytorch]
+                litnice_keys = [key for key in precision_groups if key[1] == "LitniceLM"]
                 lines = [
                     f"## Training speed — {precision}",
                     "",
-                    "| engine | variant | options | attention backend | top CUDA kernels by time | best PyTorch | profiler tokens/s | differential tokens/s | differential step (ms) | compile time (s) | process peak (MiB) | engine memory (MiB) | clock (MHz) |",
-                    "|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+                    "| engine | variant | options | attention backend | top CUDA kernels by time | best PyTorch | steady-state tokens/s | differential tokens/s | cross-check | differential step (ms) | compile time (s) | process peak (MiB) | engine memory (MiB) | clock (MHz) |",
+                    "|---|---|---|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|",
                 ]
                 for key, rows in precision_groups.items():
                     _, engine, label, options = key
@@ -73,22 +72,32 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                         if "compile_warmup_seconds" in rows[0]
                         else "—"
                     )
+                    steady = median("tokens_per_s")
+                    differential = median("differential_tokens_per_s")
+                    disagreement = 100.0 * abs(steady - differential) / steady
+                    cross_check = (
+                        f"FLAG {disagreement:.1f}%"
+                        if disagreement > 3.0
+                        else f"ok ({disagreement:.1f}%)"
+                    )
                     lines.append(
                         f"| {engine} | {label} | {options or '—'} | "
                         f"{rows[0]['attention_backend']} | "
                         f"{rows[0]['attention_cuda_kernels']} | "
                         f"{'yes' if key == best_pytorch else ''} | "
-                        f"{median('tokens_per_s'):,.0f} ({min(throughputs):,.0f}–{max(throughputs):,.0f}) | "
-                        f"{median('differential_tokens_per_s'):,.0f} | "
+                        f"{steady:,.0f} ({min(throughputs):,.0f}–{max(throughputs):,.0f}) | "
+                        f"{differential:,.0f} | {cross_check} | "
                         f"{median('differential_step_ms'):.1f} | "
                         f"{compile_time} | "
                         f"{median('process_peak_mib'):.0f} | {memory} | "
                         f"{median('sm_clock_mhz'):.0f} |"
                     )
-                verdict = (
-                    f"LitniceLM / best PyTorch: **{ratio:.3f}×** "
-                    f"({'ahead' if ratio > 1 else 'behind'}; best PyTorch is "
-                    f"{best_pytorch[2]} [{best_pytorch[3]}])."
+                verdict = "\n".join(
+                    f"LitniceLM {key[2]} / best PyTorch by steady-state throughput: "
+                    f"**{medians[key] / medians[best_pytorch]:.3f}×** "
+                    f"({'ahead' if medians[key] > medians[best_pytorch] else 'behind'}; "
+                    f"best PyTorch is {best_pytorch[2]} [{best_pytorch[3]}])."
+                    for key in litnice_keys
                 )
                 litnice_attention = (
                     "LitniceLM attention is implemented as unfused per-head "

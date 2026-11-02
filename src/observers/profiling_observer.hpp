@@ -5,10 +5,12 @@
 #include "training_observer.hpp"
 
 #include <cstdint>
+#include <string>
 
 class ProfilingObserver final : public ITrainingObserver {
 public:
-  explicit ProfilingObserver(bool profile_backend_ops);
+  ProfilingObserver(bool profile_backend_ops, uint32_t skip_batches,
+                    uint32_t requested_steps, std::string attention_mode);
 
   GpuOpTimer *backend_timer();
 

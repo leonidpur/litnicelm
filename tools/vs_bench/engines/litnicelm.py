@@ -16,7 +16,6 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 NATIVE_CONFIG = MappingProxyType(
     {
         "backend.library": "./build/liblitnice_backend_cublas_plugin.so",
-        "model_algo.attention": "fused_inplace_multistream",
         "model_algo.ffn": "inplace_fused_bias_relu",
         "transformer_layers": 0,
         "parameter_bytes": 0,
@@ -120,25 +119,113 @@ class LitniceLMEngine(Engine):
     def variants(
         self, spec: ComparisonSpec, vertical: str, precision: str
     ) -> tuple[EngineVariant, ...]:
-        del spec
         if vertical != "train_speed":
             return ()
-        return (EngineVariant(self.name, precision, "native", {}),)
+        return tuple(
+            EngineVariant(
+                self.name,
+                precision,
+                attention_mode,
+                {"attention_mode": attention_mode},
+            )
+            for attention_mode in spec.litnicelm.attention_modes
+        )
 
     def run_speed(
         self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
         del steps  # The unchanged LitniceLM path is epoch-driven.
-        return self.train(spec, variant.precision)
+        return self.train(
+            spec, variant.precision, variant.options["attention_mode"]
+        )
 
     def profile_variant(
         self, spec: ComparisonSpec, vertical: str, variant: EngineVariant
     ) -> dict[str, str]:
-        del spec, vertical, variant
+        if vertical != "train_speed":
+            return {}
+        attention_mode = variant.options["attention_mode"]
+        if "multistream" in attention_mode:
+            return {
+                "attention_backend": "unfused per-head GEMMs + softmax",
+                "attention_backend_source": "LitniceLM implementation",
+                "attention_cuda_kernels": "not profiled: multistream",
+            }
+        return self._profile_single_stream(spec, variant)
+
+    def _profile_single_stream(
+        self, spec: ComparisonSpec, variant: EngineVariant
+    ) -> dict[str, str]:
+        """Run and parse a separate operation-timing pass for one stream."""
+        attention_mode = variant.options["attention_mode"]
+        with tempfile.TemporaryDirectory(
+            prefix="litnicelm_vs_bench_profile_"
+        ) as temporary:
+            workdir = Path(temporary)
+            config = self.write_config(
+                spec,
+                variant.precision,
+                attention_mode,
+                workdir,
+                validation_fraction=0.0,
+                profile_backend_ops=True,
+            )
+            command = [
+                str(self.binary),
+                "dry_run",
+                "--config",
+                str(config),
+                "--epochs",
+                "1",
+            ]
+            output = run_sampled_process(command, REPOSITORY).output
+
+        header = re.search(
+            r"backend operations: window_skip_batches=(\d+) "
+            r"window_optimizer_steps=(\d+) mark_capacity=(\d+) "
+            r"attention_mode=(\S+) stream_mode=(\S+)",
+            output,
+        )
+        if header is None:
+            raise ValueError("LitniceLM profiling output has no window header")
+        if header.group(5) != "single_stream":
+            raise ValueError(
+                f"expected single-stream profile, got {header.group(5)}"
+            )
+        operations = re.findall(
+            r"^- ([a-zA-Z0-9_]+) total_ms=([0-9.]+) count=(\d+) "
+            r"share=([0-9.]+)%$",
+            output,
+            re.MULTILINE,
+        )
+        idle = re.search(
+            r"^- idle_gaps total_ms=([0-9.]+) share=([0-9.]+)%$",
+            output,
+            re.MULTILINE,
+        )
+        dropped = re.search(
+            r"^- dropped_marks count=(\d+)$", output, re.MULTILINE
+        )
+        if not operations or idle is None or dropped is None:
+            raise ValueError("LitniceLM profiling output is incomplete")
+        if int(dropped.group(1)) != 0:
+            raise ValueError(f"LitniceLM profiling dropped {dropped.group(1)} marks")
+        top = "; ".join(
+            f"{name} {share}% ({total_ms} ms, n={count})"
+            for name, total_ms, count, share in operations[:5]
+        )
+        evidence = f"{top}; idle gaps {idle.group(2)}% ({idle.group(1)} ms)"
         return {
             "attention_backend": "unfused per-head GEMMs + softmax",
-            "attention_backend_source": "LitniceLM implementation",
-            "attention_cuda_kernels": "not separately profiled",
+            "attention_backend_source": "LitniceLM backend event markers",
+            "attention_cuda_kernels": evidence,
+            "profile_window": (
+                f"skip {header.group(1)} batches; "
+                f"{header.group(2)} optimizer steps; "
+                f"capacity {header.group(3)} marks"
+            ),
+            "profile_stream_mode": header.group(5),
+            "profile_dropped_marks": dropped.group(1),
         }
 
     def run_differential(
@@ -154,6 +241,7 @@ class LitniceLMEngine(Engine):
             self.train(
                 spec,
                 variant.precision,
+                variant.options["attention_mode"],
                 epochs=low,
                 operation="dry_run",
                 validation_fraction=0.0,
@@ -161,6 +249,7 @@ class LitniceLMEngine(Engine):
             self.train(
                 spec,
                 variant.precision,
+                variant.options["attention_mode"],
                 epochs=high,
                 operation="dry_run",
                 validation_fraction=0.0,
@@ -177,6 +266,8 @@ class LitniceLMEngine(Engine):
             "generate a temporary LitniceLM YAML from the shared spec",
             "drive the LitniceLM binary as a subprocess",
             f"request precisions: {', '.join(precisions)}",
+            "expand LitniceLM attention modes: "
+            + ", ".join(spec.litnicelm.attention_modes),
         ) + native + adapter
 
     @property
@@ -191,8 +282,10 @@ class LitniceLMEngine(Engine):
         self,
         spec: ComparisonSpec,
         precision: str,
+        attention_mode: str,
         workdir: Path,
         validation_fraction: float | None = None,
+        profile_backend_ops: bool = False,
     ) -> str:
         """Translate the shared spec and native settings into LitniceLM YAML."""
         text = self.base_config.read_text()
@@ -204,6 +297,7 @@ class LitniceLMEngine(Engine):
             ("model", "d_model", workload.d_model),
             ("model", "d_ff", workload.d_ff),
             ("model_algo", "position_encoding", workload.position_encoding),
+            ("model_algo", "attention", attention_mode),
             ("tokenization", "output_binary", workload.tokenized_corpus_path),
             ("training", "train_seq_len", workload.seq_len),
             ("training", "window_stride", workload.window_stride),
@@ -234,6 +328,20 @@ class LitniceLMEngine(Engine):
                 continue
             section, separator, key = dotted.partition(".")
             text = _set_key(text, section if separator else None, key or section, value)
+        if profile_backend_ops:
+            text = _set_key(text, "logging", "profile_backend_ops", True)
+            text = _set_key(
+                text,
+                "logging",
+                "profile_backend_skip_batches",
+                spec.litnicelm.profile_skip_batches,
+            )
+            text = _set_key(
+                text,
+                "logging",
+                "profile_backend_steps",
+                spec.litnicelm.profile_optimizer_steps,
+            )
         paths = {
             "model_file_latest": workdir / "latest.ckpt",
             "model_file_best": workdir / "best.ckpt",
@@ -247,13 +355,24 @@ class LitniceLMEngine(Engine):
         self,
         spec: ComparisonSpec,
         precision: str,
+        attention_mode: str,
         workdir: Path,
         validation_fraction: float | None = None,
+        profile_backend_ops: bool = False,
     ) -> Path:
         """Write one temporary native configuration and return its path."""
-        path = workdir / f"litnicelm_{self._native_precision(precision)}.yaml"
+        path = workdir / (
+            f"litnicelm_{self._native_precision(precision)}_{attention_mode}.yaml"
+        )
         path.write_text(
-            self.config_text(spec, precision, workdir, validation_fraction)
+            self.config_text(
+                spec,
+                precision,
+                attention_mode,
+                workdir,
+                validation_fraction,
+                profile_backend_ops,
+            )
         )
         return path
 
@@ -299,6 +418,7 @@ class LitniceLMEngine(Engine):
         self,
         spec: ComparisonSpec,
         precision: str,
+        attention_mode: str,
         epochs: int | None = None,
         operation: str = "train",
         validation_fraction: float | None = None,
@@ -306,7 +426,11 @@ class LitniceLMEngine(Engine):
         """Run the old epoch-driven LitniceLM benchmark path once."""
         with tempfile.TemporaryDirectory(prefix="litnicelm_vs_bench_") as temporary:
             config = self.write_config(
-                spec, precision, Path(temporary), validation_fraction
+                spec,
+                precision,
+                attention_mode,
+                Path(temporary),
+                validation_fraction,
             )
             command = [
                 str(self.binary),
@@ -338,5 +462,6 @@ class LitniceLMEngine(Engine):
         del variant
         if operation != "train_speed":
             raise NotImplementedError(f"LitniceLM operation is not implemented: {operation}")
-        return self.train(spec, spec.workload.precisions[0])
+        attention_mode = spec.litnicelm.attention_modes[0]
+        return self.train(spec, spec.workload.precisions[0], attention_mode)
 

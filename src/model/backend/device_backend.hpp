@@ -132,6 +132,10 @@ public:
   virtual BackendTimingReport timing_report() {
     return host_backend_timer_.report();
   }
+  virtual void timing_prepare(uint64_t max_marks) {
+    (void)max_marks;
+    host_backend_timer_.reset();
+  }
 
 private:
   HostBackendTimer host_backend_timer_;

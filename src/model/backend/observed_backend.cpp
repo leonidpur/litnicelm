@@ -280,3 +280,6 @@ void ObservedBackend::timing_mark_end() { wrapped_->timing_mark_end(); }
 BackendTimingReport ObservedBackend::timing_report() {
   return wrapped_->timing_report();
 }
+void ObservedBackend::timing_prepare(uint64_t max_marks) {
+  wrapped_->timing_prepare(max_marks);
+}

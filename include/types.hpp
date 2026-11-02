@@ -139,6 +139,8 @@ struct LoggingConfig {
   int32_t report_every_n_steps;
   uint32_t epoch_report_every;
   bool profile_backend_ops = false;
+  uint32_t profile_backend_skip_batches = 0;
+  uint32_t profile_backend_steps = 1;
 };
 
 struct ReportingConfig {

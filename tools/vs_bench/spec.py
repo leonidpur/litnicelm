@@ -1,6 +1,6 @@
 """Engine-neutral specification for a comparison run."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -71,6 +71,18 @@ class TrainSpeedSettings:
 
 
 @dataclass(frozen=True)
+class LitniceLMSettings:
+    """LitniceLM-only axes and settings, translated by its adapter."""
+
+    attention_modes: tuple[str, ...] = (
+        "fused_inplace_multistream",
+        "fused_inplace",
+    )
+    profile_skip_batches: int = 8
+    profile_optimizer_steps: int = 3
+
+
+@dataclass(frozen=True)
 class ComparisonSpec:
     """Complete comparison grouped by scope rather than by engine."""
 
@@ -78,4 +90,5 @@ class ComparisonSpec:
     environment: EnvironmentSpec
     parity: ParitySettings
     train_speed: TrainSpeedSettings
+    litnicelm: LitniceLMSettings = field(default_factory=LitniceLMSettings)
 

@@ -44,17 +44,6 @@ public:
       handle_ = nullptr;
       check_cublas(math_status, "cublasSetMathMode");
     }
-    try {
-      for (TimingMark &mark : timing_marks_) {
-        check_cuda(cudaEventCreate(&mark.begin), "cudaEventCreate(timing begin)");
-        check_cuda(cudaEventCreate(&mark.end), "cudaEventCreate(timing end)");
-      }
-    } catch (...) {
-      destroy_timing_events();
-      cublasDestroy(handle_);
-      handle_ = nullptr;
-      throw;
-    }
   }
 
   ~CuBlasPluginBackend() override {
@@ -858,6 +847,32 @@ public:
     return result;
   }
 
+  void timing_prepare(uint64_t max_marks) override {
+    if (max_marks == 0 || max_marks > 1'000'000) {
+      throw std::invalid_argument(
+          "cuda_cublas_plugin: timing mark capacity must be in [1, 1000000]");
+    }
+    destroy_timing_events();
+    timing_marks_.clear();
+    timing_marks_.resize(static_cast<size_t>(max_marks));
+    timing_mark_count_ = 0;
+    timing_dropped_marks_ = 0;
+    timing_active_ = false;
+    timing_drop_active_ = false;
+    try {
+      for (TimingMark &mark : timing_marks_) {
+        check_cuda(cudaEventCreate(&mark.begin),
+                   "cudaEventCreate(timing begin)");
+        check_cuda(cudaEventCreate(&mark.end), "cudaEventCreate(timing end)");
+      }
+    } catch (...) {
+      destroy_timing_events();
+      timing_marks_.clear();
+      throw std::runtime_error(
+          "cuda_cublas_plugin: could not allocate requested timing event pool");
+    }
+  }
+
 private:
   struct TimingMark {
     cudaEvent_t begin = nullptr;
@@ -919,8 +934,7 @@ private:
   size_t used_exec_lane_count_ = 0;
   bool has_active_exec_group_ = false;
   bool in_exec_iteration_ = false;
-  static constexpr size_t kTimingMarkCapacity = 4096;
-  std::array<TimingMark, kTimingMarkCapacity> timing_marks_{};
+  std::vector<TimingMark> timing_marks_;
   size_t timing_mark_count_ = 0;
   uint64_t timing_dropped_marks_ = 0;
   bool timing_active_ = false;

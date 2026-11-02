@@ -168,9 +168,10 @@ struct BackendApiV1 {
   void (*timing_mark_begin)(void *backend, uint32_t op_id);
   void (*timing_mark_end)(void *backend);
   BackendTimingReport (*timing_report)(void *backend);
+  void (*timing_prepare)(void *backend, uint64_t max_marks);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 22;
+inline constexpr uint32_t kBackendApiVersion = 23;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

@@ -494,6 +494,10 @@ public:
     return api_->timing_report(instance_);
   }
 
+  void timing_prepare(uint64_t max_marks) override {
+    api_->timing_prepare(instance_, max_marks);
+  }
+
 private:
   void *library_handle_ = nullptr;
   const BackendApiV1 *api_ = nullptr;

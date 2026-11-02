@@ -42,7 +42,11 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
   add_observer(
       std::make_unique<ReportingObserver>(report_renderer, cmd.runtime_flags.probe));
   auto profiling =
-      std::make_unique<ProfilingObserver>(cfg.logging.profile_backend_ops);
+      std::make_unique<ProfilingObserver>(
+          cfg.logging.profile_backend_ops,
+          cfg.logging.profile_backend_skip_batches,
+          cfg.logging.profile_backend_steps,
+          cfg.model_algo.attention);
   profiling_observer_ = profiling.get();
   add_observer(std::move(profiling));
   add_observer(std::make_unique<EtaObserver>(

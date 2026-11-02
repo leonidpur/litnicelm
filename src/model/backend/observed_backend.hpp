@@ -111,6 +111,7 @@ public:
   void timing_mark_begin(uint32_t op_id) override;
   void timing_mark_end() override;
   BackendTimingReport timing_report() override;
+  void timing_prepare(uint64_t max_marks) override;
 
 private:
   std::unique_ptr<DeviceBackend> wrapped_;

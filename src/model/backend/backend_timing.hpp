@@ -25,6 +25,8 @@ struct BackendTimingReport {
 // overrides the DeviceBackend timing methods with stream event markers.
 class HostBackendTimer {
 public:
+  void reset() { *this = HostBackendTimer{}; }
+
   void mark_begin(uint32_t op_id) {
     if (active_) {
       ++dropped_marks_;
