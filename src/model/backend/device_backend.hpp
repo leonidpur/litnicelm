@@ -1,6 +1,7 @@
 #pragma once
 
 #include "memory/memory_resource_info.hpp"
+#include "backend_timing.hpp"
 
 #include <config.hpp>
 #include "tensor.hpp"
@@ -119,6 +120,9 @@ public:
   virtual bool is_file2device_read_supported() const = 0;
   virtual void read_file2device(const std::string &path, void *dst,
                                 uint64_t size, uint64_t file_offset) = 0;
+  virtual void timing_mark_begin(uint32_t op_id) { (void)op_id; }
+  virtual void timing_mark_end() {}
+  virtual BackendTimingReport timing_report() { return {}; }
 };
 
 class DefaultCpuBackend final : public DeviceBackend {

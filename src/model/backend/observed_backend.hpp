@@ -1,0 +1,118 @@
+#pragma once
+
+#include "backend_observer.hpp"
+#include "device_backend.hpp"
+
+#include <memory>
+#include <vector>
+
+class ObservedBackend final : public DeviceBackend {
+public:
+  ObservedBackend(std::unique_ptr<DeviceBackend> wrapped,
+                  std::vector<IBackendObserver *> observers);
+
+  DeviceBackend &wrapped_backend();
+  Device device() const override;
+  void *alloc(uint64_t bytes, uint32_t alignment) override;
+  void free(void *ptr) override;
+  DeviceMemoryInfo memory_info() const override;
+  uint32_t precision_variants() const override;
+  void copy_host2device(void *dst, const void *src, uint64_t bytes) override;
+  void copy_device2host(void *dst, const void *src, uint64_t bytes) override;
+  void copy(const TensorView &src, TensorView &dst) override;
+  void cast(const TensorView &src, TensorView &dst) override;
+  void fill(TensorView &t, float v) override;
+  void add(const TensorView &a, const TensorView &b, TensorView &out) override;
+  void add_inplace(TensorView &a, const TensorView &b) override;
+  void add_bias_rowwise(const TensorView &x, const TensorView &bias_1xC,
+                        TensorView &out) override;
+  void add_bias_relu_rowwise(const TensorView &x, const TensorView &bias_1xC,
+                             TensorView &out) override;
+  void add_bias_relu_rowwise_inplace(TensorView &x,
+                                     const TensorView &bias_1xC) override;
+  void mul_scalar(const TensorView &x, float s, TensorView &out) override;
+  float sum_squares_f32(const TensorView &x) override;
+  void relu(const TensorView &x, TensorView &out) override;
+  void relu_backward(const TensorView &preact, const TensorView &dout,
+                     TensorView &dx) override;
+  void relu_backward_inplace(const TensorView &preact,
+                             TensorView &dout_dx) override;
+  void row_sum(const TensorView &x, TensorView &out_1xC) override;
+  void gemm(const TensorView &a, const TensorView &b, TensorView &out) override;
+  void gemm_ranked_matrix_rhs(const TensorView &a, const TensorView &b,
+                              TensorView &out) override;
+  void gemm_ranked_matrix_rhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override;
+  void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
+                                TensorView &out) override;
+  void gemm_batched(const TensorView &a, const TensorView &b,
+                    TensorView &out) override;
+  void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override;
+  void gemm_batched_rhs_t(const TensorView &a, const TensorView &b,
+                          TensorView &out) override;
+  void transpose(const TensorView &x, TensorView &out) override;
+  void layernorm_forward(const TensorView &x, const TensorView &gamma_1xC,
+                         const TensorView &beta_1xC, TensorView &out) override;
+  void layernorm_backward(const TensorView &x, const TensorView &gamma_1xC,
+                          const TensorView &dout, TensorView &dx,
+                          TensorView &dgamma_1xC,
+                          TensorView &dbeta_1xC) override;
+  void embedding_lookup(const TensorView &table, const TensorView &ids,
+                        TensorView &out) override;
+  void accumulate_embedding_grads(const TensorView &ids,
+                                  const TensorView &d_cur,
+                                  TensorView &d_tok) override;
+  void cross_entropy_mean(const TensorView &logits, const TensorView &targets,
+                          TensorView &out_loss) override;
+  void cross_entropy_mean_backward_inplace(TensorView &logits,
+                                           const TensorView &targets,
+                                           TensorView &out_loss) override;
+  float read_scalar_f32(const TensorView &x) override;
+  void backward_from_logits_targets(TensorView &logits,
+                                    const TensorView &targets) override;
+  void softmax_rows(const TensorView &x, TensorView &out) override;
+  void softmax_backward_rows(const TensorView &softmax, const TensorView &dout,
+                             TensorView &dx) override;
+  void scaled_causal_softmax_rows(const TensorView &scores, float scale,
+                                  TensorView &out) override;
+  bool supports_exec_context_iteration() const override;
+  void start_exec_context_iteration() override;
+  void finish_exec_context_iteration() override;
+  void start_exec_context_group() override;
+  void finish_exec_context_group() override;
+  void gemm_batched_exec_context(const TensorView &a, const TensorView &b,
+                                 TensorView &out) override;
+  void gemm_batched_lhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override;
+  void gemm_batched_rhs_t_exec_context(const TensorView &a,
+                                       const TensorView &b,
+                                       TensorView &out) override;
+  void scaled_causal_softmax_rows_exec_context(
+      const TensorView &scores, float scale, TensorView &out) override;
+  void softmax_backward_causal_rows_exec_context(
+      const TensorView &softmax, const TensorView &dout,
+      TensorView &dx) override;
+  void softmax_backward_causal_rows(const TensorView &softmax,
+                                    const TensorView &dout,
+                                    TensorView &dx) override;
+  void apply_causal_mask_inplace(TensorView &scores,
+                                 float neg_inf = -1e9f) override;
+  void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
+                                bool inverse) override;
+  void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
+                  TensorView &v, uint64_t step, float learning_rate,
+                  float beta1, float beta2, float weight_decay,
+                  bool apply_weight_decay) override;
+  bool is_file2device_read_supported() const override;
+  void read_file2device(const std::string &path, void *dst, uint64_t size,
+                        uint64_t file_offset) override;
+  void timing_mark_begin(uint32_t op_id) override;
+  void timing_mark_end() override;
+  BackendTimingReport timing_report() override;
+
+private:
+  std::unique_ptr<DeviceBackend> wrapped_;
+  std::vector<IBackendObserver *> observers_;
+};

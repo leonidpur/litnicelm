@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include <litnicelm_utils/tensor_view_struct.h>
+#include "backend_timing.hpp"
 
 // Tensor views cross the plugin boundary as TensorViewStruct pointers (see
 // litnicelm_utils/tensor_view_struct.h); a host TensorView is passed as is.
@@ -164,9 +165,12 @@ struct BackendApiV1 {
   // F32 -> BF16 (round to nearest even, NaN and Inf kept) or BF16 -> F32.
   void (*cast)(void *backend, const TensorViewStruct *src,
                const TensorViewStruct *dst);
+  void (*timing_mark_begin)(void *backend, uint32_t op_id);
+  void (*timing_mark_end)(void *backend);
+  BackendTimingReport (*timing_report)(void *backend);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 21;
+inline constexpr uint32_t kBackendApiVersion = 22;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();
