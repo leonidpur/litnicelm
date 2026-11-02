@@ -163,6 +163,7 @@ target_include_directories(litnice_backend_ops_test PRIVATE
     src/utils
     src/model
     src/model/memory
+    src/profiling
 )
 target_link_libraries(litnice_backend_ops_test PRIVATE litnice_core)
 foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin)

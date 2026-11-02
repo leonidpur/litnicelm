@@ -17,6 +17,7 @@
 
 #include "backend/backend_plugin_api.hpp"
 #include "backend/device_backend.hpp"
+#include "gpu_op_timer.hpp"
 #include "tensor.hpp"
 
 #include <config.hpp>
@@ -708,6 +709,68 @@ void compare_variants(DeviceBackend &reference, DeviceBackend &plugin,
   }
 }
 
+bool same_result_bits(const Result &a, const Result &b) {
+  if (a.outputs.size() != b.outputs.size() ||
+      a.scalars.size() != b.scalars.size()) {
+    return false;
+  }
+  for (size_t index = 0; index < a.outputs.size(); ++index) {
+    if (a.outputs[index].size() != b.outputs[index].size() ||
+        std::memcmp(a.outputs[index].data(), b.outputs[index].data(),
+                    a.outputs[index].size() * sizeof(float)) != 0) {
+      return false;
+    }
+  }
+  return a.scalars.empty() ||
+         std::memcmp(a.scalars.data(), b.scalars.data(),
+                     a.scalars.size() * sizeof(double)) == 0;
+}
+
+bool has_atomic_reduction(const OpCase &op) {
+  return op.name == "layernorm_backward" ||
+         op.name == "accumulate_embedding_grads" ||
+         op.name == "cross_entropy_mean" ||
+         op.name == "cross_entropy_mean_backward_inplace";
+}
+
+bool same_result_with_contract(const Result &a, const Result &b,
+                               const OpCase &op) {
+  if (!has_atomic_reduction(op)) return same_result_bits(a, b);
+  if (a.outputs.size() != b.outputs.size() ||
+      a.scalars.size() != b.scalars.size()) {
+    return false;
+  }
+  for (size_t output = 0; output < a.outputs.size(); ++output) {
+    if (a.outputs[output].size() != b.outputs[output].size()) return false;
+    for (size_t value = 0; value < a.outputs[output].size(); ++value) {
+      if (!close(a.outputs[output][value], b.outputs[output][value], op)) {
+        return false;
+      }
+    }
+  }
+  for (size_t scalar = 0; scalar < a.scalars.size(); ++scalar) {
+    if (!close(a.scalars[scalar], b.scalars[scalar], op)) return false;
+  }
+  return true;
+}
+
+void compare_observed(DeviceBackend &direct, DeviceBackend &observed,
+                      const OpCase &op, uint64_t &case_count) {
+  try {
+    const Result direct_result = execute(direct, op, false);
+    const Result observed_result = execute(observed, op, false);
+    if (!same_result_with_contract(direct_result, observed_result, op)) {
+      std::cout << "[FAIL] observed " << op.name
+                << " differs from unwrapped backend\n";
+      ++g_failures;
+    }
+    ++case_count;
+  } catch (const std::exception &e) {
+    std::cout << "[FAIL] observed " << op.name << ": " << e.what() << "\n";
+    ++g_failures;
+  }
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -719,6 +782,10 @@ int main(int argc, char **argv) {
   Config cfg{};
   cfg.backend.library = argv[1];
   std::unique_ptr<DeviceBackend> plugin = DeviceBackend::create_instance(cfg);
+  GpuOpTimer op_timer;
+  std::unique_ptr<DeviceBackend> observed_plugin =
+      DeviceBackend::create_instance(cfg, {&op_timer});
+  op_timer.start();
   DefaultCpuBackend reference;
 
   std::cout << "Backend op tests on " << argv[1]
@@ -761,6 +828,41 @@ int main(int argc, char **argv) {
       compare_variants(reference, *plugin, *it, variant);
     }
   }
+
+  uint64_t observed_case_count = 0;
+  for (const OpCase &op : op_cases()) {
+    compare_observed(*plugin, *observed_plugin, op, observed_case_count);
+  }
+  if (plugin->supports_exec_context_iteration()) {
+    for (const OpCase &op : exec_context_cases()) {
+      compare_observed(*plugin, *observed_plugin, op, observed_case_count);
+    }
+  }
+  if (bf16act) {
+    std::vector<OpCase> cases = op_cases();
+    for (OpCase &op : exec_context_cases()) cases.push_back(std::move(op));
+    for (const VariantCase &variant : bf16act_cases()) {
+      const auto it = std::find_if(cases.begin(), cases.end(),
+                                   [&](const OpCase &op) {
+                                     return op.name == variant.name;
+                                   });
+      if (it != cases.end()) {
+        compare_observed(*plugin, *observed_plugin,
+                         as_variant(*it, variant.roles, true),
+                         observed_case_count);
+      }
+    }
+  }
+  op_timer.stop();
+  const BackendTimingReport timing = observed_plugin->timing_report();
+  const bool timing_ok = timing.total_count > 0 && timing.dropped_marks == 0;
+  std::cout << (timing_ok ? "[PASS] " : "[FAIL] ")
+            << "ObservedBackend preserved " << observed_case_count
+            << " operation cases (bit-for-bit except documented atomic "
+               "reductions) and recorded "
+            << timing.total_count << " operation kinds with "
+            << timing.dropped_marks << " dropped marks\n";
+  if (!timing_ok) ++g_failures;
 
   std::cout << (g_failures == 0 ? "All backend op tests passed.\n"
                                 : "Backend op tests FAILED.\n");
