@@ -120,9 +120,16 @@ public:
   virtual bool is_file2device_read_supported() const = 0;
   virtual void read_file2device(const std::string &path, void *dst,
                                 uint64_t size, uint64_t file_offset) = 0;
-  virtual void timing_mark_begin(uint32_t op_id) { (void)op_id; }
-  virtual void timing_mark_end() {}
-  virtual BackendTimingReport timing_report() { return {}; }
+  virtual void timing_mark_begin(uint32_t op_id) {
+    host_backend_timer_.mark_begin(op_id);
+  }
+  virtual void timing_mark_end() { host_backend_timer_.mark_end(); }
+  virtual BackendTimingReport timing_report() {
+    return host_backend_timer_.report();
+  }
+
+private:
+  HostBackendTimer host_backend_timer_;
 };
 
 class DefaultCpuBackend final : public DeviceBackend {

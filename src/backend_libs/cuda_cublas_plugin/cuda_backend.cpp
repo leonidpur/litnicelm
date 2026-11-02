@@ -9,6 +9,7 @@
 #include <litnicelm_utils/checks.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -43,9 +44,21 @@ public:
       handle_ = nullptr;
       check_cublas(math_status, "cublasSetMathMode");
     }
+    try {
+      for (TimingMark &mark : timing_marks_) {
+        check_cuda(cudaEventCreate(&mark.begin), "cudaEventCreate(timing begin)");
+        check_cuda(cudaEventCreate(&mark.end), "cudaEventCreate(timing end)");
+      }
+    } catch (...) {
+      destroy_timing_events();
+      cublasDestroy(handle_);
+      handle_ = nullptr;
+      throw;
+    }
   }
 
   ~CuBlasPluginBackend() override {
+    destroy_timing_events();
     for (CudaExecutionLane &lane : exec_lanes_) {
       if (lane.cublas != nullptr) {
         cublasDestroy(lane.cublas);
@@ -776,7 +789,97 @@ public:
     copy_host2device(dst, host_buffer.data(), size);
   }
 
+  void timing_mark_begin(uint32_t op_id) override {
+    if (timing_active_ || timing_mark_count_ == timing_marks_.size()) {
+      ++timing_dropped_marks_;
+      timing_drop_active_ = true;
+      return;
+    }
+    TimingMark &mark = timing_marks_[timing_mark_count_];
+    mark.op_id = op_id;
+    check_cuda(cudaEventRecord(mark.begin, timing_stream()),
+               "cudaEventRecord(timing begin)");
+    timing_active_ = true;
+  }
+
+  void timing_mark_end() override {
+    if (timing_drop_active_) {
+      timing_drop_active_ = false;
+      return;
+    }
+    if (!timing_active_) {
+      ++timing_dropped_marks_;
+      return;
+    }
+    TimingMark &mark = timing_marks_[timing_mark_count_];
+    check_cuda(cudaEventRecord(mark.end, timing_stream()),
+               "cudaEventRecord(timing end)");
+    ++timing_mark_count_;
+    timing_active_ = false;
+  }
+
+  BackendTimingReport timing_report() override {
+    BackendTimingReport result{};
+    if (timing_mark_count_ == 0) {
+      result.dropped_marks = timing_dropped_marks_;
+      return result;
+    }
+    // One synchronization covers every event in the pre-created pool.
+    check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize(timing report)");
+    std::array<uint64_t, kBackendTimingMaxOps> counts{};
+    std::array<uint64_t, kBackendTimingMaxOps> nanoseconds{};
+    for (size_t index = 0; index < timing_mark_count_; ++index) {
+      const TimingMark &mark = timing_marks_[index];
+      float elapsed_ms = 0.0f;
+      check_cuda(cudaEventElapsedTime(&elapsed_ms, mark.begin, mark.end),
+                 "cudaEventElapsedTime(operation)");
+      if (mark.op_id < counts.size()) {
+        ++counts[mark.op_id];
+        nanoseconds[mark.op_id] +=
+            static_cast<uint64_t>(elapsed_ms * 1000000.0f);
+      } else {
+        ++timing_dropped_marks_;
+      }
+    }
+    float span_ms = 0.0f;
+    check_cuda(cudaEventElapsedTime(&span_ms, timing_marks_[0].begin,
+                                    timing_marks_[timing_mark_count_ - 1].end),
+               "cudaEventElapsedTime(marked span)");
+    result.marked_span_nanoseconds =
+        static_cast<uint64_t>(span_ms * 1000000.0f);
+    result.dropped_marks = timing_dropped_marks_;
+    for (uint32_t op_id = 0; op_id < counts.size(); ++op_id) {
+      if (counts[op_id] == 0) continue;
+      BackendTimingTotal &total = result.totals[result.total_count++];
+      total.op_id = op_id;
+      total.count = counts[op_id];
+      total.total_nanoseconds = nanoseconds[op_id];
+    }
+    return result;
+  }
+
 private:
+  struct TimingMark {
+    cudaEvent_t begin = nullptr;
+    cudaEvent_t end = nullptr;
+    uint32_t op_id = 0;
+  };
+
+  cudaStream_t timing_stream() const {
+    return has_active_exec_group_
+               ? exec_lanes_[active_exec_lane_index_].stream
+               : static_cast<cudaStream_t>(nullptr);
+  }
+
+  void destroy_timing_events() noexcept {
+    for (TimingMark &mark : timing_marks_) {
+      if (mark.begin != nullptr) cudaEventDestroy(mark.begin);
+      if (mark.end != nullptr) cudaEventDestroy(mark.end);
+      mark.begin = nullptr;
+      mark.end = nullptr;
+    }
+  }
+
   CudaExecutionLane &active_exec_lane() {
     checker().check(CheckKind::Contract, has_active_exec_group_,
                     "cuda_cublas_plugin",
@@ -816,6 +919,12 @@ private:
   size_t used_exec_lane_count_ = 0;
   bool has_active_exec_group_ = false;
   bool in_exec_iteration_ = false;
+  static constexpr size_t kTimingMarkCapacity = 4096;
+  std::array<TimingMark, kTimingMarkCapacity> timing_marks_{};
+  size_t timing_mark_count_ = 0;
+  uint64_t timing_dropped_marks_ = 0;
+  bool timing_active_ = false;
+  bool timing_drop_active_ = false;
 };
 
 

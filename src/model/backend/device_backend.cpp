@@ -482,6 +482,16 @@ public:
     api_->read_file2device(instance_, path.c_str(), dst, size, file_offset);
   }
 
+  void timing_mark_begin(uint32_t op_id) override {
+    api_->timing_mark_begin(instance_, op_id);
+  }
+
+  void timing_mark_end() override { api_->timing_mark_end(instance_); }
+
+  BackendTimingReport timing_report() override {
+    return api_->timing_report(instance_);
+  }
+
 private:
   void *library_handle_ = nullptr;
   const BackendApiV1 *api_ = nullptr;

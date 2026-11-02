@@ -893,6 +893,18 @@ void plugin_cast(void *backend, const TensorViewStruct *src,
   to_openblas_backend(backend).cast(to_tensor_view(*src), dst_view);
 }
 
+void plugin_timing_mark_begin(void *backend, uint32_t op_id) {
+  to_openblas_backend(backend).timing_mark_begin(op_id);
+}
+
+void plugin_timing_mark_end(void *backend) {
+  to_openblas_backend(backend).timing_mark_end();
+}
+
+BackendTimingReport plugin_timing_report(void *backend) {
+  return to_openblas_backend(backend).timing_report();
+}
+
 const BackendApiV1 kBackendApi = {
     kBackendApiVersion,
     &plugin_create,
@@ -953,6 +965,9 @@ const BackendApiV1 kBackendApi = {
     &plugin_memory_info,
     &plugin_precision_variants,
     &plugin_cast,
+    &plugin_timing_mark_begin,
+    &plugin_timing_mark_end,
+    &plugin_timing_report,
 };
 
 } // namespace
