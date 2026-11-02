@@ -57,6 +57,10 @@ class ParityVertical(Vertical):
                 difference = abs(float(metrics["loss"]) - reference)
                 metrics.update(
                     {
+                        "variant_label": variant.label,
+                        "variant_options": ", ".join(
+                            f"{key}={value}" for key, value in variant.options.items()
+                        ),
                         "reference_loss": reference,
                         "difference": difference,
                         "tolerance": spec.parity.tolerance,

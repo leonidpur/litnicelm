@@ -123,13 +123,23 @@ class LitniceLMEngine(Engine):
         del spec
         if vertical != "train_speed":
             return ()
-        return (EngineVariant(precision, "per_batch", "none"),)
+        return (EngineVariant(self.name, precision, "native", {}),)
 
     def run_speed(
         self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
         del steps  # The unchanged LitniceLM path is epoch-driven.
         return self.train(spec, variant.precision)
+
+    def profile_variant(
+        self, spec: ComparisonSpec, vertical: str, variant: EngineVariant
+    ) -> dict[str, str]:
+        del spec, vertical, variant
+        return {
+            "attention_backend": "unfused per-head GEMMs + softmax",
+            "attention_backend_source": "LitniceLM implementation",
+            "attention_cuda_kernels": "not separately profiled",
+        }
 
     def run_differential(
         self,
@@ -271,7 +281,6 @@ class LitniceLMEngine(Engine):
             operation="train_speed",
             metrics={
                 "precision": precision,
-                "compile_mode": "none",
                 "sync": "per batch",
                 "steps": steps,
                 "tokens_per_step": spec.workload.tokens_per_step,
@@ -320,7 +329,6 @@ class LitniceLMEngine(Engine):
                     "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
                     "validation_enabled": validation_fraction != 0.0,
                     "checkpointing_enabled": operation != "dry_run",
-                "compile_warmup_seconds": 0.0,
                 },
             )
 

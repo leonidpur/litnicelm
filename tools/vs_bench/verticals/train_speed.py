@@ -2,7 +2,7 @@
 
 from typing import Sequence
 
-from ..engines.base import Engine, EngineResult
+from ..engines.base import Engine, EngineResult, EngineVariant
 from ..spec import ComparisonSpec
 from .base import EnginePlan, Vertical, VerticalPlan, VerticalResult
 
@@ -58,6 +58,7 @@ class TrainSpeedVertical(Vertical):
                         metrics = {
                             **result.metrics,
                             **self._differential_metrics(endpoints),
+                            **self._variant_metrics(variant),
                             "repeat": repeat,
                         }
                         results.append(
@@ -79,6 +80,7 @@ class TrainSpeedVertical(Vertical):
                         metrics = {
                             **result.metrics,
                             **self._differential_metrics(endpoints),
+                            **self._variant_metrics(variant),
                             "repeat": repeat,
                         }
                         results.append(
@@ -88,10 +90,54 @@ class TrainSpeedVertical(Vertical):
                                 metrics=metrics,
                             )
                         )
+        profile_evidence: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        for precision in spec.workload.precisions:
+            for engine in sources + peers:
+                for variant in engine.variants(spec, self.name, precision):
+                    profile_evidence[self._variant_key(variant)] = engine.profile_variant(
+                        spec, self.name, variant
+                    )
+        profiled_results = tuple(
+            EngineResult(
+                engine=result.engine,
+                operation=result.operation,
+                metrics={
+                    **result.metrics,
+                    **profile_evidence[
+                        (
+                            result.engine,
+                            str(result.metrics["precision"]),
+                            str(result.metrics["variant_label"]),
+                            str(result.metrics["variant_options"]),
+                        )
+                    ],
+                },
+            )
+            for result in results
+        )
         return VerticalResult(
             vertical=self.name,
-            engines=self._check_equivalence(spec, sources, tuple(results)),
+            engines=self._check_equivalence(spec, sources, profiled_results),
         )
+
+    @staticmethod
+    def _variant_key(variant: EngineVariant) -> tuple[str, str, str, str]:
+        return (
+            variant.engine,
+            variant.precision,
+            variant.label,
+            ", ".join(f"{key}={value}" for key, value in variant.options.items()),
+        )
+
+    @staticmethod
+    def _variant_metrics(variant: EngineVariant) -> dict[str, str]:
+        """Render adapter-owned options without knowing their names."""
+        return {
+            "variant_label": variant.label,
+            "variant_options": ", ".join(
+                f"{key}={value}" for key, value in variant.options.items()
+            ),
+        }
 
     @staticmethod
     def _differential_metrics(

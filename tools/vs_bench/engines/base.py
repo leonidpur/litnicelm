@@ -2,6 +2,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 from ..spec import ComparisonSpec
 
@@ -19,9 +21,13 @@ class EngineResult:
 class EngineVariant:
     """One engine expansion inside a vertical's neutral precision group."""
 
+    engine: str
     precision: str
-    loss_read: str = "end"
-    compile_mode: str = "none"
+    label: str
+    options: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "options", MappingProxyType(dict(self.options)))
 
 
 class Engine(ABC):
@@ -69,6 +75,13 @@ class Engine(ABC):
         return tuple(
             self.run_speed(spec, variant, steps) for steps in step_counts
         )  # type: ignore[return-value]
+
+    def profile_variant(
+        self, spec: ComparisonSpec, vertical: str, variant: EngineVariant
+    ) -> dict[str, str]:
+        """Return untimed implementation evidence for one variant, if supported."""
+        del spec, vertical, variant
+        return {}
 
     @abstractmethod
     def run(

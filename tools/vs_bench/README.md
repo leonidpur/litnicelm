@@ -37,8 +37,10 @@ optimizer state, and the data cursor so warm-up updates do not enter the
 matched-step loss.
 
 Precision is the neutral comparison axis. Each precision gets its own report
-section. LitniceLM contributes one variant; PyTorch contributes eager
-per-batch/end-read variants plus a compiled end-read variant. The report marks
-the fastest PyTorch variant and gives the LitniceLM/best-PyTorch throughput
+section. Variants carry only neutral identity plus an adapter-owned options
+mapping. LitniceLM contributes one option-free variant; PyTorch contributes
+eager per-batch/end-read variants plus one end-read variant for every selected
+`pytorch.compile_modes` entry. The report renders options generically, marks
+the fastest PyTorch variant, and gives the LitniceLM/best-PyTorch throughput
 ratio for each precision.
 

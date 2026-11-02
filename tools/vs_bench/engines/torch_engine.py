@@ -17,6 +17,12 @@ from .torch_model import load_export
 
 
 REPOSITORY = Path(__file__).resolve().parents[3]
+ALL_COMPILE_MODES = (
+    "default",
+    "reduce-overhead",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+)
 NATIVE_SETTINGS = MappingProxyType(
     {
         "device": "cuda",
@@ -26,7 +32,8 @@ NATIVE_SETTINGS = MappingProxyType(
         "master_weights": "fp32",
         "matmul_tf32": False,
         "benchmark_warmup_steps": 5,
-        "compile_modes": "none, compiled (end loss read only)",
+        "pytorch.profile_steps": 3,
+        "pytorch.compile_modes": ALL_COMPILE_MODES,
         "worker": "python -m vs_bench.engines.torch_worker",
     }
 )
@@ -61,25 +68,57 @@ class TorchEngine(Engine):
     ) -> tuple[EngineVariant, ...]:
         del spec
         if vertical == "parity":
-            return (EngineVariant(precision, "end", "none"),)
-        if vertical == "train_speed":
             return (
-                EngineVariant(precision, "per_batch", "none"),
-                EngineVariant(precision, "end", "none"),
-                EngineVariant(precision, "end", "compiled"),
+                EngineVariant(
+                    self.name,
+                    precision,
+                    "eager reference",
+                    {"loss_read": "end", "compile_mode": "none"},
+                ),
             )
+        if vertical == "train_speed":
+            compile_modes = tuple(NATIVE_SETTINGS["pytorch.compile_modes"])
+            unknown = set(compile_modes) - set(ALL_COMPILE_MODES)
+            if unknown:
+                raise ValueError(f"unknown pytorch.compile_modes: {sorted(unknown)}")
+            eager = (
+                EngineVariant(
+                    self.name,
+                    precision,
+                    "eager / per-batch loss",
+                    {"loss_read": "per_batch", "compile_mode": "none"},
+                ),
+                EngineVariant(
+                    self.name,
+                    precision,
+                    "eager / end loss",
+                    {"loss_read": "end", "compile_mode": "none"},
+                ),
+            )
+            compiled = tuple(
+                EngineVariant(
+                    self.name,
+                    precision,
+                    f"compiled / {mode}",
+                    {"loss_read": "end", "compile_mode": mode},
+                )
+                for mode in compile_modes
+            )
+            return eager + compiled
         return ()
 
     def run_speed(
         self, spec: ComparisonSpec, variant: EngineVariant, steps: int
     ) -> EngineResult:
+        loss_read = variant.options["loss_read"]
+        compile_mode = variant.options["compile_mode"]
         request = json.dumps(
             {
                 "precision": variant.precision,
-                "loss_read": variant.loss_read,
+                "loss_read": loss_read,
                 "steps": steps,
                 "benchmark_warmup_steps": NATIVE_SETTINGS["benchmark_warmup_steps"],
-                "compile_mode": variant.compile_mode,
+                "compile_mode": compile_mode,
             }
         )
         request_path = write_process_request("pytorch", request)
@@ -99,6 +138,37 @@ class TorchEngine(Engine):
             }
         )
         return EngineResult(engine=self.name, operation="train_speed", metrics=metrics)
+
+    def profile_variant(
+        self, spec: ComparisonSpec, vertical: str, variant: EngineVariant
+    ) -> dict[str, str]:
+        """Profile this PyTorch variant in a separate, untimed worker process."""
+        if vertical != "train_speed":
+            return {}
+        request = json.dumps(
+            {
+                "precision": variant.precision,
+                "loss_read": variant.options["loss_read"],
+                "steps": int(NATIVE_SETTINGS["pytorch.profile_steps"]),
+                "benchmark_warmup_steps": NATIVE_SETTINGS["benchmark_warmup_steps"],
+                "compile_mode": variant.options["compile_mode"],
+                "profile_only": True,
+            }
+        )
+        request_path = write_process_request("pytorch_profile", request)
+        command = [
+            sys.executable,
+            "-m",
+            "vs_bench.engines.torch_worker",
+            str(request_path),
+        ]
+        measured = run_sampled_process(command, REPOSITORY / "tools")
+        metrics = json.loads(measured.output.strip().splitlines()[-1])
+        return {
+            "attention_backend": str(metrics["attention_backend"]),
+            "attention_backend_source": "torch.profiler CUDA kernel names",
+            "attention_cuda_kernels": str(metrics["attention_cuda_kernels"]),
+        }
 
     def run(
         self, spec: ComparisonSpec, operation: str, variant: EngineVariant | None = None
@@ -146,7 +216,6 @@ class TorchEngine(Engine):
             operation="parity",
             metrics={
                 "precision": variant.precision,
-                "compile_mode": variant.compile_mode,
                 "loss": float(np.mean(losses)),
                 "batches": len(losses),
                 "tokens": len(starts) * spec.workload.seq_len,
