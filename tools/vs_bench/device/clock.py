@@ -82,24 +82,38 @@ class LockedGpuClock:
 
     def verify_under_load(self, results: Sequence[VerticalResult]) -> None:
         """Require every sampled training run to observe the requested clock."""
-        clocks = [
-            int(row.metrics["sm_clock_mhz"])
+        rows = [
+            row
             for result in results
             if result.vertical == "train_speed"
             for row in result.engines
-            if int(row.metrics.get("sm_clock_mhz", 0)) > 0
+            if int(row.metrics.get("sm_clock_min_mhz", 0)) > 0
         ]
-        if not clocks:
+        if not rows:
             raise RuntimeError("GPU clock verification failed: no under-load samples")
-        mismatches = [clock for clock in clocks if abs(clock - self.clock_mhz) > 15]
+        mismatches = [
+            row
+            for row in rows
+            if abs(int(row.metrics["sm_clock_min_mhz"]) - self.clock_mhz) > 15
+            or abs(int(row.metrics["sm_clock_max_mhz"]) - self.clock_mhz) > 15
+        ]
         if mismatches:
+            details = "; ".join(
+                f"{row.engine} precision={row.metrics.get('precision')} "
+                f"variant={row.metrics.get('variant_label')} "
+                f"repeat={row.metrics.get('repeat')} range="
+                f"{row.metrics['sm_clock_min_mhz']}-{row.metrics['sm_clock_max_mhz']}"
+                for row in mismatches
+            )
             raise RuntimeError(
                 f"GPU clock verification failed: requested {self.clock_mhz} MHz, "
-                f"sampled means {clocks}"
+                f"offending rows: {details}"
             )
+        minimum = min(int(row.metrics["sm_clock_min_mhz"]) for row in rows)
+        maximum = max(int(row.metrics["sm_clock_max_mhz"]) for row in rows)
         print(
-            f"GPU clock verified under load: {min(clocks)}–{max(clocks)} MHz "
-            f"across {len(clocks)} runs",
+            f"GPU clock verified under load: {minimum}–{maximum} MHz "
+            f"across {len(rows)} runs",
             flush=True,
         )
 

@@ -129,12 +129,19 @@ class TorchEngine(Engine):
             str(request_path),
         ]
         measured = run_sampled_process(command, REPOSITORY / "tools")
+        measured.gpu.verify_clock(
+            spec.environment.clock_mhz,
+            f"PyTorch precision={variant.precision} "
+            f"variant={variant.label} options={dict(variant.options)}",
+        )
         metrics = json.loads(measured.output.strip().splitlines()[-1])
         metrics.update(
             {
                 "process_wall_seconds": measured.wall_seconds,
                 "process_peak_mib": measured.gpu.process_peak_mib,
                 "sm_clock_mhz": measured.gpu.mean_clock_mhz,
+                "sm_clock_min_mhz": measured.gpu.min_clock_mhz,
+                "sm_clock_max_mhz": measured.gpu.max_clock_mhz,
             }
         )
         return EngineResult(engine=self.name, operation="train_speed", metrics=metrics)

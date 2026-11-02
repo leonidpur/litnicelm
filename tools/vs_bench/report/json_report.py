@@ -32,9 +32,11 @@ def write_json(
     spec: ComparisonSpec,
     results: Sequence[VerticalResult],
     raw_log_directory: Path,
+    status: str = "complete",
 ) -> None:
     """Write the spec, environment metadata, and every structured result row."""
     payload = {
+        "status": status,
         "spec": _json_value(asdict(spec)),
         "environment": {
             "python": sys.version.split()[0],

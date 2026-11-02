@@ -441,6 +441,10 @@ class LitniceLMEngine(Engine):
                 str(epochs or ADAPTER_PARAMS["benchmark.epochs"]),
             ]
             measured = run_sampled_process(command, REPOSITORY)
+            measured.gpu.verify_clock(
+                spec.environment.clock_mhz,
+                f"LitniceLM precision={precision} attention_mode={attention_mode}",
+            )
             result = self.parse_training_output(spec, precision, measured.output)
             return EngineResult(
                 engine=result.engine,
@@ -450,6 +454,8 @@ class LitniceLMEngine(Engine):
                     "process_wall_seconds": measured.wall_seconds,
                     "process_peak_mib": measured.gpu.process_peak_mib,
                     "sm_clock_mhz": measured.gpu.mean_clock_mhz,
+                    "sm_clock_min_mhz": measured.gpu.min_clock_mhz,
+                    "sm_clock_max_mhz": measured.gpu.max_clock_mhz,
                     "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
                     "validation_enabled": validation_fraction != 0.0,
                     "checkpointing_enabled": operation != "dry_run",

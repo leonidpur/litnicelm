@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .engines.litnicelm import LitniceLMEngine
 from .engines.torch_engine import TorchEngine
+from .engines.base import EngineResult
 from .device.clock import LockedGpuClock
 from .measure.process import configure_raw_logs, raw_artifact_path
 from .report.console import print_phase_result, print_phase_start, print_plan
@@ -21,6 +22,7 @@ from .spec import (
 )
 from .verticals.parity import ParityVertical
 from .verticals.train_speed import TrainSpeedVertical
+from .verticals.base import VerticalResult
 
 
 SPEC = ComparisonSpec(
@@ -76,21 +78,56 @@ RAW_LOG_ROOT = Path("/mnt/ext_ssd/litnicelm/bench")
 def main() -> None:
     """Explain, execute, and report every configured comparison vertical."""
     engines = (LitniceLMEngine(), TorchEngine())
-    verticals = (ParityVertical(), TrainSpeedVertical())
-    plans = tuple(vertical.plan(SPEC, engines) for vertical in verticals)
-    print_plan(SPEC, plans)
     raw_log_directory = RAW_LOG_ROOT / date.today().isoformat()
     configure_raw_logs(raw_log_directory)
     results_path = raw_artifact_path("results.json")
-    results = []
-    with LockedGpuClock(SPEC.environment.clock_mhz) as clock:
-        for vertical, plan in zip(verticals, plans, strict=True):
-            print_phase_start(plan)
-            result = vertical.run(SPEC, engines)
-            results.append(result)
-            print_phase_result(result)
-        clock.verify_under_load(results)
-    write_json(results_path, SPEC, results, raw_log_directory)
+    results: list[VerticalResult] = []
+
+    def checkpoint_train_speed(rows: tuple[EngineResult, ...]) -> None:
+        partial = VerticalResult(vertical="train_speed", engines=rows)
+        write_json(
+            results_path,
+            SPEC,
+            (*results, partial),
+            raw_log_directory,
+            status="incomplete",
+        )
+
+    verticals = (
+        ParityVertical(),
+        TrainSpeedVertical(on_progress=checkpoint_train_speed),
+    )
+    plans = tuple(vertical.plan(SPEC, engines) for vertical in verticals)
+    print_plan(SPEC, plans)
+    try:
+        with LockedGpuClock(SPEC.environment.clock_mhz) as clock:
+            for vertical, plan in zip(verticals, plans, strict=True):
+                print_phase_start(plan)
+                result = vertical.run(SPEC, engines)
+                results.append(result)
+                write_json(
+                    results_path,
+                    SPEC,
+                    results,
+                    raw_log_directory,
+                    status="clock_verification_pending",
+                )
+                print_phase_result(result)
+            try:
+                clock.verify_under_load(results)
+            except RuntimeError:
+                write_json(
+                    results_path,
+                    SPEC,
+                    results,
+                    raw_log_directory,
+                    status="invalid_clock",
+                )
+                raise
+            write_json(results_path, SPEC, results, raw_log_directory)
+    except BaseException:
+        print(f"\nPreserved partial results JSON: {results_path}", flush=True)
+        raise
     print(f"\nResults JSON: {results_path}")
     print(f"Raw logs: {raw_log_directory}\n")
     print(render_markdown(results))

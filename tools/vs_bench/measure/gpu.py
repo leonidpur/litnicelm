@@ -19,6 +19,32 @@ class GpuSampleSummary:
         """Rounded mean SM clock, or zero when no sample was available."""
         return round(statistics.mean(self.clock_samples_mhz)) if self.clock_samples_mhz else 0
 
+    @property
+    def min_clock_mhz(self) -> int:
+        """Minimum sampled SM clock, or zero without samples."""
+        return min(self.clock_samples_mhz, default=0)
+
+    @property
+    def max_clock_mhz(self) -> int:
+        """Maximum sampled SM clock, or zero without samples."""
+        return max(self.clock_samples_mhz, default=0)
+
+    def verify_clock(self, requested_mhz: int, context: str) -> None:
+        """Fail immediately unless every sample is at the requested lock."""
+        if not self.clock_samples_mhz:
+            raise RuntimeError(f"{context}: no under-load GPU clock samples")
+        mismatches = [
+            value
+            for value in self.clock_samples_mhz
+            if abs(value - requested_mhz) > 15
+        ]
+        if mismatches:
+            raise RuntimeError(
+                f"{context}: GPU clock lock lost; requested {requested_mhz} MHz, "
+                f"sampled range {self.min_clock_mhz}-{self.max_clock_mhz} MHz "
+                f"({len(mismatches)}/{len(self.clock_samples_mhz)} samples outside tolerance)"
+            )
+
 
 class GpuSampler:
     """Collect process memory and clock samples while an engine runs."""

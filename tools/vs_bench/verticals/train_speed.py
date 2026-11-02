@@ -1,5 +1,6 @@
 """Training-speed vertical skeleton."""
 
+from collections.abc import Callable
 from typing import Sequence
 
 from ..engines.base import Engine, EngineResult, EngineVariant
@@ -9,6 +10,19 @@ from .base import EnginePlan, Vertical, VerticalPlan, VerticalResult
 
 class TrainSpeedVertical(Vertical):
     """Compare optimizer-step throughput and memory under matched workloads."""
+
+    def __init__(
+        self,
+        on_progress: Callable[[tuple[EngineResult, ...]], None] | None = None,
+    ) -> None:
+        self._on_progress = on_progress
+
+    def _append_result(
+        self, results: list[EngineResult], result: EngineResult
+    ) -> None:
+        results.append(result)
+        if self._on_progress is not None:
+            self._on_progress(tuple(results))
 
     @property
     def name(self) -> str:
@@ -46,8 +60,14 @@ class TrainSpeedVertical(Vertical):
                 differential_steps: tuple[int, int] | None = None
                 for engine in sources:
                     for variant in engine.variants(spec, self.name, precision):
-                        result = engine.run_speed(spec, variant, measured_steps)
-                        endpoints = engine.run_differential(spec, variant, None)
+                        try:
+                            result = engine.run_speed(spec, variant, measured_steps)
+                            endpoints = engine.run_differential(spec, variant, None)
+                        except RuntimeError as error:
+                            raise RuntimeError(
+                                f"repeat={repeat} precision={precision} "
+                                f"engine={engine.name} variant={variant.label}: {error}"
+                            ) from error
                         steps = tuple(int(endpoint.metrics["steps"]) for endpoint in endpoints)
                         if differential_steps is not None and differential_steps != steps:
                             raise ValueError(
@@ -61,34 +81,42 @@ class TrainSpeedVertical(Vertical):
                             **self._variant_metrics(variant),
                             "repeat": repeat,
                         }
-                        results.append(
+                        self._append_result(
+                            results,
                             EngineResult(
                                 engine=result.engine,
                                 operation=result.operation,
                                 metrics=metrics,
-                            )
+                            ),
                         )
                         measured_steps = int(metrics["steps"])
                 if differential_steps is None:
                     raise ValueError(f"no differential source for precision {precision}")
                 for engine in peers:
                     for variant in engine.variants(spec, self.name, precision):
-                        result = engine.run_speed(spec, variant, measured_steps)
-                        endpoints = engine.run_differential(
-                            spec, variant, differential_steps
-                        )
+                        try:
+                            result = engine.run_speed(spec, variant, measured_steps)
+                            endpoints = engine.run_differential(
+                                spec, variant, differential_steps
+                            )
+                        except RuntimeError as error:
+                            raise RuntimeError(
+                                f"repeat={repeat} precision={precision} "
+                                f"engine={engine.name} variant={variant.label}: {error}"
+                            ) from error
                         metrics = {
                             **result.metrics,
                             **self._differential_metrics(endpoints),
                             **self._variant_metrics(variant),
                             "repeat": repeat,
                         }
-                        results.append(
+                        self._append_result(
+                            results,
                             EngineResult(
                                 engine=result.engine,
                                 operation=result.operation,
                                 metrics=metrics,
-                            )
+                            ),
                         )
         profile_evidence: dict[tuple[str, str, str, str], dict[str, str]] = {}
         for precision in spec.workload.precisions:
