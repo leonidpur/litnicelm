@@ -8,6 +8,8 @@ endif()
 
 add_library(litnice_backend_openblas_plugin SHARED
     ../../model/backend/device_backend.cpp
+    ../../model/backend/backend_observer.cpp
+    ../../model/backend/observed_backend.cpp
     openblas_plugin.cpp
 )
 

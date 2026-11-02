@@ -16,6 +16,8 @@ endif()
 
 add_library(litnice_backend_cublas_plugin SHARED
     ../../model/backend/device_backend.cpp
+    ../../model/backend/backend_observer.cpp
+    ../../model/backend/observed_backend.cpp
     cuda_cublas_plugin.cpp
     cuda_backend.cpp
     cublas_gemm.cpp

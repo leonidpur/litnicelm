@@ -90,6 +90,8 @@ target_compile_definitions(litnice_core PRIVATE LITNICELM_HAVE_SENTENCEPIECE=1)
 
 add_library(litnice_backend_cpu SHARED
     src/model/backend/device_backend.cpp
+    src/model/backend/backend_observer.cpp
+    src/model/backend/observed_backend.cpp
     src/model/backend/backend_plugin_cpu.cpp
 )
 target_include_directories(litnice_backend_cpu PRIVATE
