@@ -1,3 +1,7 @@
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """PyTorch version of a LitniceLM model, and LitniceLM's data windows.
 
 Shared by reference_torch.py (parity) and bench_torch.py (speed).

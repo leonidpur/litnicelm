@@ -1,3 +1,7 @@
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Interface implemented by engines participating in comparisons."""
 
 from abc import ABC, abstractmethod

@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks ConvergenceMonitor's rules: target loss, patience with min_delta and
 // min_epochs, non-finite loss, new-best flags, and state save/restore.
 

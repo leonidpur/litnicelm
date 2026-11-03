@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Experiment-tracking plugin writing the human-readable operation journal
 // (paths.journal_file): one appended entry per finished operation or run.
 //

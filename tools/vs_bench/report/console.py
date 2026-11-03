@@ -1,3 +1,7 @@
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Friendly console output for comparison phases."""
 
 from typing import Sequence

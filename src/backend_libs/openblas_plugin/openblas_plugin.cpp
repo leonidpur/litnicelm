@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 #include "../../model/backend/backend_plugin_api.hpp"
 #include "../../model/backend/device_backend.hpp"
 

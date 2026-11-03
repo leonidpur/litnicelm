@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Precision presets: the config accepts exactly `precision: fp32` and
 // `precision: bf16_mixed` (default fp32) and rejects anything else; the fp32
 // and bf16_mixed policies give each item type its table dtype; on every

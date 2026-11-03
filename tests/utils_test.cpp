@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Shared helpers in liblitnicelm_utils.
 //
 // hash_utils: FNV-1a 32/64 against the published test vectors, and hashing

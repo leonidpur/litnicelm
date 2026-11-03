@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks an `export` directory against the checkpoint it came from:
 // model.safetensors, read here with its own parser (not the writer's code),
 // holds exactly the expected GPT-2-style tensor names and shapes, and every

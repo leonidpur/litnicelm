@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Exhaustive cast check on a backend plugin: every one of the 2^32 F32 bit
 // patterns through cast F32 -> BF16, and every one of the 2^16 BF16 patterns
 // through cast BF16 -> F32, compared bit for bit with the host conversion

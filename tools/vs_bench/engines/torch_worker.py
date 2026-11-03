@@ -1,3 +1,7 @@
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Fresh-process PyTorch training worker; reads one JSON request file."""
 
 import json

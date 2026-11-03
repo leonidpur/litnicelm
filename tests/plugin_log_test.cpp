@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks that a plugin's log calls reach the program's installed logger, i.e.
 // that host and plugin share one logger instance in liblitnicelm_utils.so.
 //

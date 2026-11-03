@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Training-speed benchmark of the PyTorch reference model, set up like a
 LitniceLM training run, for comparison with LitniceLM on the same config.
 

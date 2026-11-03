@@ -9,6 +9,11 @@ The code is intentionally low-level: model memory layout, backend dispatch,
 tokenization, checkpoints, journals, and training diagnostics are all visible in
 the repository.
 
+**License:** free for noncommercial use under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use requires a
+license; contact [purgalin.dev@gmail.com](mailto:purgalin.dev@gmail.com). See
+[License and commercial use](#license-and-commercial-use).
+
 ## Features
 
 - CMake-based C++17 build.
@@ -336,3 +341,27 @@ src/utils/                        CLI parser and command executor
 - The checked-in configs reference local datasets under `/mnt/ext_ssd/litnicelm`.
   Adjust those paths before running them on another machine.
 - Checkpoints and journals are created as configured under `paths`.
+
+## License and commercial use
+
+LitniceLM is licensed under the
+[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+(full text in [LICENSE](LICENSE); third-party notices in [NOTICE](NOTICE)).
+
+In plain words, you may use, study, modify and share it for noncommercial
+purposes: personal projects, research, education and hobby use. The license
+text is what counts; this summary does not replace it.
+
+Companies and any commercial use need a separate commercial license. To request
+one, email [purgalin.dev@gmail.com](mailto:purgalin.dev@gmail.com) with a short
+description of the intended use.
+
+### Citing
+
+If you use LitniceLM in your work, please cite it with the "Cite this
+repository" button on GitHub, or use the metadata in
+[CITATION.cff](CITATION.cff).
+
+### Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).

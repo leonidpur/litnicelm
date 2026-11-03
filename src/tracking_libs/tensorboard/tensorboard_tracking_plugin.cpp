@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Experiment-tracking plugin writing TensorBoard scalars, one log directory
 // per run: <dir>/<run_id>/events.out.tfevents.<time>.<host>
 //

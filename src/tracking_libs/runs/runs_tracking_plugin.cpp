@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Experiment-tracking plugin writing one directory per run:
 //
 //   <dir>/<run_id>/config.yaml     resolved config (RUN_START config_yaml)

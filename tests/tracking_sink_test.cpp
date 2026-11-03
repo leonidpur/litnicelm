@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks ExperimentTrackingSink plugin loading and event fan-out using the
 // fake tracking plugins.
 //

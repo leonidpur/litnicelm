@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks Ops::rotary_embedding_inplace on a given backend plugin:
 //   1. matches a double-precision host reference (Q/K rotated, V untouched),
 //   2. inverse undoes forward,

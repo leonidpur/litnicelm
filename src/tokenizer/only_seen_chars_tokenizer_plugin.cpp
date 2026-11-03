@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 #include "only_seen_chars_tokenizer_plugin.hpp"
 #include <litnicelm_utils/json_utils.hpp>
 #include <litnicelm_utils/text_io.hpp>

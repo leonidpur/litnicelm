@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Runs every DeviceBackend op on a backend plugin, through the plugin API
 // as the host uses it, and compares the results with the host's built-in
 // DefaultCpuBackend on the same inputs.

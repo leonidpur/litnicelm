@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+title: "LitniceLM"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: "Purgalin"
+    given-names: "Leonid"
+    email: "purgalin.dev@gmail.com"
+repository-code: "https://github.com/leonidpur/litnicelm"
+license: "PolyForm-Noncommercial-1.0.0"
+abstract: "A small C++17 language-model training and inference project."

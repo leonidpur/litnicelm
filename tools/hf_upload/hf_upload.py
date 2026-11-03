@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Upload a `litnicelm export` directory to a Hugging Face model repo.
 
 The directory (model.safetensors, config.json, tokenizer/, README.md) goes to

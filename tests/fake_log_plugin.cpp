@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // A plugin that logs one of its own events through liblitnicelm_utils.so.
 
 #include <litnicelm_utils/plugin_log.h>

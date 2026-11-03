@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // host_tensor_stage::stage_to_cpu_f32: every one of the 2^16 BF16 patterns
 // in a backend tensor arrives on the host as its exact F32 value (bit for
 // bit, NaN payloads included); F32 tensors arrive unchanged.

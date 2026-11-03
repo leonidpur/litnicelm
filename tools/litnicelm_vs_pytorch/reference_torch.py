@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Parity check: a `litnicelm export` evaluated by the PyTorch reference model.
 
 Computes the validation loss of the exported checkpoint over exactly the

@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Compute weights: under fp32 every compute_* view of TensorStore is the
 // parameter itself (no allocation); the BF16 compute-weight layout holds
 // exactly the GEMM weights (QKV, output, W1, W2 per layer, LM head) at two

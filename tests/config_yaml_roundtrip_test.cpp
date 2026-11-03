@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checks that config_to_yaml output loads back to the same config:
 // load(path) -> dump -> load -> dump must reproduce the first dump.
 //

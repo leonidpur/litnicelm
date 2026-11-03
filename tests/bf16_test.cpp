@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Host F32 <-> BF16 conversion: round to nearest even, NaN preserved (also
 // when its payload lies only in the low 16 bits), Inf and overflow, zeros,
 // subnormals, and exact round trips.

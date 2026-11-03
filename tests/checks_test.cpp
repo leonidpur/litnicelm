@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Checker tests: each named check passes on valid input and, on invalid
 // input, throws "<who>: <message>" after logging one check_failed event with
 // its category.

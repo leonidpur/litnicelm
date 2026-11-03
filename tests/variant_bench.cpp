@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 // Times each op's _f32 and _bf16act variants on a backend plugin, through
 // the plugin API, on the shapes of a 512-wide model (128 tokens, FFN 2048,
 // 8 heads) at batch 16 (working sets that fit a 32 MB L2) and batch 64

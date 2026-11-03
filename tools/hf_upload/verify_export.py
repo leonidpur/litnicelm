@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Load a `litnicelm export` model.safetensors with the official safetensors
 reader and print its metadata and every tensor's name, shape and dtype, plus
 config.json. A manual check of the format (needs this directory's requirements.txt).

@@ -1,3 +1,7 @@
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 """Compact, reproducible JSON result reporting."""
 
 from dataclasses import asdict

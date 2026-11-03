@@ -1,4 +1,8 @@
 #!/bin/bash
+# Copyright 2026 Leonid Purgalin
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+# https://github.com/leonidpur/litnicelm
+
 # Export end to end on the CPU backend: trains a tiny model for one epoch
 # with learned and with rope positions, runs `litnicelm export` on each, and
 # checks the export directory against the checkpoint with

@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 #pragma once
 
 // Host-side bfloat16: the upper 16 bits of an IEEE-754 binary32, so the

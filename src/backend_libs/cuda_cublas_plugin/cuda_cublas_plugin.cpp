@@ -1,3 +1,7 @@
+// Copyright 2026 Leonid Purgalin
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// https://github.com/leonidpur/litnicelm
+
 #include "cuda_backend.hpp"
 #include "cuda_tensor_view.hpp"
 #include "../../model/backend/backend_plugin_api.hpp"
