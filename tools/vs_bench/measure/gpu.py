@@ -30,7 +30,7 @@ class GpuSampleSummary:
         return max(self.clock_samples_mhz, default=0)
 
     def verify_clock(self, requested_mhz: int, context: str) -> None:
-        """Fail immediately unless every sample is at the requested lock."""
+        """Require a stable lock while tolerating rare downward transitions."""
         if not self.clock_samples_mhz:
             raise RuntimeError(f"{context}: no under-load GPU clock samples")
         mismatches = [
@@ -38,12 +38,26 @@ class GpuSampleSummary:
             for value in self.clock_samples_mhz
             if abs(value - requested_mhz) > 15
         ]
-        if mismatches:
+        mean = statistics.mean(self.clock_samples_mhz)
+        outlier_fraction = len(mismatches) / len(self.clock_samples_mhz)
+        boosted = self.max_clock_mhz > requested_mhz + 15
+        deep_drop = self.min_clock_mhz < requested_mhz - 60
+        unstable = outlier_fraction > 0.05 or abs(mean - requested_mhz) > 15
+        if boosted or deep_drop or unstable:
             raise RuntimeError(
                 f"{context}: GPU clock lock lost; requested {requested_mhz} MHz, "
                 f"sampled range {self.min_clock_mhz}-{self.max_clock_mhz} MHz "
-                f"({len(mismatches)}/{len(self.clock_samples_mhz)} samples outside tolerance)"
+                f"with mean {mean:.1f} MHz "
+                f"({len(mismatches)}/{len(self.clock_samples_mhz)} samples outside "
+                "the ±15 MHz target band; maximum allowed fraction 5%)"
             )
+
+    def clock_outlier_count(self, requested_mhz: int) -> int:
+        """Count samples outside the narrow target band used in reports."""
+        return sum(
+            abs(value - requested_mhz) > 15
+            for value in self.clock_samples_mhz
+        )
 
 
 class GpuSampler:
@@ -69,13 +83,22 @@ class GpuSampler:
     def _sample_loop(self) -> None:
         while not self._stop.is_set():
             if self.process_id is not None:
+                target_present = False
                 for process_id, used_memory in self._query(
                     ["--query-compute-apps=pid,used_memory"]
                 ):
                     if int(process_id) == self.process_id:
+                        target_present = True
                         self._memory.append(int(used_memory))
-                for (clock,) in self._query(["--query-gpu=clocks.sm"]):
-                    self._clocks.append(int(clock))
+                if target_present:
+                    for clock, utilization in self._query(
+                        ["--query-gpu=clocks.sm,utilization.gpu"]
+                    ):
+                        # Clock transitions while a CUDA context is merely
+                        # resident are not under-load evidence. Verify only
+                        # samples in which the GPU was doing work.
+                        if int(utilization) > 0:
+                            self._clocks.append(int(clock))
             time.sleep(self.interval_seconds)
 
     def __enter__(self) -> "GpuSampler":

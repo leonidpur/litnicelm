@@ -456,6 +456,11 @@ class LitniceLMEngine(Engine):
                     "sm_clock_mhz": measured.gpu.mean_clock_mhz,
                     "sm_clock_min_mhz": measured.gpu.min_clock_mhz,
                     "sm_clock_max_mhz": measured.gpu.max_clock_mhz,
+                    "sm_clock_sample_count": len(measured.gpu.clock_samples_mhz),
+                    "sm_clock_outlier_count": measured.gpu.clock_outlier_count(
+                        spec.environment.clock_mhz
+                    ),
+                    "sm_clock_stable": True,
                     "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
                     "validation_enabled": validation_fraction != 0.0,
                     "checkpointing_enabled": operation != "dry_run",

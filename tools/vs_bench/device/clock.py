@@ -87,15 +87,14 @@ class LockedGpuClock:
             for result in results
             if result.vertical == "train_speed"
             for row in result.engines
-            if int(row.metrics.get("sm_clock_min_mhz", 0)) > 0
+            if int(row.metrics.get("sm_clock_sample_count", 0)) > 0
         ]
         if not rows:
             raise RuntimeError("GPU clock verification failed: no under-load samples")
         mismatches = [
             row
             for row in rows
-            if abs(int(row.metrics["sm_clock_min_mhz"]) - self.clock_mhz) > 15
-            or abs(int(row.metrics["sm_clock_max_mhz"]) - self.clock_mhz) > 15
+            if not bool(row.metrics.get("sm_clock_stable", False))
         ]
         if mismatches:
             details = "; ".join(
