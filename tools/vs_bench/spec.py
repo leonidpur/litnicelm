@@ -78,10 +78,8 @@ class TrainSpeedSettings:
 class LitniceLMSettings:
     """LitniceLM-only axes and settings, translated by its adapter."""
 
-    attention_modes: tuple[str, ...] = (
-        "fused_inplace_multistream",
-        "fused_inplace",
-    )
+    # Empty: every attention the binary registers (litnicelm list_variants).
+    attention_modes: tuple[str, ...] = ()
     profile_skip_batches: int = 8
     profile_optimizer_steps: int = 3
 

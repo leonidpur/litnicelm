@@ -58,7 +58,7 @@ model:
   d_ff: 32
   max_seq_len: 16
 model_algo:
-  attention: "reference"
+  attention: "unfused"
   ffn: "reference"
   position_encoding: "$pos"
 training:

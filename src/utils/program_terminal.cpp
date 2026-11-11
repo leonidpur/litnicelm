@@ -12,6 +12,10 @@ ProgramTerminal::ProgramTerminal() : out_(std::cout) {}
 
 void ProgramTerminal::usage(const std::string &text) { out_ << text; }
 
+void ProgramTerminal::variant_catalog(const std::string &catalog) {
+  out_ << catalog;
+}
+
 void ProgramTerminal::generated_text(const std::string &text) {
   out_ << text << "\n";
 }

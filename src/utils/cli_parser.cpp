@@ -376,6 +376,8 @@ std::string CliParser::usage_text() {
       << "  Export to a Hugging Face model directory:\n"
       << "    ./build/litnicelm export --config <config.yaml> --out <dir> "
          "[--checkpoint <path>]\n"
+      << "  List model algorithm variants and presets:\n"
+      << "    ./build/litnicelm list_variants\n"
       << "  Train tokenizer artifacts:\n"
       << "    ./build/litnicelm tokenizer_training --config <config.yaml>\n"
       << "    ./build/litnicelm --tokenizer_training --config <config.yaml>\n"
@@ -454,6 +456,9 @@ Command CliParser::parse(int argc, char **argv) {
     } else if (candidate == "train" || candidate == "--train") {
       cmd.target = Command::Target::TRAIN;
       arg_start = 2;
+    } else if (candidate == "list_variants") {
+      cmd.target = Command::Target::LIST_VARIANTS;
+      arg_start = 2;
     }
   }
 
@@ -478,6 +483,7 @@ Command CliParser::parse(int argc, char **argv) {
   switch (cmd.target) {
   case Command::Target::TOKENIZER_TRAINING:
   case Command::Target::TOKENIZE:
+  case Command::Target::LIST_VARIANTS:
     if (!args.empty()) {
       throw std::runtime_error("This target does not accept positional arguments");
     }

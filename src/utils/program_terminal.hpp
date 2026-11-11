@@ -16,6 +16,7 @@ public:
   ProgramTerminal();  // writes to std::cout
 
   void usage(const std::string &text);
+  void variant_catalog(const std::string &catalog);
 
   void generated_text(const std::string &text);
   void token_distribution(const std::string &table);

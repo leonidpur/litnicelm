@@ -12,4 +12,6 @@ struct Config;
 class CommandExecutor final {
 public:
   static int run(const Command &cmd, const Config &cfg);
+  // Commands that need no config.
+  static int run_without_config(const Command &cmd);
 };

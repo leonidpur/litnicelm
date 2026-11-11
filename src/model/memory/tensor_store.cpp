@@ -3,7 +3,10 @@
 // https://github.com/leonidpur/litnicelm
 
 #include "tensor_store.hpp"
+#include "arena_factory.hpp"
+#include "attention_dims.hpp"
 #include "layout_cursor.hpp"
+#include "model_algo_factory.hpp"
 
 #include <litnicelm_utils/checks.hpp>
 
@@ -82,41 +85,6 @@ public:
   TensorView temp_layer_dx_ln1(int layer, int64_t batch_size,
                                int64_t seq_len) const;
 
-  TensorView temp_attn_qkv(int layer, int64_t rows) const;
-  TensorView temp_attn_qkv(int layer, int64_t batch_size,
-                           int64_t seq_len) const;
-  TensorView temp_attn_context(int layer, int64_t rows) const;
-  TensorView temp_attn_context(int layer, int64_t batch_size,
-                               int64_t seq_len) const;
-  TensorView temp_attn_scores(int layer, int64_t rows) const;
-  TensorView temp_attn_scores(int layer, int64_t batch_size,
-                              int64_t seq_len) const;
-  TensorView temp_attn_weights(int layer, int64_t rows) const;
-  TensorView temp_attn_weights(int layer, int64_t batch_size,
-                               int64_t seq_len) const;
-  TensorView temp_attn_cached_weights(int layer, int64_t rows) const;
-  TensorView temp_attn_cached_weights(int layer, int64_t batch_size,
-                                      int64_t seq_len) const;
-  TensorView temp_attn_head(int layer, int64_t batch_size,
-                            int64_t seq_len) const;
-  TensorView temp_attn_contextT(int layer, int64_t rows) const;
-  TensorView temp_attn_dcontext(int layer, int64_t rows) const;
-  TensorView temp_attn_dcontext(int layer, int64_t batch_size,
-                                int64_t seq_len) const;
-  TensorView temp_attn_dqkv(int layer, int64_t rows) const;
-  TensorView temp_attn_dqkv(int layer, int64_t batch_size,
-                            int64_t seq_len) const;
-  TensorView temp_attn_KhT(int layer, int64_t rows) const;
-  TensorView temp_attn_VhT(int layer, int64_t rows) const;
-  TensorView temp_attn_dweights(int layer, int64_t rows) const;
-  TensorView temp_attn_dweights(int layer, int64_t batch_size,
-                                int64_t seq_len) const;
-  TensorView temp_attn_weightsT(int layer, int64_t rows) const;
-  TensorView temp_attn_dscores(int layer, int64_t rows) const;
-  TensorView temp_attn_dscores(int layer, int64_t batch_size,
-                               int64_t seq_len) const;
-  TensorView temp_attn_dscoresT(int layer, int64_t rows) const;
-  TensorView temp_attn_xT(int layer, int64_t rows) const;
 
   TensorView temp_ffn_h(int layer, int64_t rows) const;
   TensorView temp_ffn_h(int layer, int64_t batch_size, int64_t seq_len) const;
@@ -238,6 +206,10 @@ TensorStore::TensorStore(const Config &cfg,
                     "TensorStore", "temporary layout");
   build_param_views(param_layout);
   build_compute_views(compute_layout, compute_base, compute_bytes);
+  temp_layout_ = &temp_layout;
+  temp_base_ = temp_base_bytes;
+  temp_bytes_ = temp_bytes;
+  temp_kind_ = temp_kind;
   if (temp_kind == TempLayoutKind::Training) {
     temp_tensor_substore_ = std::make_unique<TrainingTempTensorSubStore>(
         cfg_, algo_, temp_layout, temp_base_bytes, temp_bytes, device_);
@@ -245,6 +217,18 @@ TensorStore::TensorStore(const Config &cfg,
     temp_tensor_substore_ = std::make_unique<InferenceTempTensorSubStore>(
         cfg_, algo_, temp_layout, temp_base_bytes, temp_bytes, device_);
   }
+}
+
+NodeSlices TensorStore::attention_slices(int layer) const {
+  check_layer(layer);
+  const bool training = temp_kind_ == TempLayoutKind::Training;
+  const std::string prefix = (training ? "layer" : "infer.layer") +
+                             std::to_string(layer) + ".";
+  return ArenaFactory::bind(
+      prefix,
+      algo_.attention_slice_requests(training ? training_attention_dims(cfg_)
+                                              : inference_attention_dims(cfg_)),
+      temp_layout_->slices(), temp_base_, temp_bytes_, device_);
 }
 
 void TensorStore::check_layer(int layer) const {
@@ -412,6 +396,10 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
       cursor.next("bw.d_xlast"),
       Shape{training_batch_size, training_seq_len, model_dim});
 
+  // Attention slices are laid out from the nodes' requests; the nodes bind
+  // them through TensorStore::attention_slices.
+  const std::vector<SliceRequest> attention_requests =
+      algo_.attention_slice_requests(training_attention_dims(cfg_));
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
     TensorStore::LayerTempViews views;
     views.ln1 = make_temp_view(cursor.next(lname(static_cast<int>(layer), "ln1")),
@@ -434,28 +422,9 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "hidden")),
                        Shape{training_batch_size, training_seq_len, model_dim});
 
-    views.attn_qkv =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.qkv")),
-                       Shape{training_batch_size, training_seq_len, qkv_dim});
-    views.attn_context = make_temp_view(
-        cursor.next(lname(static_cast<int>(layer), "attn.context")),
-        Shape{training_batch_size, training_seq_len, model_dim});
-    views.attn_scores = make_temp_view(
-        cursor.next(lname(static_cast<int>(layer), "attn.scores")),
-        Shape{training_batch_size, training_seq_len, training_seq_len});
-    if (algo_.attention_needs_weights_buffer()) {
-      views.attn_weights = make_temp_view(
-          cursor.next(lname(static_cast<int>(layer), "attn.weights")),
-          Shape{training_batch_size, training_seq_len, training_seq_len});
+    for (const SliceRequest &request : attention_requests) {
+      cursor.next(lname(static_cast<int>(layer), request.name.c_str()));
     }
-    views.attn_weights_cache =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer),
-                                         "attn.weights_cache")),
-                       Shape{head_count, training_batch_size, training_seq_len,
-                             training_seq_len});
-    views.attn_head = make_temp_view(
-        cursor.next(lname(static_cast<int>(layer), "attn.head")),
-        Shape{training_batch_size, training_seq_len, head_dim});
 
     views.ffn_h =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.h")),
@@ -482,36 +451,6 @@ TrainingTempTensorSubStore::TrainingTempTensorSubStore(
         cursor.next(lname(static_cast<int>(layer), "dx_ln1")),
         Shape{training_batch_size, training_seq_len, model_dim});
 
-    views.attn_contextT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.contextT")),
-                       Shape{model_dim, temp_token_count});
-    views.attn_dcontext =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.dcontext")),
-                       Shape{training_batch_size, training_seq_len, model_dim});
-    views.attn_dqkv =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.dqkv")),
-                       Shape{training_batch_size, training_seq_len, qkv_dim});
-    views.attn_KhT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.KhT")),
-                       Shape{head_dim, temp_token_count});
-    views.attn_VhT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.VhT")),
-                       Shape{head_dim, temp_token_count});
-    views.attn_dweights =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.dweights")),
-                       Shape{training_batch_size, training_seq_len, training_seq_len});
-    views.attn_weightsT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.weightsT")),
-                       Shape{training_batch_size, training_seq_len, training_seq_len});
-    views.attn_dscores =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.dscores")),
-                       Shape{training_batch_size, training_seq_len, training_seq_len});
-    views.attn_dscoresT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.dscoresT")),
-                       Shape{training_batch_size, training_seq_len, training_seq_len});
-    views.attn_xT =
-        make_temp_view(cursor.next(lname(static_cast<int>(layer), "attn.xT")),
-                       Shape{model_dim, temp_token_count});
 
     views.ffn_aT =
         make_temp_view(cursor.next(lname(static_cast<int>(layer), "ffn.aT")),
@@ -562,6 +501,9 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
   tr_Xn_ = make_temp_view(cursor.next("infer.Xn"),
                           Shape{1, max_seq_len, model_dim});
 
+  // Attention slices: see the training constructor.
+  const std::vector<SliceRequest> attention_requests =
+      algo_.attention_slice_requests(inference_attention_dims(cfg_));
   for (uint32_t layer = 0; layer < cfg_.model.n_layers; ++layer) {
     TensorStore::LayerTempViews views;
     views.ln1 = make_temp_view(cursor.next(infer_lname(static_cast<int>(layer), "ln1")),
@@ -581,26 +523,9 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
         cursor.next(infer_lname(static_cast<int>(layer), "hidden")),
         Shape{1, max_seq_len, model_dim});
 
-    views.attn_qkv = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.qkv")),
-        Shape{1, max_seq_len, qkv_dim});
-    views.attn_context = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.context")),
-        Shape{1, max_seq_len, model_dim});
-    views.attn_scores = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.scores")),
-        Shape{1, max_seq_len, max_seq_len});
-    if (algo_.attention_needs_weights_buffer()) {
-      views.attn_weights = make_temp_view(
-          cursor.next(infer_lname(static_cast<int>(layer), "attn.weights")),
-          Shape{1, max_seq_len, max_seq_len});
+    for (const SliceRequest &request : attention_requests) {
+      cursor.next(infer_lname(static_cast<int>(layer), request.name.c_str()));
     }
-    views.attn_weights_cache = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.weights_cache")),
-        Shape{head_count, 1, max_seq_len, max_seq_len});
-    views.attn_head = make_temp_view(
-        cursor.next(infer_lname(static_cast<int>(layer), "attn.head")),
-        Shape{1, max_seq_len, head_dim});
 
     views.ffn_h = make_temp_view(
         cursor.next(infer_lname(static_cast<int>(layer), "ffn.h")),
@@ -1062,276 +987,30 @@ TensorView TensorStore::TempTensorSubStore::temp_layer_dx_ln1(int layer, int64_t
   return t;
 }
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_qkv(int layer, int64_t rows) const {
-  check_layer(layer);
-  const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_qkv;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(
-                                                 3 * cfg_.model.d_model)),
-                                         3 * static_cast<int64_t>(cfg_.model.d_model)}),
-                      {rows, 3 * static_cast<int64_t>(cfg_.model.d_model)});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_qkv(int layer, int64_t batch_size,
-                                        int64_t seq_len) const {
-  check_layer(layer);
-  return prefix_batch_seq(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_qkv, batch_size,
-      seq_len, "temp_attn_qkv",
-      3 * static_cast<int64_t>(cfg_.model.d_model));
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_context(int layer, int64_t rows) const {
-  check_layer(layer);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_context;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(
-                                                 cfg_.model.d_model)),
-                                         static_cast<int64_t>(cfg_.model.d_model)}),
-                      {rows, static_cast<int64_t>(cfg_.model.d_model)});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_context(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  check_layer(layer);
-  return prefix_batch_seq(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_context, batch_size,
-      seq_len, "temp_attn_context",
-      static_cast<int64_t>(cfg_.model.d_model));
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_scores(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_scores;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_scores(int layer, int64_t batch_size,
-                                           int64_t seq_len) const {
-  check_layer(layer);
-  return prefix_batch_seq_square(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_scores, batch_size,
-      seq_len, "temp_attn_scores");
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_weights;
-  checker().check(CheckKind::Capability, t.data() != nullptr,
-                  "TensorStore temp_attn_weights", [&] {
-                    return "not allocated for model_algo.attention=" +
-                           cfg_.model_algo.attention;
-                  });
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_weights(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  check_layer(layer);
-  checker().check(CheckKind::Capability,
-                  layer_temp_views_[static_cast<size_t>(layer)]
-                          .attn_weights.data() != nullptr,
-                  "TensorStore temp_attn_weights", [&] {
-                    return "not allocated for model_algo.attention=" +
-                           cfg_.model_algo.attention;
-                  });
-  return prefix_batch_seq_square(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_weights, batch_size,
-      seq_len, "temp_attn_weights");
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_cached_weights(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_weights_cache;
-  return prefix_storage(
-      TensorView(t.device(), t.dtype(), t.data(),
-                 Shape{static_cast<int64_t>(t.numel() /
-                                            static_cast<uint64_t>(seq_len)),
-                       seq_len}),
-      {static_cast<int64_t>(cfg_.model.n_heads) * rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_cached_weights(
-    int layer, int64_t batch_size, int64_t seq_len) const {
-  check_layer(layer);
-  return prefix_head_batch_seq_square(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_weights_cache,
-      batch_size, seq_len, "temp_attn_cached_weights");
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_head(int layer, int64_t batch_size,
-                                         int64_t seq_len) const {
-  check_layer(layer);
-  return prefix_batch_seq(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_head, batch_size,
-      seq_len, "temp_attn_head",
-      static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads));
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_contextT(int layer, int64_t rows) const {
-  check_layer(layer);
-  return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].attn_contextT,
-                      {static_cast<int64_t>(cfg_.model.d_model), rows});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dcontext(int layer, int64_t rows) const {
-  check_layer(layer);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dcontext;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(
-                                                 cfg_.model.d_model)),
-                                         static_cast<int64_t>(cfg_.model.d_model)}),
-                      {rows, static_cast<int64_t>(cfg_.model.d_model)});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dcontext(int layer, int64_t batch_size,
-                                             int64_t seq_len) const {
-  check_layer(layer);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dcontext;
-  checker().check_bsd(t, batch_size, seq_len,
-                      static_cast<int64_t>(cfg_.model.d_model),
-                      "TensorStore temp_attn_dcontext");
-  return t;
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dqkv(int layer, int64_t rows) const {
-  check_layer(layer);
-  const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_dqkv;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(
-                                                 3 * cfg_.model.d_model)),
-                                         3 * static_cast<int64_t>(cfg_.model.d_model)}),
-                      {rows, 3 * static_cast<int64_t>(cfg_.model.d_model)});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dqkv(int layer, int64_t batch_size,
-                                         int64_t seq_len) const {
-  check_layer(layer);
-  const TensorView &t = layer_temp_views_[static_cast<size_t>(layer)].attn_dqkv;
-  checker().check_bsd(t, batch_size, seq_len,
-                      3 * static_cast<int64_t>(cfg_.model.d_model),
-                      "TensorStore temp_attn_dqkv");
-  return t;
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_KhT(int layer, int64_t rows) const {
-  check_layer(layer);
-  return prefix_storage(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_KhT,
-      {static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads), rows});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_VhT(int layer, int64_t rows) const {
-  check_layer(layer);
-  return prefix_storage(
-      layer_temp_views_[static_cast<size_t>(layer)].attn_VhT,
-      {static_cast<int64_t>(cfg_.model.d_model / cfg_.model.n_heads), rows});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dweights(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dweights;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dweights(int layer, int64_t batch_size,
-                                             int64_t seq_len) const {
-  check_layer(layer);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dweights;
-  checker().check_bsd(t, batch_size, seq_len, seq_len,
-                      "TensorStore temp_attn_dweights");
-  return t;
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_weightsT(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_weightsT;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dscores(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dscores;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dscores(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  check_layer(layer);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dscores;
-  checker().check_bsd(t, batch_size, seq_len, seq_len,
-                      "TensorStore temp_attn_dscores");
-  return t;
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_dscoresT(int layer, int64_t rows) const {
-  check_layer(layer);
-  const int64_t seq_len = static_cast<int64_t>(cfg_.training.train_seq_len);
-  const TensorView &t =
-      layer_temp_views_[static_cast<size_t>(layer)].attn_dscoresT;
-  return prefix_storage(TensorView(t.device(), t.dtype(), t.data(),
-                                   Shape{static_cast<int64_t>(
-                                             t.numel() /
-                                             static_cast<uint64_t>(seq_len)),
-                                         seq_len}),
-                      {rows, seq_len});
-}
 
-TensorView TensorStore::TempTensorSubStore::temp_attn_xT(int layer, int64_t rows) const {
-  check_layer(layer);
-  return prefix_storage(layer_temp_views_[static_cast<size_t>(layer)].attn_xT,
-                      {static_cast<int64_t>(cfg_.model.d_model), rows});
-}
 
 TensorView TensorStore::TempTensorSubStore::temp_ffn_h(int layer, int64_t rows) const {
   check_layer(layer);
@@ -1589,92 +1268,6 @@ TensorView TensorStore::temp_layer_dx_ln1(int layer, int64_t rows) const {
 TensorView TensorStore::temp_layer_dx_ln1(int layer, int64_t batch_size,
                                             int64_t seq_len) const {
   return temp_tensor_substore_->temp_layer_dx_ln1(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_qkv(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_qkv(layer, rows);
-}
-TensorView TensorStore::temp_attn_qkv(int layer, int64_t batch_size,
-                                        int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_qkv(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_context(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_context(layer, rows);
-}
-TensorView TensorStore::temp_attn_context(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_context(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_scores(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_scores(layer, rows);
-}
-TensorView TensorStore::temp_attn_scores(int layer, int64_t batch_size,
-                                           int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_scores(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_weights(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_weights(layer, rows);
-}
-TensorView TensorStore::temp_attn_weights(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_weights(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_cached_weights(int layer,
-                                                   int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_cached_weights(layer, rows);
-}
-TensorView TensorStore::temp_attn_cached_weights(
-    int layer, int64_t batch_size, int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_cached_weights(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_head(int layer, int64_t batch_size,
-                                         int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_head(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_contextT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_contextT(layer, rows);
-}
-TensorView TensorStore::temp_attn_dcontext(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_dcontext(layer, rows);
-}
-TensorView TensorStore::temp_attn_dcontext(int layer, int64_t batch_size,
-                                             int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_dcontext(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_dqkv(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_dqkv(layer, rows);
-}
-TensorView TensorStore::temp_attn_dqkv(int layer, int64_t batch_size,
-                                         int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_dqkv(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_KhT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_KhT(layer, rows);
-}
-TensorView TensorStore::temp_attn_VhT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_VhT(layer, rows);
-}
-TensorView TensorStore::temp_attn_dweights(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_dweights(layer, rows);
-}
-TensorView TensorStore::temp_attn_dweights(int layer, int64_t batch_size,
-                                             int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_dweights(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_weightsT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_weightsT(layer, rows);
-}
-TensorView TensorStore::temp_attn_dscores(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_dscores(layer, rows);
-}
-TensorView TensorStore::temp_attn_dscores(int layer, int64_t batch_size,
-                                            int64_t seq_len) const {
-  return temp_tensor_substore_->temp_attn_dscores(layer, batch_size, seq_len);
-}
-TensorView TensorStore::temp_attn_dscoresT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_dscoresT(layer, rows);
-}
-TensorView TensorStore::temp_attn_xT(int layer, int64_t rows) const {
-  return temp_tensor_substore_->temp_attn_xT(layer, rows);
 }
 TensorView TensorStore::temp_ffn_h(int layer, int64_t rows) const {
   return temp_tensor_substore_->temp_ffn_h(layer, rows);

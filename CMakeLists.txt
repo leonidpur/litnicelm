@@ -152,6 +152,28 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
   endif()
 endforeach()
 
+# Attention-core node contracts: PyTorch goldens, finite differences (CPU),
+# variants against the unfused core.
+add_executable(litnice_attention_core_test tests/attention_core_contract_test.cpp)
+target_include_directories(litnice_attention_core_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+    src/observers
+    src/profiling
+    src/tracking)
+target_link_libraries(litnice_attention_core_test PRIVATE litnice_core)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    add_test(NAME attention_core_${plugin}
+             COMMAND litnice_attention_core_test $<TARGET_FILE:${plugin}>
+                     ${CMAKE_SOURCE_DIR}/tests/golden/attention_core.json)
+  endif()
+endforeach()
+
 # Host F32 <-> BF16 conversion.
 add_executable(litnicelm_bf16_test tests/bf16_test.cpp)
 target_link_libraries(litnicelm_bf16_test PRIVATE litnicelm_utils)

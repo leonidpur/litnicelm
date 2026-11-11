@@ -28,3 +28,12 @@ and cross-entropy operand roles.
   `training.eps`.
 - **Memory.** 1.6× PyTorch at process level; the temp arena holds unused
   transpose buffers (`attn.xT`, `ffn.aT`, ...) and all layers' work buffers.
+
+## Phase 4 follow-up: BF16 forward epilogue (2026-11-09)
+
+- cuBLASLt (CUDA 12.2) has no algorithm for BF16 D with an F32 bias
+  (`CUBLASLT_EPILOGUE_BIAS` / `RELU_BIAS`, status NOT_SUPPORTED), so
+  `linear_forward` in `_bf16act` falls back to GEMM + bias kernel. Options:
+  a BF16 compute copy of the biases (layout change, bias rounded once to
+  BF16), or a newer cuBLASLt. Worth ~1.9 ms per 3 optimizer steps of the
+  bench profile (add_bias_rowwise + add_bias_relu_rowwise_inplace).

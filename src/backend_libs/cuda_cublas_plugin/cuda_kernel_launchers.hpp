@@ -112,7 +112,8 @@ void launch_cross_entropy_mean_backward_inplace_bf16act(
     TensorView &logits, const TensorView &targets, TensorView &out_loss);
 
 // LayerNorm: _f32, or _bf16act with x, out, dout and dx BF16 and gamma,
-// beta, dgamma and dbeta F32.
+// beta, dgamma and dbeta F32. The backward launchers write dx and, for each
+// row of x, (mean, inv_std) to row_stats [2 * rows].
 void launch_layernorm_forward_f32(const TensorView &x,
                                   const TensorView &gamma,
                                   const TensorView &beta, TensorView &out);
@@ -122,11 +123,24 @@ void launch_layernorm_forward_bf16act(const TensorView &x,
 void launch_layernorm_backward_f32(const TensorView &x,
                                    const TensorView &gamma,
                                    const TensorView &dout, TensorView &dx,
-                                   TensorView &dgamma, TensorView &dbeta);
+                                   float *row_stats);
 void launch_layernorm_backward_bf16act(const TensorView &x,
                                        const TensorView &gamma,
                                        const TensorView &dout, TensorView &dx,
-                                       TensorView &dgamma, TensorView &dbeta);
+                                       float *row_stats);
+// dgamma = sum over rows of dout * xhat, dbeta = sum over rows of dout, both
+// overwritten. row_stats holds (mean, inv_std) per row of x, as written by
+// the layernorm_backward launchers. Every column is reduced over rows in a
+// fixed order, so results are bitwise reproducible.
+void launch_layernorm_param_grads_f32(const TensorView &x,
+                                      const TensorView &dout,
+                                      const float *row_stats,
+                                      TensorView &dgamma, TensorView &dbeta);
+void launch_layernorm_param_grads_bf16act(const TensorView &x,
+                                          const TensorView &dout,
+                                          const float *row_stats,
+                                          TensorView &dgamma,
+                                          TensorView &dbeta);
 
 // Embeddings: the table and its gradient F32; ids I32; the gathered
 // activations and their gradients F32 (_f32) or BF16 (_bf16act).

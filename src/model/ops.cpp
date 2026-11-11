@@ -3,6 +3,7 @@
 // https://github.com/leonidpur/litnicelm
 
 #include "ops.hpp"
+#include "backend/backend_plugin_api.hpp"
 
 #include <litnicelm_utils/checks.hpp>
 
@@ -368,4 +369,90 @@ void Ops::rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
   checker().check(CheckKind::Contract, base > 1.0f,
                   "Ops rotary_embedding_inplace", "base must be > 1");
   device_backend_.rotary_embedding_inplace(x, n_heads, base, inverse);
+}
+
+uint32_t Ops::fused_ops() const { return device_backend_.fused_ops(); }
+
+namespace {
+
+// Checks the shared shapes of the causal attention ops; returns D.
+int64_t check_causal_attention(const TensorView &qkv, const TensorView &out,
+                               const TensorView &stats, int64_t n_heads,
+                               bool stats_required, const char *who) {
+  const Checker &v = checker();
+  v.check_rank(qkv, 3, who);
+  const int64_t D = qkv.dim(2) / 3;
+  v.check(CheckKind::Contract, qkv.dim(2) == 3 * D && n_heads > 0 && D % n_heads == 0,
+          who, "qkv must be [B, S, 3D] with D divisible by n_heads");
+  v.check_dims(out, {qkv.dim(0), qkv.dim(1), D}, who);
+  v.check(CheckKind::Contract,
+          qkv.dtype() == DType::BF16 && out.dtype() == DType::BF16, who,
+          "qkv and out must be BF16");
+  if (stats_required || stats.data() != nullptr) {
+    v.check_dims(stats, {qkv.dim(0), n_heads, qkv.dim(1)}, who);
+    v.check(CheckKind::Contract, stats.dtype() == DType::F32, who,
+            "stats must be F32");
+  }
+  return D;
+}
+
+} // namespace
+
+void Ops::causal_attention_forward(const TensorView &qkv, int64_t n_heads,
+                                   float scale, TensorView &out,
+                                   TensorView &stats) const {
+  check_causal_attention(qkv, out, stats, n_heads, false,
+                         "Ops causal_attention_forward");
+  device_backend_.causal_attention_forward(qkv, n_heads, scale, out, stats);
+}
+
+void Ops::causal_attention_backward(const TensorView &qkv, const TensorView &out,
+                                    const TensorView &dout,
+                                    const TensorView &stats, int64_t n_heads,
+                                    float scale, TensorView &dqkv) const {
+  const char *who = "Ops causal_attention_backward";
+  check_causal_attention(qkv, out, stats, n_heads, true, who);
+  checker().check_same_shape(dout, out, who);
+  checker().check_same_shape(dqkv, qkv, who);
+  device_backend_.causal_attention_backward(qkv, out, dout, stats, n_heads,
+                                            scale, dqkv);
+}
+
+void Ops::linear_forward(const TensorView &x, const TensorView &w,
+                         const TensorView &bias, bool relu,
+                         TensorView &out) const {
+  if ((device_backend_.fused_ops() & kFusedOpLinear) == 0) {
+    gemm_ranked_matrix_rhs(x, w, out);
+    if (relu) {
+      add_bias_relu_rowwise_inplace(out, bias);
+    } else {
+      add_bias_rowwise(out, bias, out);
+    }
+    return;
+  }
+  const char *who = "Ops linear_forward";
+  checker().check_rank(w, 2, who);
+  checker().check(CheckKind::Contract,
+                  x.dim(x.rank() - 1) == w.dim(0) &&
+                      out.dim(out.rank() - 1) == w.dim(1),
+                  who, "x [..., in], w [in, out], out [..., out]");
+  checker().check_dims(bias, {1, w.dim(1)}, who);
+  device_backend_.linear_forward(x, w, bias, relu, out);
+}
+
+void Ops::linear_backward_params(const TensorView &x, const TensorView &dy,
+                                 TensorView &dw, TensorView &dbias) const {
+  if ((device_backend_.fused_ops() & kFusedOpLinear) == 0) {
+    gemm_ranked_reduce_lhs_t(x, dy, dw);
+    row_sum(dy, dbias);
+    return;
+  }
+  const char *who = "Ops linear_backward_params";
+  checker().check_rank(dw, 2, who);
+  checker().check(CheckKind::Contract,
+                  x.dim(x.rank() - 1) == dw.dim(0) &&
+                      dy.dim(dy.rank() - 1) == dw.dim(1),
+                  who, "x [..., in], dy [..., out], dw [in, out]");
+  checker().check_dims(dbias, {1, dw.dim(1)}, who);
+  device_backend_.linear_backward_params(x, dy, dw, dbias);
 }

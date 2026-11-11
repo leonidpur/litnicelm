@@ -103,6 +103,28 @@ public:
   // pos * base^(-2i/head_dim); inverse applies the transpose rotation.
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                                 bool inverse) const;
+  // Optional fused ops: the backend's kFusedOp* bits.
+  uint32_t fused_ops() const;
+  // qkv [B, S, 3D] (Q | K | V) -> out [B, S, D], causal softmax attention
+  // per head; stats [B, H, S] F32 for backward, or empty (inference).
+  // Needs kFusedOpCausalAttentionBf16Act; qkv, out BF16.
+  void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
+                                float scale, TensorView &out,
+                                TensorView &stats) const;
+  // dout [B, S, D] -> dqkv [B, S, 3D], given forward's qkv, out and stats.
+  void causal_attention_backward(const TensorView &qkv, const TensorView &out,
+                                 const TensorView &dout,
+                                 const TensorView &stats, int64_t n_heads,
+                                 float scale, TensorView &dqkv) const;
+  // out [..., out] = x [..., in] w [in, out] + bias [1, out], then ReLU if
+  // relu. The backend's fused op (kFusedOpLinear) when it has one, else
+  // gemm_ranked_matrix_rhs and add_bias_(relu_)rowwise.
+  void linear_forward(const TensorView &x, const TensorView &w,
+                      const TensorView &bias, bool relu, TensorView &out) const;
+  // dw = x^T dy, dbias = column sums of dy (overwritten). The fused op when
+  // the backend has kFusedOpLinear, else gemm_ranked_reduce_lhs_t and row_sum.
+  void linear_backward_params(const TensorView &x, const TensorView &dy,
+                              TensorView &dw, TensorView &dbias) const;
   DeviceBackend &backend() const { return device_backend_; }
 
 private:

@@ -4,12 +4,19 @@
 
 #pragma once
 
+#include "attention_dims.hpp"
 #include "i_ffn.hpp"
+#include "i_output_head.hpp"
+#include "i_output_projection.hpp"
+#include "i_qkv_projection.hpp"
+#include "linear_params.hpp"
 #include "i_position_encoding.hpp"
 #include "i_self_attention.hpp"
 #include "model_algo_config.hpp"
+#include "slice_request.hpp"
 
 #include <memory>
+#include <vector>
 
 class Config;
 class GradientStore;
@@ -29,18 +36,32 @@ public:
   create_ffn(int layer_index, const Config &cfg, TensorStore &tensor_store,
              GradientStore *gradient_store, const Ops &ops) const;
 
+  std::unique_ptr<IOutputHead>
+  create_output_head(const Config &cfg, TensorStore &tensor_store,
+                     GradientStore *gradient_store, const Ops &ops) const;
+
   // Position encodings are cheap and their queries depend only on the
   // config, so callers that only need an answer create one on demand.
   std::unique_ptr<IPositionEncoding>
   create_position_encoding(const Config &cfg) const;
 
   // Memory needs of the chosen implementations.
-  // Reference attention keeps softmax weights apart from scores; the fused
-  // variants compute them in place.
-  bool attention_needs_weights_buffer() const;
+  // The slices one layer's attention requests: the composite's and its
+  // core's, or multistream's; each followed by a guard slice under
+  // model_algo.debug_guards.
+  std::vector<SliceRequest> attention_slice_requests(const AttentionDims &dims) const;
   // Non in-place FFNs keep the activation and its gradient in own buffers.
   bool ffn_needs_activation_buffers() const;
 
 private:
+  std::vector<SliceRequest>
+  unguarded_attention_slice_requests(const AttentionDims &dims) const;
+  std::unique_ptr<IQkvProjection> make_qkv_projection(int layer_index,
+                                                      const LinearParams &params,
+                                                      const Ops &ops) const;
+  std::unique_ptr<IOutputProjection>
+  make_output_projection(int layer_index, const LinearParams &params,
+                         const Ops &ops) const;
+
   ModelAlgoConfig cfg_;
 };

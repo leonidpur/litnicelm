@@ -264,6 +264,34 @@ void ObservedBackend::rotary_embedding_inplace(TensorView &x, int64_t n_heads,
   ObserverScope observed(observers_, OpId::RotaryEmbeddingInplace);
   wrapped_->rotary_embedding_inplace(x, n_heads, base, inverse);
 }
+uint32_t ObservedBackend::fused_ops() const { return wrapped_->fused_ops(); }
+void ObservedBackend::causal_attention_forward(const TensorView &qkv,
+                                               int64_t n_heads, float scale,
+                                               TensorView &out,
+                                               TensorView &stats) {
+  ObserverScope observed(observers_, OpId::CausalAttentionForward);
+  wrapped_->causal_attention_forward(qkv, n_heads, scale, out, stats);
+}
+void ObservedBackend::causal_attention_backward(
+    const TensorView &qkv, const TensorView &out, const TensorView &dout,
+    const TensorView &stats, int64_t n_heads, float scale, TensorView &dqkv) {
+  ObserverScope observed(observers_, OpId::CausalAttentionBackward);
+  wrapped_->causal_attention_backward(qkv, out, dout, stats, n_heads, scale,
+                                      dqkv);
+}
+void ObservedBackend::linear_forward(const TensorView &x, const TensorView &w,
+                                     const TensorView &bias, bool relu,
+                                     TensorView &out) {
+  ObserverScope observed(observers_, OpId::LinearForward);
+  wrapped_->linear_forward(x, w, bias, relu, out);
+}
+void ObservedBackend::linear_backward_params(const TensorView &x,
+                                             const TensorView &dy,
+                                             TensorView &dw,
+                                             TensorView &dbias) {
+  ObserverScope observed(observers_, OpId::LinearBackwardParams);
+  wrapped_->linear_backward_params(x, dy, dw, dbias);
+}
 void ObservedBackend::adamw_step(TensorView &params, const TensorView &grads,
                                  TensorView &m, TensorView &v, uint64_t step,
                                  float learning_rate, float beta1, float beta2,

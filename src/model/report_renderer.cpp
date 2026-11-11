@@ -480,38 +480,11 @@ void ReportRenderer::report_tensor_store_topology(
     lines.push_back(tensor_metadata_row(p + "dln1", tensor_store.temp_layer_dln1(li, T), infer_temp_purpose(p + "dln1")));
     lines.push_back(tensor_metadata_row(p + "dx_ln1", tensor_store.temp_layer_dx_ln1(li, T), infer_temp_purpose(p + "dx_ln1")));
 
-    lines.push_back(tensor_metadata_row(
-        p + "attn.qkv",
-        tensor_store.temp_attn_qkv(li, static_cast<int64_t>(cfg.training.batch_size),
-                                     static_cast<int64_t>(cfg.training.train_seq_len)),
-        infer_temp_purpose("attn.qkv")));
-    lines.push_back(tensor_metadata_row(
-        p + "attn.context",
-        tensor_store.temp_attn_context(li, static_cast<int64_t>(cfg.training.batch_size),
-                                         static_cast<int64_t>(cfg.training.train_seq_len)),
-        infer_temp_purpose("attn.context")));
-    lines.push_back(tensor_metadata_row(p + "attn.scores", tensor_store.temp_attn_scores(li, T), infer_temp_purpose("attn.scores")));
-    if (tensor_store.algo_factory().attention_needs_weights_buffer()) {
-      lines.push_back(tensor_metadata_row(
-          p + "attn.weights", tensor_store.temp_attn_weights(li, T),
-          infer_temp_purpose("attn.weights")));
+    const NodeSlices attention_slices = tensor_store.attention_slices(li);
+    for (const auto &[name, view] : attention_slices.views()) {
+      lines.push_back(
+          tensor_metadata_row(p + name, view, infer_temp_purpose(name)));
     }
-    lines.push_back(tensor_metadata_row(
-        p + "attn.head",
-        tensor_store.temp_attn_head(
-            li, static_cast<int64_t>(cfg.training.batch_size),
-            static_cast<int64_t>(cfg.training.train_seq_len)),
-        infer_temp_purpose("attn.head")));
-    lines.push_back(tensor_metadata_row(p + "attn.contextT", tensor_store.temp_attn_contextT(li, T), infer_temp_purpose("attn.contextT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dcontext", tensor_store.temp_attn_dcontext(li, T), infer_temp_purpose("attn.dcontext")));
-    lines.push_back(tensor_metadata_row(p + "attn.dqkv", tensor_store.temp_attn_dqkv(li, T), infer_temp_purpose("attn.dqkv")));
-    lines.push_back(tensor_metadata_row(p + "attn.KhT", tensor_store.temp_attn_KhT(li, T), infer_temp_purpose("attn.KhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.VhT", tensor_store.temp_attn_VhT(li, T), infer_temp_purpose("attn.VhT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dweights", tensor_store.temp_attn_dweights(li, T), infer_temp_purpose("attn.dweights")));
-    lines.push_back(tensor_metadata_row(p + "attn.weightsT", tensor_store.temp_attn_weightsT(li, T), infer_temp_purpose("attn.weightsT")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscores", tensor_store.temp_attn_dscores(li, T), infer_temp_purpose("attn.dscores")));
-    lines.push_back(tensor_metadata_row(p + "attn.dscoresT", tensor_store.temp_attn_dscoresT(li, T), infer_temp_purpose("attn.dscoresT")));
-    lines.push_back(tensor_metadata_row(p + "attn.xT", tensor_store.temp_attn_xT(li, T), infer_temp_purpose("attn.xT")));
 
     lines.push_back(tensor_metadata_row(
         p + "ffn.h",

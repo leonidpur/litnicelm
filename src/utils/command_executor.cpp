@@ -7,6 +7,7 @@
 #include "hf_exporter.hpp"
 #include <inference.hpp>
 #include "program_terminal.hpp"
+#include "variant_catalog.hpp"
 #include "trainer.hpp"
 #include <tokenizer_factory.hpp>
 
@@ -28,7 +29,18 @@ int CommandExecutor::run(const Command &cmd, const Config &cfg) {
   case Command::Target::DRY_RUN:
   case Command::Target::TRAIN:
     return Trainer::train_entry_point(cfg, cmd);
+  case Command::Target::LIST_VARIANTS:
+    return run_without_config(cmd);
   }
 
+  return 1;
+}
+
+int CommandExecutor::run_without_config(const Command &cmd) {
+  ProgramTerminal terminal;
+  if (cmd.target == Command::Target::LIST_VARIANTS) {
+    terminal.variant_catalog(render_variant_catalog());
+    return 0;
+  }
   return 1;
 }

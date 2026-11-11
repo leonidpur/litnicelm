@@ -21,6 +21,9 @@ int main(int argc, char **argv) {
 
     // 1. Path from CLI
     const Command cmd = CliParser::parse(argc, argv);
+    if (cmd.target == Command::Target::LIST_VARIANTS) {
+      return CommandExecutor::run_without_config(cmd);
+    }
     if (cmd.config_path.empty()) {
       throw std::runtime_error("--config <config.yaml> is required");
     }

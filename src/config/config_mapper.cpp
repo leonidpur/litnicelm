@@ -246,6 +246,10 @@ bool map_model_fields(const std::string &key, const std::string &value, Config &
 
 bool map_model_algo_fields(const std::string &key, const std::string &value,
                            Config &cfg) {
+  if (key == "model_algo.preset") {
+    cfg.model_algo.preset = value;
+    return true;
+  }
   if (key == "model_algo.attention") {
     cfg.model_algo.attention = value;
     return true;
@@ -256,6 +260,18 @@ bool map_model_algo_fields(const std::string &key, const std::string &value,
   }
   if (key == "model_algo.position_encoding") {
     cfg.model_algo.position_encoding = value;
+    return true;
+  }
+  if (key == "model_algo.projections") {
+    cfg.model_algo.projections = value;
+    return true;
+  }
+  if (key == "model_algo.output_head") {
+    cfg.model_algo.output_head = value;
+    return true;
+  }
+  if (key == "model_algo.debug_guards") {
+    cfg.model_algo.debug_guards = parse_bool_or_throw(value, key);
     return true;
   }
   return false;

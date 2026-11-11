@@ -2,15 +2,17 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // https://github.com/leonidpur/litnicelm
 
-#include "output_head.hpp"
+#include "unfused_output_head.hpp"
 #include "tensor_contracts.hpp"
 #include "training_diagnostics_controller.hpp"
 
 #include <litnicelm_utils/checks.hpp>
 
 
-OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
-                       GradientStore *gradient_store, const Ops &ops)
+UnfusedOutputHead::UnfusedOutputHead(const Config &cfg,
+                                     TensorStore &tensor_store,
+                                     GradientStore *gradient_store,
+                                     const Ops &ops)
     : cfg_(cfg),
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
@@ -18,15 +20,15 @@ OutputHead::OutputHead(const Config &cfg, TensorStore &tensor_store,
   check_contract();
 }
 
-void OutputHead::set_observer(ITrainingObserver *observer) {
+void UnfusedOutputHead::set_observer(ITrainingObserver *observer) {
   observer_ = observer;
 }
 
-void OutputHead::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
+void UnfusedOutputHead::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
   diagnostics_ = diagnostics;
 }
 
-void OutputHead::check_contract() const {
+void UnfusedOutputHead::check_contract() const {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
@@ -36,21 +38,21 @@ void OutputHead::check_contract() const {
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
 
   TensorContracts::check_output_head_params(lnf_g, lnf_b, lm_w, model_dim,
-                                            vocab_size, "OutputHead");
+                                            vocab_size, "UnfusedOutputHead");
 }
 
-void OutputHead::forward(const TensorView &x, TensorView &logits,
+void UnfusedOutputHead::forward(const TensorView &x, TensorView &logits,
                          TensorView *last_hidden) {
   observer_->on_output_head_start();
-  checker().check_same_device_dtype(x, logits, "OutputHead x/logits");
+  checker().check_same_device_dtype(x, logits, "UnfusedOutputHead x/logits");
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
-  checker().check_bsd(x, -1, -1, model_dim, "OutputHead x");
+  checker().check_bsd(x, -1, -1, model_dim, "UnfusedOutputHead x");
   const int64_t batch_size = x.dim(0);
   const int64_t seq_len = x.dim(1);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
   TensorContracts::check_logits_bsv(logits, batch_size, seq_len, vocab_size,
-                                    "OutputHead", "logits");
+                                    "UnfusedOutputHead", "logits");
 
   const TensorView &lnf_g = tensorStore_.param_lnf_gamma();
   const TensorView &lnf_b = tensorStore_.param_lnf_beta();
@@ -60,9 +62,9 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
   ops_.layernorm(x, lnf_g, lnf_b, Xn);
 
   if (last_hidden != nullptr) {
-    checker().check_same_shape(*last_hidden, x, "OutputHead last_hidden");
+    checker().check_same_shape(*last_hidden, x, "UnfusedOutputHead last_hidden");
     checker().check_same_device_dtype(*last_hidden, logits,
-                                      "OutputHead last_hidden/logits");
+                                      "UnfusedOutputHead last_hidden/logits");
     ops_.copy(Xn, *last_hidden);
   }
 
@@ -72,16 +74,16 @@ void OutputHead::forward(const TensorView &x, TensorView &logits,
   observer_->on_output_head_end();
 }
 
-void OutputHead::backward(const TensorView &dlogits, TensorView &dx) {
+void UnfusedOutputHead::backward(const TensorView &dlogits, TensorView &dx) {
   observer_->on_output_head_start();
-  checker().check_same_shape(dx, cache_x_, "OutputHead dx");
+  checker().check_same_shape(dx, cache_x_, "UnfusedOutputHead dx");
 
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
   const int64_t vocab_size =
       static_cast<int64_t>(cfg_.model.vocab_size);
   TensorContracts::check_logits_bsv(dlogits, batch_size, seq_len,
-                                    vocab_size, "OutputHead", "dlogits");
+                                    vocab_size, "UnfusedOutputHead", "dlogits");
 
   const TensorView &lm_w = tensorStore_.param_lm_head_w();
   const TensorView &compute_lm_w = tensorStore_.compute_lm_head_w();

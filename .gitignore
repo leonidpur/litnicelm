@@ -20,6 +20,7 @@ out/
 
 # Editor/runtime noise
 .codex
+.vscode/
 CLAUDE.md
 __pycache__/
 *.swp

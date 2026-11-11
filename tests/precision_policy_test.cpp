@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
       {ItemType::Activation, "Activation", DType::F32},
       {ItemType::TokenIds, "TokenIds", DType::I32},
       {ItemType::Loss, "Loss", DType::F32},
+      {ItemType::Statistics, "Statistics", DType::F32},
   };
   for (const auto &row : table) {
     expect(policy.dtype(row.item) == row.want,
@@ -137,6 +138,7 @@ int main(int argc, char **argv) {
       {ItemType::Activation, "Activation", DType::BF16},
       {ItemType::TokenIds, "TokenIds", DType::I32},
       {ItemType::Loss, "Loss", DType::F32},
+      {ItemType::Statistics, "Statistics", DType::F32},
   };
   for (const auto &row : mixed_table) {
     expect(mixed.dtype(row.item) == row.want,

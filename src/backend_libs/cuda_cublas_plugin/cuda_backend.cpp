@@ -4,8 +4,10 @@
 
 #include "cuda_backend.hpp"
 #include "cublas_gemm.hpp"
+#include "cublaslt_linear.hpp"
 #include "cuda_kernel_launchers.hpp"
 #include "cuda_tensor_view.hpp"
+#include "cudnn_attention.hpp"
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -16,6 +18,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -71,6 +74,9 @@ public:
     }
     if (scratch_loss_ != nullptr) {
       cudaFree(scratch_loss_);
+    }
+    if (layernorm_row_stats_ != nullptr) {
+      cudaFree(layernorm_row_stats_);
     }
   }
 
@@ -413,20 +419,25 @@ public:
     check_cuda_row_major(dgamma_1xC, {DType::F32},
                          "layernorm_backward(dgamma)");
     check_cuda_row_major(dbeta_1xC, {DType::F32}, "layernorm_backward(dbeta)");
-    check_cuda(cudaMemset(dgamma_1xC.data(), 0,
-                          static_cast<size_t>(row_bytes(dgamma_1xC))),
-               "cudaMemset(layernorm_backward(dgamma))");
-    check_cuda(cudaMemset(dbeta_1xC.data(), 0,
-                          static_cast<size_t>(row_bytes(dbeta_1xC))),
-               "cudaMemset(layernorm_backward(dbeta))");
     if (tensor_rows(x) == 0 || tensor_cols(x) == 0) {
+      check_cuda(cudaMemset(dgamma_1xC.data(), 0,
+                            static_cast<size_t>(row_bytes(dgamma_1xC))),
+                 "cudaMemset(layernorm_backward(dgamma))");
+      check_cuda(cudaMemset(dbeta_1xC.data(), 0,
+                            static_cast<size_t>(row_bytes(dbeta_1xC))),
+                 "cudaMemset(layernorm_backward(dbeta))");
       return;
     }
-    variant == PrecisionVariant::Bf16Act
-        ? launch_layernorm_backward_bf16act(x, gamma_1xC, dout, dx,
-                                            dgamma_1xC, dbeta_1xC)
-        : launch_layernorm_backward_f32(x, gamma_1xC, dout, dx, dgamma_1xC,
-                                        dbeta_1xC);
+    float *row_stats = layernorm_row_stats(tensor_rows(x));
+    if (variant == PrecisionVariant::Bf16Act) {
+      launch_layernorm_backward_bf16act(x, gamma_1xC, dout, dx, row_stats);
+      launch_layernorm_param_grads_bf16act(x, dout, row_stats, dgamma_1xC,
+                                           dbeta_1xC);
+    } else {
+      launch_layernorm_backward_f32(x, gamma_1xC, dout, dx, row_stats);
+      launch_layernorm_param_grads_f32(x, dout, row_stats, dgamma_1xC,
+                                       dbeta_1xC);
+    }
   }
 
   void embedding_lookup(const TensorView &table, const TensorView &ids,
@@ -723,6 +734,72 @@ public:
         : launch_rotary_embedding_inplace_f32(x, n_heads, base, inverse);
   }
 
+  uint32_t fused_ops() const override {
+    return kFusedOpLinear |
+           (CudnnAttention::available() ? kFusedOpCausalAttentionBf16Act : 0u);
+  }
+
+  // cuBLASLt with the epilogue; the unfused ops when it has no algorithm
+  // for the call or an operand is strided.
+  void linear_forward(const TensorView &x, const TensorView &w,
+                      const TensorView &bias, bool relu,
+                      TensorView &out) override {
+    const PrecisionVariant variant = precision_variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "linear_forward(x)");
+    check_cuda_row_major(w, {act}, "linear_forward(w)");
+    check_cuda_row_major(bias, {DType::F32}, "linear_forward(bias)");
+    check_cuda_row_major(out, {act}, "linear_forward(out)");
+    if (tensor_rows(out) == 0 || tensor_cols(out) == 0) {
+      return;
+    }
+    if (lt_linear().try_forward(x, w, bias, relu, out)) {
+      return;
+    }
+    gemm_ranked_matrix_rhs(x, w, out);
+    relu ? add_bias_relu_rowwise_inplace(out, bias)
+         : add_bias_rowwise(out, bias, out);
+  }
+
+  void linear_backward_params(const TensorView &x, const TensorView &dy,
+                              TensorView &dw, TensorView &dbias) override {
+    const PrecisionVariant variant = precision_variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "linear_backward_params(x)");
+    check_cuda_row_major(dy, {act}, "linear_backward_params(dy)");
+    check_cuda_row_major(dw, {DType::F32}, "linear_backward_params(dw)");
+    check_cuda_row_major(dbias, {DType::F32}, "linear_backward_params(dbias)");
+    if (tensor_rows(x) == 0) {
+      fill(dw, 0.0f);
+      fill(dbias, 0.0f);
+      return;
+    }
+    if (lt_linear().try_backward_params(x, dy, dw, dbias)) {
+      return;
+    }
+    gemm_ranked_reduce_lhs_t(x, dy, dw);
+    row_sum(dy, dbias);
+  }
+
+  void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
+                                float scale, TensorView &out,
+                                TensorView &stats) override {
+    if (qkv.dim(0) == 0 || qkv.dim(1) == 0) {
+      return;
+    }
+    cudnn_attention().forward(qkv, n_heads, scale, out, stats);
+  }
+
+  void causal_attention_backward(const TensorView &qkv, const TensorView &out,
+                                 const TensorView &dout,
+                                 const TensorView &stats, int64_t n_heads,
+                                 float scale, TensorView &dqkv) override {
+    if (qkv.dim(0) == 0 || qkv.dim(1) == 0) {
+      return;
+    }
+    cudnn_attention().backward(qkv, out, dout, stats, n_heads, scale, dqkv);
+  }
+
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,
@@ -927,8 +1004,44 @@ private:
     }
   }
 
+  // Grows the per-row (mean, inv_std) buffer; cudaFree synchronizes, which
+  // happens only when a larger LayerNorm input than before is seen.
+  float *layernorm_row_stats(int64_t rows) {
+    if (rows > layernorm_row_stats_rows_) {
+      if (layernorm_row_stats_ != nullptr) {
+        check_cuda(cudaFree(layernorm_row_stats_),
+                   "cudaFree(layernorm_backward row stats)");
+        layernorm_row_stats_ = nullptr;
+      }
+      check_cuda(cudaMalloc(&layernorm_row_stats_,
+                            static_cast<size_t>(2 * rows) * sizeof(float)),
+                 "cudaMalloc(layernorm_backward row stats)");
+      layernorm_row_stats_rows_ = rows;
+    }
+    return layernorm_row_stats_;
+  }
+
+  CublasLtLinear &lt_linear() {
+    if (lt_linear_ == nullptr) {
+      lt_linear_ = std::make_unique<CublasLtLinear>();
+    }
+    return *lt_linear_;
+  }
+
+  CudnnAttention &cudnn_attention() {
+    if (cudnn_attention_ == nullptr) {
+      cudnn_attention_ = std::make_unique<CudnnAttention>();
+    }
+    return *cudnn_attention_;
+  }
+
   cublasHandle_t handle_ = nullptr;
+  std::unique_ptr<CudnnAttention> cudnn_attention_;  // created on first use
+  std::unique_ptr<CublasLtLinear> lt_linear_;        // created on first use
   float *scratch_loss_ = nullptr;  // backward_from_logits_targets' unused loss
+  // layernorm_backward's (mean, inv_std) per row, grown on demand.
+  float *layernorm_row_stats_ = nullptr;
+  int64_t layernorm_row_stats_rows_ = 0;
   DefaultCpuBackend cpu_backend_;
   static constexpr size_t max_exec_lanes_ = 4;
   cudaEvent_t exec_ready_event_ = nullptr;

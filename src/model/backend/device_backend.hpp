@@ -122,6 +122,24 @@ public:
                                          float neg_inf = -1e9f) = 0;
   virtual void rotary_embedding_inplace(TensorView &x, int64_t n_heads,
                                         float base, bool inverse) = 0;
+  // Optional fused ops (BackendApiV1 has their contracts): the
+  // kFusedOp* bits; by default none, and the ops throw.
+  virtual uint32_t fused_ops() const { return 0; }
+  virtual void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
+                                        float scale, TensorView &out,
+                                        TensorView &stats);
+  virtual void causal_attention_backward(const TensorView &qkv,
+                                         const TensorView &out,
+                                         const TensorView &dout,
+                                         const TensorView &stats,
+                                         int64_t n_heads, float scale,
+                                         TensorView &dqkv);
+  virtual void linear_forward(const TensorView &x, const TensorView &w,
+                              const TensorView &bias, bool relu,
+                              TensorView &out);
+  virtual void linear_backward_params(const TensorView &x,
+                                      const TensorView &dy, TensorView &dw,
+                                      TensorView &dbias);
   virtual void adamw_step(TensorView &params, const TensorView &grads,
                           TensorView &m, TensorView &v, uint64_t step,
                           float learning_rate, float beta1, float beta2,

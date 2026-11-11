@@ -24,6 +24,16 @@ inline constexpr uint32_t kPrecisionVariantF32 = 1u << 0;  // <op>_f32: every te
 // gradients and optimizer state FP32.
 inline constexpr uint32_t kPrecisionVariantBf16Act = 1u << 1;
 
+// Optional fused ops a backend implements, as bits of
+// BackendApiV1::fused_ops. Their entries may be null when the bit is clear.
+// Causal attention over heads side by side, BF16 activations (_bf16act
+// only): causal_attention_forward and causal_attention_backward.
+inline constexpr uint32_t kFusedOpCausalAttentionBf16Act = 1u << 0;
+// Linear layers with the bias (and ReLU) and the bias gradient fused into
+// the GEMMs, both precision variants: linear_forward and
+// linear_backward_params. Without it, Ops composes them from primitives.
+inline constexpr uint32_t kFusedOpLinear = 1u << 1;
+
 struct BackendApiV1 {
   uint32_t abi_version;
   void *(*create)(uint32_t device);
@@ -173,9 +183,40 @@ struct BackendApiV1 {
   void (*timing_mark_end)(void *backend);
   BackendTimingReport (*timing_report)(void *backend);
   void (*timing_prepare)(void *backend, uint64_t max_marks);
+  // Optional fused ops: the kFusedOp* bits this backend implements. Null
+  // (as for a table without these entries) means none.
+  uint32_t (*fused_ops)(void *backend);
+  // qkv [B, S, 3D] (Q | K | V, heads side by side; rows may be strided) ->
+  // out [B, S, D] = softmax(scale * Q K^T + causal mask) V per head. stats
+  // [B, H, S] F32 receives each row's softmax log-sum-exp for backward; a
+  // null stats->ptr skips it (inference).
+  void (*causal_attention_forward)(void *backend, const TensorViewStruct *qkv,
+                                   int64_t n_heads, float scale,
+                                   const TensorViewStruct *out,
+                                   const TensorViewStruct *stats);
+  // dout [B, S, D] -> dqkv [B, S, 3D], given the forward's qkv, out and stats.
+  void (*causal_attention_backward)(void *backend, const TensorViewStruct *qkv,
+                                    const TensorViewStruct *out,
+                                    const TensorViewStruct *dout,
+                                    const TensorViewStruct *stats,
+                                    int64_t n_heads, float scale,
+                                    const TensorViewStruct *dqkv);
+  // x [..., in] (contiguous rows), w [in, out] (the compute weight), bias
+  // [1, out] F32 -> out [..., out] = x w + bias, then ReLU when relu != 0;
+  // the bias is added before the single rounding of out.
+  void (*linear_forward)(void *backend, const TensorViewStruct *x,
+                         const TensorViewStruct *w,
+                         const TensorViewStruct *bias, uint32_t relu,
+                         const TensorViewStruct *out);
+  // dw [in, out] = x^T dy and dbias [1, out] = column sums of dy over all
+  // rows, both F32 and overwritten.
+  void (*linear_backward_params)(void *backend, const TensorViewStruct *x,
+                                 const TensorViewStruct *dy,
+                                 const TensorViewStruct *dw,
+                                 const TensorViewStruct *dbias);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 23;
+inline constexpr uint32_t kBackendApiVersion = 24;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

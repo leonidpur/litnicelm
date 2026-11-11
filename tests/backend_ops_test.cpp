@@ -604,7 +604,7 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"scaled_causal_softmax_rows_exec_context", "AA", C::Exact},
       {"softmax_backward_causal_rows_exec_context", "AAA", C::Exact},
       {"layernorm_forward", "APPA", C::Exact},
-      {"layernorm_backward", "APAAPP", C::ExactAtomics},
+      {"layernorm_backward", "APAAPP", C::Exact},
       {"embedding_lookup", "PIA", C::Exact},
       {"accumulate_embedding_grads", "IAP", C::ExactAtomics},
       // The loss is an atomic sum over rows; the gradient is exact.
@@ -731,8 +731,7 @@ bool same_result_bits(const Result &a, const Result &b) {
 }
 
 bool has_atomic_reduction(const OpCase &op) {
-  return op.name == "layernorm_backward" ||
-         op.name == "accumulate_embedding_grads" ||
+  return op.name == "accumulate_embedding_grads" ||
          op.name == "cross_entropy_mean" ||
          op.name == "cross_entropy_mean_backward_inplace";
 }

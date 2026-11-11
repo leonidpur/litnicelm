@@ -5,6 +5,7 @@
 """LitniceLM configuration, subprocess, and profiler adapter."""
 
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 from types import MappingProxyType
@@ -132,7 +133,8 @@ class LitniceLMEngine(Engine):
                 attention_mode,
                 {"attention_mode": attention_mode},
             )
-            for attention_mode in spec.litnicelm.attention_modes
+            for attention_mode in self.attention_modes(spec)
+            if self._runs_in(attention_mode, precision)
         )
 
     def run_speed(
@@ -271,8 +273,55 @@ class LitniceLMEngine(Engine):
             "drive the LitniceLM binary as a subprocess",
             f"request precisions: {', '.join(precisions)}",
             "expand LitniceLM attention modes: "
-            + ", ".join(spec.litnicelm.attention_modes),
+            + ", ".join(self.attention_modes(spec)),
         ) + native + adapter
+
+    def attention_modes(self, spec: ComparisonSpec) -> tuple[str, ...]:
+        """The spec's attention modes, or every one the binary registers.
+
+        Registered modes are the attention names, then `preset:<name>` for
+        each preset but `unfused` (the unfused attention already
+        measures the unfused path); a preset mode sets model_algo.preset.
+        """
+        if spec.litnicelm.attention_modes:
+            return spec.litnicelm.attention_modes
+        modes = tuple(self._registered_attention())
+        if not modes:
+            raise RuntimeError(f"{self.binary} list_variants registered no attention")
+        return modes
+
+    def _registered_attention(self) -> dict[str, str]:
+        """Attention mode -> the only native precision it runs in, or "".
+
+        From `list_variants` lines `attention <name> [experimental]
+        [precision=<native precision>]` and `preset <name> ...
+        [precision=<native precision>]`.
+        """
+        completed = subprocess.run(
+            [str(self.binary), "list_variants"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        registered: dict[str, str] = {}
+        for line in completed.stdout.splitlines():
+            fields = line.split()
+            if fields[:1] == ["attention"]:
+                mode = fields[1]
+            elif fields[:1] == ["preset"] and fields[1] != "unfused":
+                mode = f"preset:{fields[1]}"
+            else:
+                continue
+            precision = next(
+                (f.split("=", 1)[1] for f in fields[2:] if f.startswith("precision=")), ""
+            )
+            registered[mode] = precision
+        return registered
+
+    def _runs_in(self, attention_mode: str, precision: str) -> bool:
+        """Whether the binary runs this attention mode in a shared precision."""
+        only = self._registered_attention().get(attention_mode, "")
+        return not only or only == self._native_precision(precision)
 
     @property
     def binary(self) -> Path:
@@ -332,6 +381,12 @@ class LitniceLMEngine(Engine):
                 continue
             section, separator, key = dotted.partition(".")
             text = _set_key(text, section if separator else None, key or section, value)
+        if attention_mode.startswith("preset:"):
+            # The preset chooses attention, projections and FFN; the keys it
+            # replaces must stay at their defaults.
+            text = _set_key(text, "model_algo", "preset", attention_mode.split(":", 1)[1])
+            text = _set_key(text, "model_algo", "attention", "unfused")
+            text = _set_key(text, "model_algo", "ffn", "reference")
         if profile_backend_ops:
             text = _set_key(text, "logging", "profile_backend_ops", True)
             text = _set_key(
@@ -477,6 +532,6 @@ class LitniceLMEngine(Engine):
         del variant
         if operation != "train_speed":
             raise NotImplementedError(f"LitniceLM operation is not implemented: {operation}")
-        attention_mode = spec.litnicelm.attention_modes[0]
+        attention_mode = self.attention_modes(spec)[0]
         return self.train(spec, spec.workload.precisions[0], attention_mode)
 

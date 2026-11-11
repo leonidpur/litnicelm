@@ -6,40 +6,35 @@
 
 #include <config.hpp>
 #include "gradient_store.hpp"
-#include "i_position_encoding.hpp"
-#include "i_self_attention.hpp"
+#include "i_output_head.hpp"
 #include "ops.hpp"
 #include "tensor_store.hpp"
 #include "training_observer.hpp"
 
-#include <string>
-
 class TrainingDiagnosticsController;
 
-class SelfAttentionFusedInplace final : public ISelfAttention {
+// Final LayerNorm, then the LM-head GEMM (no bias), each as its own op.
+class UnfusedOutputHead final : public IOutputHead {
 public:
-  SelfAttentionFusedInplace(int layer_index, const Config &cfg,
-                            TensorStore &tensor_store,
-                            GradientStore *gradient_store, const Ops &ops,
-                            IPositionEncoding &position_encoding);
+  UnfusedOutputHead(const Config &cfg, TensorStore &tensor_store,
+                    GradientStore *gradient_store, const Ops &ops);
+
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
-  void forward(const TensorView &x, TensorView &out) override;
-  void backward(const TensorView &dout, TensorView &dx) override;
+  void forward(const TensorView &x, TensorView &logits,
+               TensorView *last_hidden) override;
+  void backward(const TensorView &dlogits, TensorView &dx) override;
 
 private:
   void check_contract() const;
 
-  int idx_;
   const Config &cfg_;
   TensorStore &tensorStore_;
   GradientStore *gradientStore_ = nullptr;
   const Ops &ops_;
-  IPositionEncoding &positionEncoding_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
   TensorView cache_x_;
-  TensorView cache_qkv_;
-  TensorView cache_context_;
+  TensorView cache_xn_;
   ITrainingObserver *observer_ = &default_training_observer();
 };

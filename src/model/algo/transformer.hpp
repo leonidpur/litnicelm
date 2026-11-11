@@ -9,7 +9,7 @@
 #include "i_position_encoding.hpp"
 #include "model_algo_config.hpp"
 #include "model_algo_factory.hpp"
-#include "output_head.hpp"
+#include "i_output_head.hpp"
 #include "training_observer.hpp"
 #include "ops.hpp"
 #include "tensor_store.hpp"
@@ -65,7 +65,7 @@ private:
   GradientStore *gradientStore_ = nullptr;
   const Ops &ops_;
   TrainingDiagnosticsController *diagnostics_ = nullptr;
-  OutputHead outputHead_;
+  std::unique_ptr<IOutputHead> outputHead_;
 
   std::vector<TransformerLayer> layers_;
   TensorView cache_x0_;

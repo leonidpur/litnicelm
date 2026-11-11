@@ -470,6 +470,53 @@ public:
                                    inverse ? 1u : 0u);
   }
 
+  uint32_t fused_ops() const override {
+    return api_->fused_ops != nullptr ? api_->fused_ops(instance_) : 0u;
+  }
+
+  void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
+                                float scale, TensorView &out,
+                                TensorView &stats) override {
+    if (api_->causal_attention_forward == nullptr) {
+      DeviceBackend::causal_attention_forward(qkv, n_heads, scale, out, stats);
+      return;
+    }
+    api_->causal_attention_forward(instance_, &qkv, n_heads, scale, &out,
+                                   &stats);
+  }
+
+  void causal_attention_backward(const TensorView &qkv, const TensorView &out,
+                                 const TensorView &dout,
+                                 const TensorView &stats, int64_t n_heads,
+                                 float scale, TensorView &dqkv) override {
+    if (api_->causal_attention_backward == nullptr) {
+      DeviceBackend::causal_attention_backward(qkv, out, dout, stats, n_heads,
+                                               scale, dqkv);
+      return;
+    }
+    api_->causal_attention_backward(instance_, &qkv, &out, &dout, &stats,
+                                    n_heads, scale, &dqkv);
+  }
+
+  void linear_forward(const TensorView &x, const TensorView &w,
+                      const TensorView &bias, bool relu,
+                      TensorView &out) override {
+    if (api_->linear_forward == nullptr) {
+      DeviceBackend::linear_forward(x, w, bias, relu, out);
+      return;
+    }
+    api_->linear_forward(instance_, &x, &w, &bias, relu ? 1u : 0u, &out);
+  }
+
+  void linear_backward_params(const TensorView &x, const TensorView &dy,
+                              TensorView &dw, TensorView &dbias) override {
+    if (api_->linear_backward_params == nullptr) {
+      DeviceBackend::linear_backward_params(x, dy, dw, dbias);
+      return;
+    }
+    api_->linear_backward_params(instance_, &x, &dy, &dw, &dbias);
+  }
+
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,
@@ -1706,6 +1753,39 @@ void DefaultCpuBackend::read_file2device(const std::string &path, void *dst,
   if (in.gcount() != static_cast<std::streamsize>(size)) {
     throw std::runtime_error("DefaultCpuBackend::read_file2device: short read");
   }
+}
+
+void DeviceBackend::causal_attention_forward(const TensorView &, int64_t,
+                                             float, TensorView &,
+                                             TensorView &) {
+  throw std::runtime_error(
+      "DeviceBackend: causal_attention_forward is not implemented by this "
+      "backend (no kFusedOpCausalAttentionBf16Act)");
+}
+
+void DeviceBackend::causal_attention_backward(const TensorView &,
+                                              const TensorView &,
+                                              const TensorView &,
+                                              const TensorView &, int64_t,
+                                              float, TensorView &) {
+  throw std::runtime_error(
+      "DeviceBackend: causal_attention_backward is not implemented by this "
+      "backend (no kFusedOpCausalAttentionBf16Act)");
+}
+
+void DeviceBackend::linear_forward(const TensorView &, const TensorView &,
+                                   const TensorView &, bool, TensorView &) {
+  throw std::runtime_error(
+      "DeviceBackend: linear_forward is not implemented by this backend (no "
+      "kFusedOpLinear)");
+}
+
+void DeviceBackend::linear_backward_params(const TensorView &,
+                                           const TensorView &, TensorView &,
+                                           TensorView &) {
+  throw std::runtime_error(
+      "DeviceBackend: linear_backward_params is not implemented by this "
+      "backend (no kFusedOpLinear)");
 }
 
 std::unique_ptr<DeviceBackend> DeviceBackend::create_instance(

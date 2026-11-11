@@ -56,6 +56,10 @@ enum class OpId : uint32_t {
   RotaryEmbeddingInplace,
   AdamwStep,
   ReadFileToDevice,
+  CausalAttentionForward,
+  CausalAttentionBackward,
+  LinearForward,
+  LinearBackwardParams,
   Count,
 };
 

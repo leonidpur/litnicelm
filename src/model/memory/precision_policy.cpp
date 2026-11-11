@@ -11,13 +11,13 @@
 namespace {
 
 // The presets, in ItemType order: Parameter, ComputeWeight, Gradient,
-// OptimizerState, Activation, TokenIds, Loss.
+// OptimizerState, Activation, TokenIds, Loss, Statistics.
 constexpr std::array<DType, static_cast<size_t>(ItemType::Count)> kFp32 = {
     DType::F32, DType::F32, DType::F32, DType::F32,
-    DType::F32, DType::I32, DType::F32};
+    DType::F32, DType::I32, DType::F32, DType::F32};
 constexpr std::array<DType, static_cast<size_t>(ItemType::Count)> kBf16Mixed = {
     DType::F32, DType::BF16, DType::F32, DType::F32,
-    DType::BF16, DType::I32, DType::F32};
+    DType::BF16, DType::I32, DType::F32, DType::F32};
 
 } // namespace
 

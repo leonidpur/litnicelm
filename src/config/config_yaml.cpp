@@ -142,11 +142,20 @@ std::string config_to_yaml(const Config &cfg) {
     << "  d_model: " << cfg.model.d_model << "\n"
     << "  d_ff: " << cfg.model.d_ff << "\n\n";
 
-  y << "model_algo:\n"
-    << "  attention: " << quoted(cfg.model_algo.attention) << "\n"
+  y << "model_algo:\n";
+  if (!cfg.model_algo.preset.empty()) {
+    y << "  preset: " << quoted(cfg.model_algo.preset) << "\n";
+  }
+  y << "  attention: " << quoted(cfg.model_algo.attention) << "\n"
     << "  ffn: " << quoted(cfg.model_algo.ffn) << "\n"
     << "  position_encoding: " << quoted(cfg.model_algo.position_encoding)
-    << "\n\n";
+    << "\n"
+    << "  projections: " << quoted(cfg.model_algo.projections) << "\n"
+    << "  output_head: " << quoted(cfg.model_algo.output_head) << "\n";
+  if (cfg.model_algo.debug_guards) {
+    y << "  debug_guards: true\n";
+  }
+  y << "\n";
 
   const TrainingConfig &t = cfg.training;
   y << "training:\n"

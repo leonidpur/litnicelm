@@ -22,7 +22,8 @@ Transformer::Transformer(const Config &cfg,
       tensorStore_(tensor_store),
       gradientStore_(gradient_store),
       ops_(ops),
-      outputHead_(cfg_, tensorStore_, gradientStore_, ops_) {
+      outputHead_(algo.create_output_head(cfg_, tensorStore_, gradientStore_,
+                                          ops_)) {
   layers_.reserve(cfg_.model.n_layers);
   for (uint32_t i = 0; i < cfg_.model.n_layers; ++i) {
     layers_.emplace_back(static_cast<int>(i), cfg_, tensorStore_,
@@ -37,7 +38,7 @@ void Transformer::set_observer(ITrainingObserver *observer) {
   for (auto &layer : layers_) {
     layer.set_observer(observer);
   }
-  outputHead_.set_observer(observer);
+  outputHead_->set_observer(observer);
 }
 
 void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
@@ -45,7 +46,7 @@ void Transformer::set_diagnostics(TrainingDiagnosticsController *diagnostics) {
   for (auto &layer : layers_) {
     layer.set_diagnostics(diagnostics);
   }
-  outputHead_.set_diagnostics(diagnostics);
+  outputHead_->set_diagnostics(diagnostics);
   positionEncoding_->set_diagnostics(diagnostics);
 }
 
@@ -92,7 +93,7 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
     X = Y;
   }
 
-  outputHead_.forward(X, logits, last_hidden);
+  outputHead_->forward(X, logits, last_hidden);
   observer_->on_forward_end();
 }
 
@@ -118,7 +119,7 @@ void Transformer::backward(const TensorView &ids, const TensorView &dlogits,
   (void)probe;
 
   TensorView d_xlast = tensorStore_.temp_bw_d_xlast(batch_size, seq_len);
-  outputHead_.backward(dlogits, d_xlast);
+  outputHead_->backward(dlogits, d_xlast);
 
   TensorView d_cur = d_xlast;
   for (int l = static_cast<int>(layers_.size()) - 1; l >= 0; --l) {

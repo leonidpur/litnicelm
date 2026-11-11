@@ -396,6 +396,50 @@ BackendMemoryInfo plugin_memory_info(void *backend) {
                            info.total_bytes};
 }
 
+uint32_t plugin_fused_ops(void *backend) {
+  return backend_from_opaque(backend).fused_ops();
+}
+
+void plugin_causal_attention_forward(void *backend, const TensorViewStruct *qkv,
+                                     int64_t n_heads, float scale,
+                                     const TensorViewStruct *out,
+                                     const TensorViewStruct *stats) {
+  TensorView out_view = to_tensor_view(*out);
+  TensorView stats_view = to_tensor_view(*stats);
+  backend_from_opaque(backend).causal_attention_forward(
+      to_tensor_view(*qkv), n_heads, scale, out_view, stats_view);
+}
+
+void plugin_causal_attention_backward(
+    void *backend, const TensorViewStruct *qkv, const TensorViewStruct *out,
+    const TensorViewStruct *dout, const TensorViewStruct *stats,
+    int64_t n_heads, float scale, const TensorViewStruct *dqkv) {
+  TensorView dqkv_view = to_tensor_view(*dqkv);
+  backend_from_opaque(backend).causal_attention_backward(
+      to_tensor_view(*qkv), to_tensor_view(*out), to_tensor_view(*dout),
+      to_tensor_view(*stats), n_heads, scale, dqkv_view);
+}
+
+void plugin_linear_forward(void *backend, const TensorViewStruct *x,
+                           const TensorViewStruct *w,
+                           const TensorViewStruct *bias, uint32_t relu,
+                           const TensorViewStruct *out) {
+  TensorView out_view = to_tensor_view(*out);
+  backend_from_opaque(backend).linear_forward(
+      to_tensor_view(*x), to_tensor_view(*w), to_tensor_view(*bias), relu != 0,
+      out_view);
+}
+
+void plugin_linear_backward_params(void *backend, const TensorViewStruct *x,
+                                   const TensorViewStruct *dy,
+                                   const TensorViewStruct *dw,
+                                   const TensorViewStruct *dbias) {
+  TensorView dw_view = to_tensor_view(*dw);
+  TensorView dbias_view = to_tensor_view(*dbias);
+  backend_from_opaque(backend).linear_backward_params(
+      to_tensor_view(*x), to_tensor_view(*dy), dw_view, dbias_view);
+}
+
 uint32_t plugin_precision_variants(void *backend) {
   return backend_from_opaque(backend).precision_variants();
 }
@@ -486,6 +530,11 @@ const BackendApiV1 kBackendApi = {
     &plugin_timing_mark_end,
     &plugin_timing_report,
     &plugin_timing_prepare,
+    &plugin_fused_ops,
+    &plugin_causal_attention_forward,
+    &plugin_causal_attention_backward,
+    &plugin_linear_forward,
+    &plugin_linear_backward_params,
 };
 
 } // namespace

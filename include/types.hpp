@@ -168,9 +168,17 @@ struct MemoryConfig {
 };
 
 struct ModelAlgoRuntimeConfig {
-  std::string attention = "reference";
+  // unfused, portable_fused or max_fused; empty: attention and ffn below choose.
+  std::string preset;
+  std::string attention = "unfused";
   std::string ffn = "reference";
   std::string position_encoding = "learned";
+  // The attention QKV and output projections: gemm or fused_linear.
+  std::string projections = "gemm";
+  // The final norm and LM head: unfused.
+  std::string output_head = "unfused";
+  // Guard regions and saved-state checks around attention slices; slow.
+  bool debug_guards = false;
 };
 
 // Experiment-tracking plugins. Without `sinks`, the journal plugin is loaded
@@ -241,6 +249,7 @@ struct Command {
     INSPECT,
     INFERLOOP,
     EXPORT,
+    LIST_VARIANTS,  // needs no config
   };
 
   Target target;

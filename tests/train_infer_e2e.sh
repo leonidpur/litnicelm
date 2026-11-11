@@ -156,7 +156,7 @@ model:
   d_ff: 64
   max_seq_len: 16
 model_algo:
-  attention: "reference"
+  attention: "unfused"
   ffn: "reference"
   position_encoding: "$3"
 training:

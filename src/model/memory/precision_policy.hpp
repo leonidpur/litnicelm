@@ -21,6 +21,7 @@ enum class ItemType : uint8_t {
   Activation,      // forward/backward temporaries and their gradients
   TokenIds,        // input and target token ids
   Loss,            // the loss scalar
+  Statistics,      // per-row reductions saved for backward (softmax log-sum-exp)
   Count
 };
 

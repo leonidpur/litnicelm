@@ -3,6 +3,8 @@
 // https://github.com/leonidpur/litnicelm
 
 #include "named_layout.hpp"
+#include "arena_factory.hpp"
+#include "attention_dims.hpp"
 
 #include <config.hpp>
 #include "model_algo_factory.hpp"
@@ -297,27 +299,9 @@ NamedLayout NamedLayout::build_training_temp_layout(
                NamedLayout::tensor_bytes(T, D, dtype, "layer.hidden"),
                cursor, dtype);
 
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.qkv",
-               NamedLayout::tensor_bytes(T, 3 * D, dtype, "attn.qkv"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.context",
-               NamedLayout::tensor_bytes(T, D, dtype, "attn.context"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.scores",
-               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.scores"),
-               cursor, dtype);
-    if (algo.attention_needs_weights_buffer()) {
-      push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
-                 NamedLayout::tensor_bytes(T, train_seq, dtype,
-                                           "attn.weights"),
-                 cursor, dtype);
-    }
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights_cache",
-               NamedLayout::tensor_bytes(cfg.model.n_heads * T, train_seq, dtype,
-                                         "attn.weights_cache"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.head",
-               NamedLayout::tensor_bytes(T, dh, dtype, "attn.head"), cursor, dtype);
+    ArenaFactory::append(p, algo.attention_slice_requests(training_attention_dims(cfg)),
+                         precision, cfg.memory.alignment_bytes,
+                         layout.slices_, cursor);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
                NamedLayout::tensor_bytes(T, F, dtype, "ffn.h"), cursor, dtype);
@@ -340,33 +324,6 @@ NamedLayout NamedLayout::build_training_temp_layout(
                NamedLayout::tensor_bytes(T, D, dtype, "layer.dx_ln1"),
                cursor, dtype);
 
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.contextT",
-               NamedLayout::tensor_bytes(D, T, dtype, "attn.contextT"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dcontext",
-               NamedLayout::tensor_bytes(T, D, dtype, "attn.dcontext"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dqkv",
-               NamedLayout::tensor_bytes(T, 3 * D, dtype, "attn.dqkv"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.KhT",
-               NamedLayout::tensor_bytes(dh, T, dtype, "attn.KhT"), cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.VhT",
-               NamedLayout::tensor_bytes(dh, T, dtype, "attn.VhT"), cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dweights",
-               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dweights"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weightsT",
-               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.weightsT"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dscores",
-               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dscores"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.dscoresT",
-               NamedLayout::tensor_bytes(T, train_seq, dtype, "attn.dscoresT"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.xT",
-               NamedLayout::tensor_bytes(D, T, dtype, "attn.xT"), cursor, dtype);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.aT",
                NamedLayout::tensor_bytes(F, T, dtype, "ffn.aT"), cursor, dtype);
@@ -455,33 +412,9 @@ NamedLayout NamedLayout::build_inference_temp_layout(
                                          "infer.layer.hidden"),
                cursor, dtype);
 
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.qkv",
-               NamedLayout::tensor_bytes(S, 3 * D, dtype,
-                                         "infer.attn.qkv"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.context",
-               NamedLayout::tensor_bytes(S, D, dtype,
-                                         "infer.attn.context"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.scores",
-               NamedLayout::tensor_bytes(S, S, dtype,
-                                         "infer.attn.scores"),
-               cursor, dtype);
-    if (algo.attention_needs_weights_buffer()) {
-      push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.weights",
-                 NamedLayout::tensor_bytes(S, S, dtype,
-                                           "infer.attn.weights"),
-                 cursor, dtype);
-    }
-    push_slice(layout.slices_, cfg.memory.alignment_bytes,
-               p + "attn.weights_cache",
-               NamedLayout::tensor_bytes(H * S, S, dtype,
-                                         "infer.attn.weights_cache"),
-               cursor, dtype);
-    push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "attn.head",
-               NamedLayout::tensor_bytes(S, dh, dtype,
-                                         "infer.attn.head"),
-               cursor, dtype);
+    ArenaFactory::append(p, algo.attention_slice_requests(inference_attention_dims(cfg)),
+                         precision, cfg.memory.alignment_bytes,
+                         layout.slices_, cursor);
 
     push_slice(layout.slices_, cfg.memory.alignment_bytes, p + "ffn.h",
                NamedLayout::tensor_bytes(S, F, dtype, "infer.ffn.h"),

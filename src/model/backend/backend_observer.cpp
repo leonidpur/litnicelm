@@ -51,6 +51,10 @@ const char *op_name(OpId op) {
   case OpId::SoftmaxBackwardCausalRows: return "softmax_backward_causal_rows";
   case OpId::ApplyCausalMaskInplace: return "apply_causal_mask_inplace";
   case OpId::RotaryEmbeddingInplace: return "rotary_embedding_inplace";
+  case OpId::CausalAttentionForward: return "causal_attention_forward";
+  case OpId::CausalAttentionBackward: return "causal_attention_backward";
+  case OpId::LinearForward: return "linear_forward";
+  case OpId::LinearBackwardParams: return "linear_backward_params";
   case OpId::AdamwStep: return "adamw_step";
   case OpId::ReadFileToDevice: return "read_file2device";
   case OpId::Count: return "count";
