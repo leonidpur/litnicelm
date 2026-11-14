@@ -60,6 +60,8 @@ enum class OpId : uint32_t {
   CausalAttentionBackward,
   LinearForward,
   LinearBackwardParams,
+  GemmRankedReduceLhsTAccumulate,
+  LinearBackwardParamsAccumulate,
   Count,
 };
 

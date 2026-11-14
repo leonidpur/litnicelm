@@ -143,7 +143,7 @@ bool CublasLtLinear::try_forward(const TensorView &x, const TensorView &w,
 
 bool CublasLtLinear::try_backward_params(const TensorView &x,
                                          const TensorView &dy, TensorView &dw,
-                                         TensorView &dbias) {
+                                         TensorView &dbias, bool accumulate) {
   if (!x.is_contiguous() || !dy.is_contiguous() || !dw.is_contiguous() ||
       !dbias.is_contiguous()) {
     return false;
@@ -162,7 +162,7 @@ bool CublasLtLinear::try_backward_params(const TensorView &x,
   const void *dbias_ptr = dbias.data();
   set_attr(p.desc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, dbias_ptr);
   const float alpha = 1.0f;
-  const float beta = 0.0f;
+  const float beta = accumulate ? 1.0f : 0.0f;
   check_lt(cublasLtMatmul(handle_, p.desc, &alpha, dy.data(), p.a, x.data(),
                           p.b, &beta, dw.data(), p.d, dw.data(), p.d, &p.algo,
                           workspace_, kWorkspaceBytes, nullptr),

@@ -169,6 +169,15 @@ void plugin_gemm_ranked_reduce_lhs_t(void *backend,
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
+void plugin_gemm_ranked_reduce_lhs_t_accumulate(void *backend,
+                                                const TensorViewStruct *a,
+                                                const TensorViewStruct *b,
+                                                const TensorViewStruct *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_cpu_backend(backend).gemm_ranked_reduce_lhs_t_accumulate(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
 void plugin_gemm_batched(void *backend, const TensorViewStruct *a,
                          const TensorViewStruct *b,
                          const TensorViewStruct *out) {
@@ -459,6 +468,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_gemm_ranked_matrix_rhs,
     &plugin_gemm_ranked_matrix_rhs_t,
     &plugin_gemm_ranked_reduce_lhs_t,
+    &plugin_gemm_ranked_reduce_lhs_t_accumulate,
     &plugin_gemm_batched,
     &plugin_gemm_batched_lhs_t,
     &plugin_gemm_batched_rhs_t,

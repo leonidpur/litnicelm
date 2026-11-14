@@ -380,6 +380,11 @@ std::vector<OpCase> op_cases() {
                    {random_f32(Shape{3, 17, 24}, 49), random_f32(Shape{3, 17, 29}, 50), random_f32(Shape{24, 29}, 51)},
                    [](DeviceBackend &b, Views &v) { b.gemm_ranked_reduce_lhs_t(v[0], v[1], v[2]); return Scalars{}; },
                    {2}, kReduce, kReduce});
+  // out starts random: the product is added to it.
+  cases.push_back({"gemm_ranked_reduce_lhs_t_accumulate",
+                   {random_f32(Shape{3, 17, 24}, 62000), random_f32(Shape{3, 17, 29}, 62001), random_f32(Shape{24, 29}, 62002)},
+                   [](DeviceBackend &b, Views &v) { b.gemm_ranked_reduce_lhs_t_accumulate(v[0], v[1], v[2]); return Scalars{}; },
+                   {2}, kReduce, kReduce});
   cases.push_back({"gemm_batched",
                    {random_f32(Shape{4, 17, 24}, 52), random_f32(Shape{4, 24, 29}, 53), random_f32(Shape{4, 17, 29}, 54)},
                    [](DeviceBackend &b, Views &v) { b.gemm_batched(v[0], v[1], v[2]); return Scalars{}; },
@@ -615,6 +620,7 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"gemm_ranked_matrix_rhs, tensor-core shape", "AWA", C::Gemm},
       {"gemm_ranked_matrix_rhs_t", "AWA", C::Gemm},
       {"gemm_ranked_reduce_lhs_t", "AAP", C::Gemm},
+      {"gemm_ranked_reduce_lhs_t_accumulate", "AAP", C::Gemm},
       {"gemm_batched", "AAA", C::Gemm},
       {"gemm_batched_lhs_t", "AAA", C::Gemm},
       {"gemm_batched_rhs_t", "AAA", C::Gemm},

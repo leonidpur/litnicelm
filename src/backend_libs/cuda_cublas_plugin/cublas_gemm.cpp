@@ -81,9 +81,9 @@ CublasOutputMatrix output_matrix(TensorView &view, uint64_t prefix,
 void run_gemm_f32(cublasHandle_t handle, cublasOperation_t op_a,
                   cublasOperation_t op_b, const GemmShape &shape,
                   const CublasInputMatrix &a, const CublasInputMatrix &b,
-                  const CublasOutputMatrix &out, const char *what) {
+                  const CublasOutputMatrix &out, const char *what,
+                  float beta) {
   const float alpha = 1.0f;
-  const float beta = 0.0f;
   check_cublas(cublasSgemm(handle, op_a, op_b, shape.out_cols, shape.out_rows,
                            shape.shared_dim, &alpha,
                            static_cast<const float *>(a.data), a.leading_dim,
@@ -119,9 +119,9 @@ void run_strided_batched_gemm_f32(cublasHandle_t handle,
 void run_gemm_bf16act(cublasHandle_t handle, cublasOperation_t op_a,
                       cublasOperation_t op_b, const GemmShape &shape,
                       const CublasInputMatrix &a, const CublasInputMatrix &b,
-                      const CublasOutputMatrix &out, const char *what) {
+                      const CublasOutputMatrix &out, const char *what,
+                      float beta) {
   const float alpha = 1.0f;
-  const float beta = 0.0f;
   check_cublas(cublasGemmEx(handle, op_a, op_b, shape.out_cols, shape.out_rows,
                             shape.shared_dim, &alpha, a.data, a.type,
                             a.leading_dim, b.data, b.type, b.leading_dim,
@@ -152,10 +152,12 @@ void run_strided_batched_gemm_bf16act(cublasHandle_t handle,
 void run_gemm(PrecisionVariant variant, cublasHandle_t handle, cublasOperation_t op_a,
               cublasOperation_t op_b, const GemmShape &shape,
               const CublasInputMatrix &a, const CublasInputMatrix &b,
-              const CublasOutputMatrix &out, const char *what) {
+              const CublasOutputMatrix &out, const char *what,
+              float beta = 0.0f) {
+  // beta 0 overwrites out; beta 1 adds to it.
   variant == PrecisionVariant::Bf16Act
-      ? run_gemm_bf16act(handle, op_a, op_b, shape, a, b, out, what)
-      : run_gemm_f32(handle, op_a, op_b, shape, a, b, out, what);
+      ? run_gemm_bf16act(handle, op_a, op_b, shape, a, b, out, what, beta)
+      : run_gemm_f32(handle, op_a, op_b, shape, a, b, out, what, beta);
 }
 
 void run_strided_batched_gemm(PrecisionVariant variant, cublasHandle_t handle,
@@ -329,9 +331,11 @@ void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle,
            "GEMM (gemm_ranked_matrix_rhs_t)");
 }
 
-void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
-                                     const TensorView &a,
-                                     const TensorView &b, TensorView &out) {
+namespace {
+
+void run_gemm_ranked_reduce_lhs_t(cublasHandle_t handle, const TensorView &a,
+                                  const TensorView &b, TensorView &out,
+                                  float beta, const char *what) {
   // The variant follows the activation operand a; b is an activation or,
   // in _bf16act, the BF16 weight copy.
   const PrecisionVariant variant = precision_variant_of(a);
@@ -342,8 +346,24 @@ void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
   const GemmShape shape = left_transposed_ranked_reduce_shape(a, b);
   run_gemm(variant, handle, CUBLAS_OP_N, CUBLAS_OP_T, shape,
            input_matrix(b, shape.out_cols), input_matrix(a, shape.out_rows),
-           output_matrix(out, shape.out_cols),
-           "GEMM (gemm_ranked_reduce_lhs_t)");
+           output_matrix(out, shape.out_cols), what, beta);
+}
+
+} // namespace
+
+void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
+                                     const TensorView &a,
+                                     const TensorView &b, TensorView &out) {
+  run_gemm_ranked_reduce_lhs_t(handle, a, b, out, 0.0f,
+                               "GEMM (gemm_ranked_reduce_lhs_t)");
+}
+
+void cublas_gemm_ranked_reduce_lhs_t_accumulate(cublasHandle_t handle,
+                                                const TensorView &a,
+                                                const TensorView &b,
+                                                TensorView &out) {
+  run_gemm_ranked_reduce_lhs_t(handle, a, b, out, 1.0f,
+                               "GEMM (gemm_ranked_reduce_lhs_t_accumulate)");
 }
 
 void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,

@@ -111,6 +111,14 @@ void Ops::gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
   device_backend_.gemm_ranked_reduce_lhs_t(a, b, out);
 }
 
+void Ops::gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                              const TensorView &b,
+                                              TensorView &out) const {
+  checker().check_matmul(a, b, out, MatmulKind::ReducePrefix, true, false,
+                         "Ops gemm_ranked_reduce_lhs_t_accumulate");
+  device_backend_.gemm_ranked_reduce_lhs_t_accumulate(a, b, out);
+}
+
 void Ops::gemm_batched(const TensorView &a, const TensorView &b,
                        TensorView &out) const {
   checker().check_matmul(a, b, out, MatmulKind::Batched, false, false,
@@ -455,4 +463,23 @@ void Ops::linear_backward_params(const TensorView &x, const TensorView &dy,
                   who, "x [..., in], dy [..., out], dw [in, out]");
   checker().check_dims(dbias, {1, dw.dim(1)}, who);
   device_backend_.linear_backward_params(x, dy, dw, dbias);
+}
+
+void Ops::linear_backward_params_accumulate(const TensorView &x,
+                                            const TensorView &dy,
+                                            TensorView &dw,
+                                            TensorView &dbias) const {
+  if ((device_backend_.fused_ops() & kFusedOpLinear) == 0) {
+    gemm_ranked_reduce_lhs_t_accumulate(x, dy, dw);
+    row_sum(dy, dbias);
+    return;
+  }
+  const char *who = "Ops linear_backward_params_accumulate";
+  checker().check_rank(dw, 2, who);
+  checker().check(CheckKind::Contract,
+                  x.dim(x.rank() - 1) == dw.dim(0) &&
+                      dy.dim(dy.rank() - 1) == dw.dim(1),
+                  who, "x [..., in], dy [..., out], dw [in, out]");
+  checker().check_dims(dbias, {1, dw.dim(1)}, who);
+  device_backend_.linear_backward_params_accumulate(x, dy, dw, dbias);
 }

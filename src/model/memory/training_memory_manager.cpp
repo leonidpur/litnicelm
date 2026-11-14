@@ -39,8 +39,11 @@ TrainingMemoryManager::TrainingMemoryManager(
                                          cfg_.memory.alignment_bytes);
   grad_arena_ = std::make_unique<Arena>(backend_, device, grad_bytes,
                                         cfg_.memory.alignment_bytes);
-  if (cfg_.training.batches_per_step > 1) {
-    grad_sum_arena_ = std::make_unique<Arena>(backend_, device, grad_bytes,
+  // The step's sum of the no-decay gradients (GradientAccumulator); the
+  // decay zone sums in place.
+  const uint64_t grad_sum_bytes = grad_bytes - grad_layout_.decay_bytes();
+  if (cfg_.training.batches_per_step > 1 && grad_sum_bytes > 0) {
+    grad_sum_arena_ = std::make_unique<Arena>(backend_, device, grad_sum_bytes,
                                               cfg_.memory.alignment_bytes);
   }
   adam_arena_ = std::make_unique<Arena>(backend_, device, adam_bytes,

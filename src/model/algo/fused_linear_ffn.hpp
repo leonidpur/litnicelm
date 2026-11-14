@@ -15,7 +15,7 @@ class TrainingDiagnosticsController;
 
 // out = relu(x W1 + b1) W2 + b2 with both biases and the ReLU in the GEMM
 // epilogues (Ops::linear_forward) and each layer's weight and bias
-// gradients from one GEMM (Ops::linear_backward_params). Keeps the
+// gradients from one GEMM (Ops::linear_backward_params_accumulate). Keeps the
 // post-ReLU h for backward and computes the ReLU gradient in place, like
 // InplaceFusedBiasReluFFN; uses the same temp slices (ffn.h, ffn.da).
 class FusedLinearFFN final : public IFFN {

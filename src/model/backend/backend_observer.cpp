@@ -55,6 +55,10 @@ const char *op_name(OpId op) {
   case OpId::CausalAttentionBackward: return "causal_attention_backward";
   case OpId::LinearForward: return "linear_forward";
   case OpId::LinearBackwardParams: return "linear_backward_params";
+  case OpId::GemmRankedReduceLhsTAccumulate:
+    return "gemm_ranked_reduce_lhs_t_accumulate";
+  case OpId::LinearBackwardParamsAccumulate:
+    return "linear_backward_params_accumulate";
   case OpId::AdamwStep: return "adamw_step";
   case OpId::ReadFileToDevice: return "read_file2device";
   case OpId::Count: return "count";

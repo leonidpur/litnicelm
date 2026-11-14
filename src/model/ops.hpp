@@ -42,6 +42,10 @@ public:
                                 TensorView &out) const;
   void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
                                 TensorView &out) const;
+  // out += a^T b: weight gradients, summed over the batches of a step.
+  void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) const;
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) const;
   void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
@@ -125,6 +129,11 @@ public:
   // the backend has kFusedOpLinear, else gemm_ranked_reduce_lhs_t and row_sum.
   void linear_backward_params(const TensorView &x, const TensorView &dy,
                               TensorView &dw, TensorView &dbias) const;
+  // dw += x^T dy, dbias = column sums of dy (overwritten); as
+  // linear_backward_params otherwise.
+  void linear_backward_params_accumulate(const TensorView &x,
+                                         const TensorView &dy, TensorView &dw,
+                                         TensorView &dbias) const;
   DeviceBackend &backend() const { return device_backend_; }
 
 private:

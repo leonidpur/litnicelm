@@ -11,7 +11,7 @@
 class TrainingDiagnosticsController;
 
 // Output projection as Ops::linear_forward (GEMM with the bias in its epilogue) and
-// Ops::linear_backward_params (weight and bias gradients in one GEMM).
+// Ops::linear_backward_params_accumulate (weight and bias gradients in one GEMM).
 class FusedLinearOutputProjection final : public IOutputProjection {
 public:
   FusedLinearOutputProjection(int layer_index, const LinearParams &params, const Ops &ops);

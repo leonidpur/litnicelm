@@ -18,7 +18,7 @@ void FusedLinearQkvProjection::forward(const TensorView &x, TensorView &qkv) {
 }
 
 void FusedLinearQkvProjection::backward(const TensorView &dqkv, TensorView &dx) {
-  ops_.linear_backward_params(cache_x_, dqkv, params_.dweight, params_.dbias);
+  ops_.linear_backward_params_accumulate(cache_x_, dqkv, params_.dweight, params_.dbias);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dWqkv(idx_, params_.dweight);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dbqkv(idx_, params_.dbias);
   ops_.gemm_ranked_matrix_rhs_t(dqkv, params_.compute_weight, dx);

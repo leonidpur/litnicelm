@@ -156,7 +156,7 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
   const TensorView &compute_Wqkv = params_.qkv.compute_weight;
   const TensorView &compute_Wo = params_.out.compute_weight;
   TensorView &dWo = params_.out.dweight;
-  ops_.gemm_ranked_reduce_lhs_t(cache_context_, dout, dWo);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_context_, dout, dWo);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dWo(idx_, dWo);
   TensorView &dbo = params_.out.dbias;
   ops_.row_sum(dout, dbo);
@@ -250,7 +250,7 @@ void SelfAttentionFusedInplaceMultistream::backward(const TensorView &dout,
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dx(idx_, dx);
 
   TensorView &dWqkv = params_.qkv.dweight;
-  ops_.gemm_ranked_reduce_lhs_t(cache_x_, dqkv, dWqkv);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_x_, dqkv, dWqkv);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dWqkv(idx_, dWqkv);
   TensorView &dbqkv = params_.qkv.dbias;
   ops_.row_sum(dqkv, dbqkv);

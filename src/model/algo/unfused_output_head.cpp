@@ -92,7 +92,7 @@ void UnfusedOutputHead::backward(const TensorView &dlogits, TensorView &dx) {
 
   TensorView d_lm_w = gradientStore_->grad_for_param(lm_w);
   diagnostics_->bk_transformer_dlogits(dlogits);
-  ops_.gemm_ranked_reduce_lhs_t(cache_xn_, dlogits, d_lm_w);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_xn_, dlogits, d_lm_w);
   diagnostics_->bk_transformer_d_lm_w(d_lm_w);
   observer_->probe_output_head_ready(lm_w, d_lm_w);
 

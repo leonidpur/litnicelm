@@ -53,7 +53,8 @@ Trainer::Trainer(const Config &cfg, TensorStore &tensor_store, const Ops &ops,
       diagnostics_(tensor_store, ops, transformer_, gradient_store,
                    device_backend, runtime_flags_, cfg),
       accumulator_(ops, cfg.training.batches_per_step,
-                   gradient_store.full_gradient_view(), grad_sum_arena) {
+                   gradient_store.zone_view(DecayZone::Decay),
+                   gradient_store.zone_view(DecayZone::NoDecay), grad_sum_arena) {
   runtime_flags_.epoch_report_every =
       (runtime_flags_.epoch_report_every == 0)
           ? cfg_.logging.epoch_report_every
@@ -112,8 +113,9 @@ double Trainer::train_one_batch(const TrainBatch &batch, BatchInEpoch in_epoch,
   if (first_of_step) {
     session_controller_.on_train_step_start(training_position.optimizer_steps);
   }
+  accumulator_.begin_batch(first_of_step);
   const double batch_loss = forward_backward(batch);
-  accumulator_.add_batch(first_of_step, batch_loss);
+  accumulator_.add_batch(batch_loss);
   if (session_controller_.step_ends_at(in_epoch.index, in_epoch.count)) {
     const double step_loss = accumulator_.finish_step();
     apply_optimizer_step(batch, training_position);
@@ -155,7 +157,6 @@ double Trainer::forward_backward(const TrainBatch &batch) {
     throw std::runtime_error("Trainer::forward_backward produced non-finite loss");
   }
 
-  zero_gradients();
   transformer_.backward(batch.ids, logits, runtime_flags_.probe);
   return loss;
 }

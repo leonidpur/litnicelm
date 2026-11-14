@@ -18,7 +18,7 @@ void FusedLinearOutputProjection::forward(const TensorView &context, TensorView 
 }
 
 void FusedLinearOutputProjection::backward(const TensorView &dout, TensorView &dcontext) {
-  ops_.linear_backward_params(cache_context_, dout, params_.dweight, params_.dbias);
+  ops_.linear_backward_params_accumulate(cache_context_, dout, params_.dweight, params_.dbias);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dWo(idx_, params_.dweight);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dbo(idx_, params_.dbias);
   ops_.gemm_ranked_matrix_rhs_t(dout, params_.compute_weight, dcontext);

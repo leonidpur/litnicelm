@@ -30,8 +30,9 @@ inline constexpr uint32_t kPrecisionVariantBf16Act = 1u << 1;
 // only): causal_attention_forward and causal_attention_backward.
 inline constexpr uint32_t kFusedOpCausalAttentionBf16Act = 1u << 0;
 // Linear layers with the bias (and ReLU) and the bias gradient fused into
-// the GEMMs, both precision variants: linear_forward and
-// linear_backward_params. Without it, Ops composes them from primitives.
+// the GEMMs, both precision variants: linear_forward,
+// linear_backward_params and linear_backward_params_accumulate. Without it,
+// Ops composes them from primitives.
 inline constexpr uint32_t kFusedOpLinear = 1u << 1;
 
 struct BackendApiV1 {
@@ -84,6 +85,12 @@ struct BackendApiV1 {
   void (*gemm_ranked_reduce_lhs_t)(void *backend, const TensorViewStruct *a,
                                    const TensorViewStruct *b,
                                    const TensorViewStruct *out);
+  // As gemm_ranked_reduce_lhs_t, but out (F32) += a^T b instead of being
+  // overwritten: weight gradients summed over a step's batches.
+  void (*gemm_ranked_reduce_lhs_t_accumulate)(void *backend,
+                                              const TensorViewStruct *a,
+                                              const TensorViewStruct *b,
+                                              const TensorViewStruct *out);
   void (*gemm_batched)(void *backend, const TensorViewStruct *a,
                        const TensorViewStruct *b,
                        const TensorViewStruct *out);
@@ -214,9 +221,15 @@ struct BackendApiV1 {
                                  const TensorViewStruct *dy,
                                  const TensorViewStruct *dw,
                                  const TensorViewStruct *dbias);
+  // As linear_backward_params, but dw += x^T dy; dbias is still overwritten.
+  void (*linear_backward_params_accumulate)(void *backend,
+                                            const TensorViewStruct *x,
+                                            const TensorViewStruct *dy,
+                                            const TensorViewStruct *dw,
+                                            const TensorViewStruct *dbias);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 24;
+inline constexpr uint32_t kBackendApiVersion = 25;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

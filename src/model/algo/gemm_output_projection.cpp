@@ -23,7 +23,7 @@ void GemmOutputProjection::forward(const TensorView &context, TensorView &out) {
 
 void GemmOutputProjection::backward(const TensorView &dout,
                                     TensorView &dcontext) {
-  ops_.gemm_ranked_reduce_lhs_t(cache_context_, dout, params_.dweight);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_context_, dout, params_.dweight);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dWo(idx_, params_.dweight);
   ops_.row_sum(dout, params_.dbias);
   if (diagnostics_ != nullptr) diagnostics_->bk_attn_dbo(idx_, params_.dbias);

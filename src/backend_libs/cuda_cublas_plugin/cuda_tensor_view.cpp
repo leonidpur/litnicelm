@@ -179,6 +179,15 @@ void copy_tensor_2d(const TensorView &src, const TensorView &dst,
   if (tensor_rows(src) == 0 || tensor_cols(src) == 0) {
     return;
   }
+  // One flat copy when both sides are dense: cudaMemcpy2D is slow on many
+  // narrow rows, such as the [N,1] view of the whole gradient buffer.
+  if (dense_ignoring_unit_axes(src) && dense_ignoring_unit_axes(dst)) {
+    check_cuda(cudaMemcpy(dst.data(), src.data(),
+                          static_cast<size_t>(src.numel() * dtype_size(src.dtype())),
+                          kind),
+               what);
+    return;
+  }
   check_cuda(cudaMemcpy2D(dst.data(), static_cast<size_t>(dst.stride_bytes(dst.rank() - 2)),
                           src.data(), static_cast<size_t>(src.stride_bytes(src.rank() - 2)),
                           static_cast<size_t>(row_bytes(src)),

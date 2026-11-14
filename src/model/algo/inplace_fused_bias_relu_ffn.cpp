@@ -49,7 +49,7 @@ void InplaceFusedBiasReluFFN::backward(const TensorView &dout, TensorView &dx) {
   const TensorView &compute_W2 = tensorStore_.compute_ffn_w2(idx_);
   const TensorView &b2 = tensorStore_.param_ffn_b2(idx_);
   TensorView dW2 = gradientStore_->grad_for_param(W2);
-  ops_.gemm_ranked_reduce_lhs_t(cache_h_, dout, dW2);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_h_, dout, dW2);
   diagnostics_->bk_ffn_dW2(idx_, dW2);
   TensorView db2 = gradientStore_->grad_for_param(b2);
   ops_.row_sum(dout, db2);
@@ -64,7 +64,7 @@ void InplaceFusedBiasReluFFN::backward(const TensorView &dout, TensorView &dx) {
   diagnostics_->bk_ffn_dh(idx_, dh);
 
   TensorView dW1 = gradientStore_->grad_for_param(W1);
-  ops_.gemm_ranked_reduce_lhs_t(cache_x_, dh, dW1);
+  ops_.gemm_ranked_reduce_lhs_t_accumulate(cache_x_, dh, dW1);
   diagnostics_->bk_ffn_dW1(idx_, dW1);
   TensorView db1 = gradientStore_->grad_for_param(b1);
   ops_.row_sum(dh, db1);

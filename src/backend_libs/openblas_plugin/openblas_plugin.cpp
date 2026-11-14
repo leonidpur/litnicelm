@@ -255,6 +255,25 @@ public:
                 static_cast<float *>(out.data()), n);
   }
 
+  void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override {
+    if (!is_contiguous_f32_row_major(a) || !is_contiguous_f32_row_major(b) ||
+        !is_contiguous_f32_row_major(out)) {
+      warn_cpu_fallback("gemm_ranked_reduce_lhs_t_accumulate");
+      cpu_backend_.gemm_ranked_reduce_lhs_t_accumulate(a, b, out);
+      return;
+    }
+    const int m = static_cast<int>(a.dim(a.rank() - 1));
+    const int k = static_cast<int>(view_geometry::prefix_count(a, 2) *
+                                   static_cast<uint64_t>(a.dim(a.rank() - 2)));
+    const int n = static_cast<int>(b.dim(b.rank() - 1));
+    cblas_sgemm(CblasRowMajor, CblasTrans, CblasNoTrans, m, n, k, 1.0f,
+                static_cast<const float *>(a.data()), m,
+                static_cast<const float *>(b.data()), n, 1.0f,
+                static_cast<float *>(out.data()), n);
+  }
+
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) override {
     if (is_batched_blas_compatible_f32_row_major(a) &&
@@ -651,6 +670,15 @@ void plugin_gemm_ranked_reduce_lhs_t(void *backend,
       to_tensor_view(*a), to_tensor_view(*b), out_view);
 }
 
+void plugin_gemm_ranked_reduce_lhs_t_accumulate(void *backend,
+                                                const TensorViewStruct *a,
+                                                const TensorViewStruct *b,
+                                                const TensorViewStruct *out) {
+  TensorView out_view = to_tensor_view(*out);
+  to_openblas_backend(backend).gemm_ranked_reduce_lhs_t_accumulate(
+      to_tensor_view(*a), to_tensor_view(*b), out_view);
+}
+
 void plugin_gemm_batched(void *backend, const TensorViewStruct *a,
                          const TensorViewStruct *b,
                          const TensorViewStruct *out) {
@@ -939,6 +967,7 @@ const BackendApiV1 kBackendApi = {
     &plugin_gemm_ranked_matrix_rhs,
     &plugin_gemm_ranked_matrix_rhs_t,
     &plugin_gemm_ranked_reduce_lhs_t,
+    &plugin_gemm_ranked_reduce_lhs_t_accumulate,
     &plugin_gemm_batched,
     &plugin_gemm_batched_lhs_t,
     &plugin_gemm_batched_rhs_t,

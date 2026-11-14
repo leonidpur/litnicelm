@@ -11,7 +11,7 @@
 class TrainingDiagnosticsController;
 
 // QKV projection as Ops::linear_forward (GEMM with the bias in its epilogue) and
-// Ops::linear_backward_params (weight and bias gradients in one GEMM).
+// Ops::linear_backward_params_accumulate (weight and bias gradients in one GEMM).
 class FusedLinearQkvProjection final : public IQkvProjection {
 public:
   FusedLinearQkvProjection(int layer_index, const LinearParams &params, const Ops &ops);

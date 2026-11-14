@@ -363,6 +363,12 @@ public:
     cublas_gemm_ranked_reduce_lhs_t(handle_, a, b, out);
   }
 
+  void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override {
+    cublas_gemm_ranked_reduce_lhs_t_accumulate(handle_, a, b, out);
+  }
+
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) override {
     cublas_gemm_batched(handle_, a, b, out);
@@ -763,22 +769,13 @@ public:
 
   void linear_backward_params(const TensorView &x, const TensorView &dy,
                               TensorView &dw, TensorView &dbias) override {
-    const PrecisionVariant variant = precision_variant_of(x);
-    const DType act = activation_dtype(variant);
-    check_cuda_row_major(x, {act}, "linear_backward_params(x)");
-    check_cuda_row_major(dy, {act}, "linear_backward_params(dy)");
-    check_cuda_row_major(dw, {DType::F32}, "linear_backward_params(dw)");
-    check_cuda_row_major(dbias, {DType::F32}, "linear_backward_params(dbias)");
-    if (tensor_rows(x) == 0) {
-      fill(dw, 0.0f);
-      fill(dbias, 0.0f);
-      return;
-    }
-    if (lt_linear().try_backward_params(x, dy, dw, dbias)) {
-      return;
-    }
-    gemm_ranked_reduce_lhs_t(x, dy, dw);
-    row_sum(dy, dbias);
+    run_linear_backward_params(x, dy, dw, dbias, /*accumulate=*/false);
+  }
+
+  void linear_backward_params_accumulate(const TensorView &x,
+                                         const TensorView &dy, TensorView &dw,
+                                         TensorView &dbias) override {
+    run_linear_backward_params(x, dy, dw, dbias, /*accumulate=*/true);
   }
 
   void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
@@ -1019,6 +1016,32 @@ private:
       layernorm_row_stats_rows_ = rows;
     }
     return layernorm_row_stats_;
+  }
+
+  // dw = x^T dy, or dw += x^T dy when accumulating; dbias = column sums of
+  // dy either way.
+  void run_linear_backward_params(const TensorView &x, const TensorView &dy,
+                                  TensorView &dw, TensorView &dbias,
+                                  bool accumulate) {
+    const PrecisionVariant variant = precision_variant_of(x);
+    const DType act = activation_dtype(variant);
+    check_cuda_row_major(x, {act}, "linear_backward_params(x)");
+    check_cuda_row_major(dy, {act}, "linear_backward_params(dy)");
+    check_cuda_row_major(dw, {DType::F32}, "linear_backward_params(dw)");
+    check_cuda_row_major(dbias, {DType::F32}, "linear_backward_params(dbias)");
+    if (tensor_rows(x) == 0) {
+      if (!accumulate) {
+        fill(dw, 0.0f);
+      }
+      fill(dbias, 0.0f);
+      return;
+    }
+    if (lt_linear().try_backward_params(x, dy, dw, dbias, accumulate)) {
+      return;
+    }
+    accumulate ? gemm_ranked_reduce_lhs_t_accumulate(x, dy, dw)
+               : gemm_ranked_reduce_lhs_t(x, dy, dw);
+    row_sum(dy, dbias);
   }
 
   CublasLtLinear &lt_linear() {

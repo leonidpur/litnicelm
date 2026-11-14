@@ -281,6 +281,12 @@ public:
     api_->gemm_ranked_reduce_lhs_t(instance_, &a, &b, &out);
   }
 
+  void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override {
+    api_->gemm_ranked_reduce_lhs_t_accumulate(instance_, &a, &b, &out);
+  }
+
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) override {
     api_->gemm_batched(instance_, &a, &b, &out);
@@ -515,6 +521,16 @@ public:
       return;
     }
     api_->linear_backward_params(instance_, &x, &dy, &dw, &dbias);
+  }
+
+  void linear_backward_params_accumulate(const TensorView &x,
+                                         const TensorView &dy, TensorView &dw,
+                                         TensorView &dbias) override {
+    if (api_->linear_backward_params_accumulate == nullptr) {
+      DeviceBackend::linear_backward_params_accumulate(x, dy, dw, dbias);
+      return;
+    }
+    api_->linear_backward_params_accumulate(instance_, &x, &dy, &dw, &dbias);
   }
 
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
@@ -1091,6 +1107,28 @@ void DefaultCpuBackend::gemm_ranked_matrix_rhs_t(const TensorView &a,
         }
         CpuMemOperations::store_f32_prefix_last2(out, prefix, r, c, acc);
       }
+    }
+  }
+}
+
+void DefaultCpuBackend::gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                                            const TensorView &b,
+                                                            TensorView &out) {
+  const uint64_t prefix_count = view_geometry::prefix_count(a, 2);
+  const int64_t shared_dim = a.dim(a.rank() - 2);
+  const int64_t out_rows = a.dim(a.rank() - 1);
+  const int64_t out_cols = b.dim(b.rank() - 1);
+  for (int64_t r = 0; r < out_rows; ++r) {
+    for (int64_t c = 0; c < out_cols; ++c) {
+      float acc = 0.0f;
+      for (uint64_t prefix = 0; prefix < prefix_count; ++prefix) {
+        for (int64_t k = 0; k < shared_dim; ++k) {
+          acc += CpuMemOperations::load_f32_prefix_last2(a, prefix, k, r) *
+                 CpuMemOperations::load_f32_prefix_last2(b, prefix, k, c);
+        }
+      }
+      CpuMemOperations::store_f32(out, r, c,
+                                  CpuMemOperations::load_f32(out, r, c) + acc);
     }
   }
 }
@@ -1786,6 +1824,15 @@ void DeviceBackend::linear_backward_params(const TensorView &,
   throw std::runtime_error(
       "DeviceBackend: linear_backward_params is not implemented by this "
       "backend (no kFusedOpLinear)");
+}
+
+void DeviceBackend::linear_backward_params_accumulate(const TensorView &,
+                                                      const TensorView &,
+                                                      TensorView &,
+                                                      TensorView &) {
+  throw std::runtime_error(
+      "DeviceBackend: linear_backward_params_accumulate is not implemented by "
+      "this backend (no kFusedOpLinear)");
 }
 
 std::unique_ptr<DeviceBackend> DeviceBackend::create_instance(

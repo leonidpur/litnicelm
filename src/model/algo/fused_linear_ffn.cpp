@@ -51,7 +51,7 @@ void FusedLinearFFN::backward(const TensorView &dout, TensorView &dx) {
   const int64_t batch_size = cache_x_.dim(0);
   const int64_t seq_len = cache_x_.dim(1);
 
-  ops_.linear_backward_params(cache_h_, dout, params_.w2.dweight, params_.w2.dbias);
+  ops_.linear_backward_params_accumulate(cache_h_, dout, params_.w2.dweight, params_.w2.dbias);
   if (diagnostics_ != nullptr) diagnostics_->bk_ffn_dW2(idx_, params_.w2.dweight);
   if (diagnostics_ != nullptr) diagnostics_->bk_ffn_db2(idx_, params_.w2.dbias);
 
@@ -62,7 +62,7 @@ void FusedLinearFFN::backward(const TensorView &dout, TensorView &dx) {
   TensorView dh = da;
   if (diagnostics_ != nullptr) diagnostics_->bk_ffn_dh(idx_, dh);
 
-  ops_.linear_backward_params(cache_x_, dh, params_.w1.dweight, params_.w1.dbias);
+  ops_.linear_backward_params_accumulate(cache_x_, dh, params_.w1.dweight, params_.w1.dbias);
   if (diagnostics_ != nullptr) diagnostics_->bk_ffn_dW1(idx_, params_.w1.dweight);
   if (diagnostics_ != nullptr) diagnostics_->bk_ffn_db1(idx_, params_.w1.dbias);
 

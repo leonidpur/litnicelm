@@ -140,6 +140,12 @@ void ObservedBackend::gemm_ranked_reduce_lhs_t(const TensorView &a,
   ObserverScope observed(observers_, OpId::GemmRankedReduceLhsT);
   wrapped_->gemm_ranked_reduce_lhs_t(a, b, out);
 }
+void ObservedBackend::gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                                          const TensorView &b,
+                                                          TensorView &out) {
+  ObserverScope observed(observers_, OpId::GemmRankedReduceLhsTAccumulate);
+  wrapped_->gemm_ranked_reduce_lhs_t_accumulate(a, b, out);
+}
 void ObservedBackend::gemm_batched(const TensorView &a, const TensorView &b,
                                    TensorView &out) {
   ObserverScope observed(observers_, OpId::GemmBatched); wrapped_->gemm_batched(a, b, out);
@@ -291,6 +297,13 @@ void ObservedBackend::linear_backward_params(const TensorView &x,
                                              TensorView &dbias) {
   ObserverScope observed(observers_, OpId::LinearBackwardParams);
   wrapped_->linear_backward_params(x, dy, dw, dbias);
+}
+void ObservedBackend::linear_backward_params_accumulate(const TensorView &x,
+                                                        const TensorView &dy,
+                                                        TensorView &dw,
+                                                        TensorView &dbias) {
+  ObserverScope observed(observers_, OpId::LinearBackwardParamsAccumulate);
+  wrapped_->linear_backward_params_accumulate(x, dy, dw, dbias);
 }
 void ObservedBackend::adamw_step(TensorView &params, const TensorView &grads,
                                  TensorView &m, TensorView &v, uint64_t step,

@@ -61,6 +61,10 @@ public:
                                         TensorView &out) = 0;
   virtual void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
                                         TensorView &out) = 0;
+  // out (F32) += a^T b, the accumulating form of gemm_ranked_reduce_lhs_t.
+  virtual void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                                   const TensorView &b,
+                                                   TensorView &out) = 0;
   virtual void gemm_batched(const TensorView &a, const TensorView &b,
                             TensorView &out) = 0;
   virtual void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,
@@ -140,6 +144,10 @@ public:
   virtual void linear_backward_params(const TensorView &x,
                                       const TensorView &dy, TensorView &dw,
                                       TensorView &dbias);
+  virtual void linear_backward_params_accumulate(const TensorView &x,
+                                                 const TensorView &dy,
+                                                 TensorView &dw,
+                                                 TensorView &dbias);
   virtual void adamw_step(TensorView &params, const TensorView &grads,
                           TensorView &m, TensorView &v, uint64_t step,
                           float learning_rate, float beta1, float beta2,
@@ -200,6 +208,9 @@ public:
                                 TensorView &out) override;
   void gemm_ranked_reduce_lhs_t(const TensorView &a, const TensorView &b,
                                 TensorView &out) override;
+  void gemm_ranked_reduce_lhs_t_accumulate(const TensorView &a,
+                                           const TensorView &b,
+                                           TensorView &out) override;
   void gemm_batched(const TensorView &a, const TensorView &b,
                     TensorView &out) override;
   void gemm_batched_lhs_t(const TensorView &a, const TensorView &b,

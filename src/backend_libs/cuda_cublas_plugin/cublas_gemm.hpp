@@ -19,6 +19,11 @@ void cublas_gemm_ranked_matrix_rhs_t(cublasHandle_t handle, const TensorView &a,
 void cublas_gemm_ranked_reduce_lhs_t(cublasHandle_t handle,
                                      const TensorView &a,
                                      const TensorView &b, TensorView &out);
+// out (F32) += a^T b.
+void cublas_gemm_ranked_reduce_lhs_t_accumulate(cublasHandle_t handle,
+                                                const TensorView &a,
+                                                const TensorView &b,
+                                                TensorView &out);
 void cublas_gemm_batched(cublasHandle_t handle, const TensorView &a,
                          const TensorView &b, TensorView &out);
 void cublas_gemm_batched_lhs_t(cublasHandle_t handle, const TensorView &a,

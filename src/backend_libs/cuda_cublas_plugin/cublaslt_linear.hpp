@@ -33,8 +33,10 @@ public:
 
   bool try_forward(const TensorView &x, const TensorView &w,
                    const TensorView &bias, bool relu, TensorView &out);
+  // accumulate: dw += x^T dy instead of dw = x^T dy; dbias is overwritten
+  // either way (the epilogue has no beta).
   bool try_backward_params(const TensorView &x, const TensorView &dy,
-                           TensorView &dw, TensorView &dbias);
+                           TensorView &dw, TensorView &dbias, bool accumulate);
 
 private:
   struct Plan {
