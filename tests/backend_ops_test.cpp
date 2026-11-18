@@ -339,6 +339,26 @@ std::vector<OpCase> op_cases() {
   cases.push_back({"mul_scalar", {random_f32(bsd, 22), random_f32(bsd, 23)},
                    [](DeviceBackend &b, Views &v) { b.mul_scalar(v[0], -1.75f, v[1]); return Scalars{}; },
                    {1}, kExact, kExact});
+  // Fewer rows than a row-wise block holds (a gradient zone is 1 x N): the
+  // CUDA plugin widens the block across the columns; odd widths leave the
+  // last block partly empty.
+  const Shape one_row{1, 100003};
+  const Shape two_rows{2, 50001};
+  cases.push_back({"fill, one row", {random_f32(one_row, 960)},
+                   [](DeviceBackend &b, Views &v) { b.fill(v[0], 0.375f); return Scalars{}; },
+                   {0}, 0.0, 0.0});
+  cases.push_back({"fill, two rows", {random_f32(two_rows, 961)},
+                   [](DeviceBackend &b, Views &v) { b.fill(v[0], 0.375f); return Scalars{}; },
+                   {0}, 0.0, 0.0});
+  cases.push_back({"mul_scalar, one row", {random_f32(one_row, 962), random_f32(one_row, 963)},
+                   [](DeviceBackend &b, Views &v) { b.mul_scalar(v[0], -1.75f, v[1]); return Scalars{}; },
+                   {1}, kExact, kExact});
+  cases.push_back({"mul_scalar in place, one row", {random_f32(one_row, 964)},
+                   [](DeviceBackend &b, Views &v) { b.mul_scalar(v[0], 0.25f, v[0]); return Scalars{}; },
+                   {0}, kExact, kExact});
+  cases.push_back({"mul_scalar, two rows", {random_f32(two_rows, 965), random_f32(two_rows, 966)},
+                   [](DeviceBackend &b, Views &v) { b.mul_scalar(v[0], -1.75f, v[1]); return Scalars{}; },
+                   {1}, kExact, kExact});
   cases.push_back({"relu", {random_f32(bsd, 24), random_f32(bsd, 25)},
                    [](DeviceBackend &b, Views &v) { b.relu(v[0], v[1]); return Scalars{}; },
                    {1}, 0.0, 0.0});
@@ -410,6 +430,37 @@ std::vector<OpCase> op_cases() {
                      return Scalars{};
                    },
                    {3, 4, 5}, kReduce, kReduce});
+  // The CUDA plugin runs rows of up to 1024 columns one warp per row and
+  // wider rows one block per row; 21 and 51 rows leave the last row-warp
+  // block partly empty.
+  const struct {
+    std::string width;
+    Shape rows;
+    Shape params;
+  } layernorm_widths[] = {
+      {"37", Shape{3, 17, 37}, Shape{1, 37}},
+      {"1024", Shape{3, 7, 1024}, Shape{1, 1024}},
+      {"1025", Shape{3, 7, 1025}, Shape{1, 1025}},
+  };
+  uint32_t layernorm_seed = 900;
+  for (const auto &w : layernorm_widths) {
+    const uint32_t s = layernorm_seed;
+    layernorm_seed += 10;
+    cases.push_back({"layernorm_forward, width " + w.width,
+                     {random_f32(w.rows, s), random_f32(w.params, s + 1),
+                      random_f32(w.params, s + 2), random_f32(w.rows, s + 3)},
+                     [](DeviceBackend &b, Views &v) { b.layernorm_forward(v[0], v[1], v[2], v[3]); return Scalars{}; },
+                     {3}, kReduce, kReduce});
+    cases.push_back({"layernorm_backward, width " + w.width,
+                     {random_f32(w.rows, s + 4), random_f32(w.params, s + 5),
+                      random_f32(w.rows, s + 6), random_f32(w.rows, s + 7),
+                      random_f32(w.params, s + 8), random_f32(w.params, s + 9)},
+                     [](DeviceBackend &b, Views &v) {
+                       b.layernorm_backward(v[0], v[1], v[2], v[3], v[4], v[5]);
+                       return Scalars{};
+                     },
+                     {3, 4, 5}, kReduce, kReduce});
+  }
 
   // Embeddings and loss: vocabulary 50, ids [3, 17].
   const Shape ids{3, 17};
@@ -593,6 +644,8 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"add_bias_relu_rowwise", "APA", C::Exact},
       {"add_bias_relu_rowwise_inplace", "AP", C::Exact},
       {"mul_scalar", "AA", C::Exact},
+      {"fill, one row", "A", C::Exact},
+      {"mul_scalar, one row", "AA", C::Exact},
       {"relu", "AA", C::Exact},
       {"relu_backward", "AAA", C::Exact},
       {"relu_backward_inplace", "AA", C::Exact},
@@ -610,6 +663,12 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"softmax_backward_causal_rows_exec_context", "AAA", C::Exact},
       {"layernorm_forward", "APPA", C::Exact},
       {"layernorm_backward", "APAAPP", C::Exact},
+      {"layernorm_forward, width 37", "APPA", C::Exact},
+      {"layernorm_backward, width 37", "APAAPP", C::Exact},
+      {"layernorm_forward, width 1024", "APPA", C::Exact},
+      {"layernorm_backward, width 1024", "APAAPP", C::Exact},
+      {"layernorm_forward, width 1025", "APPA", C::Exact},
+      {"layernorm_backward, width 1025", "APAAPP", C::Exact},
       {"embedding_lookup", "PIA", C::Exact},
       {"accumulate_embedding_grads", "IAP", C::ExactAtomics},
       // The loss is an atomic sum over rows; the gradient is exact.

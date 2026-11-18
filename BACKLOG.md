@@ -37,3 +37,17 @@ and cross-entropy operand roles.
   a BF16 compute copy of the biases (layout change, bias rounded once to
   BF16), or a newer cuBLASLt. Worth ~1.9 ms per 3 optimizer steps of the
   bench profile (add_bias_rowwise + add_bias_relu_rowwise_inplace).
+
+## Row-warp LayerNorm follow-ups (2026-11-17)
+
+- **`layernorm_param_grads_*`.** Unchanged at about 5.2 µs per call (bf16
+  max_fused, 1024 rows x 256), now the largest LayerNorm kernel: it runs on
+  `cols / 32` blocks (8 at d_model 256). Split the rows over more blocks with
+  a fixed-order second pass to keep it bitwise reproducible.
+- **Backward register pressure.** `layernorm_backward_rowwarp_*` hold 2 x 32
+  floats per lane for widths up to 1024 and sit at the 128-register cap of
+  their launch bounds, with a 32-byte stack frame on some architectures. A
+  narrower row-warp kernel for widths up to 512 would halve that.
+- **Vector loads.** The row-warp kernels use coalesced scalar loads, so the
+  path needs only `cols <= 1024`. `float2` / `__nv_bfloat162` loads would
+  add width-parity and alignment conditions; measure before adding them.

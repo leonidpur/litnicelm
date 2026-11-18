@@ -18,6 +18,38 @@ constexpr float kLayerNormEps = 1e-5f;
 constexpr int kParamGradCols = 32;
 constexpr int kParamGradRowLanes = 16;
 
+// Row-warp kernels: one warp per row, kRowWarpRowsPerBlock rows per block.
+// Lane l keeps columns l, l + 32, ... in registers, so a row of at most
+// kRowWarpMaxCols columns is read from memory once. Each reduction is a
+// fixed xor-shuffle tree, so results are bitwise reproducible, and the f32
+// and bf16act kernels share one arithmetic. Wider rows use the block
+// kernels above.
+constexpr int kWarpSize = 32;
+constexpr int kRowWarpThreadsPerBlock = 128;
+constexpr int kRowWarpRowsPerBlock = kRowWarpThreadsPerBlock / kWarpSize;
+constexpr int kRowWarpColsPerLane = 32;
+constexpr int64_t kRowWarpMaxCols = kWarpSize * kRowWarpColsPerLane;
+
+__global__ void layernorm_forward_rowwarp_f32(KernelTensorView x,
+                                              KernelTensorView gamma,
+                                              KernelTensorView beta,
+                                              KernelTensorView out);
+__global__ void layernorm_forward_rowwarp_bf16act(KernelTensorView x,
+                                                  KernelTensorView gamma,
+                                                  KernelTensorView beta,
+                                                  KernelTensorView out);
+// Write dx and each row's (mean, inv_std) like layernorm_backward_*.
+__global__ void layernorm_backward_rowwarp_f32(KernelTensorView x,
+                                               KernelTensorView gamma,
+                                               KernelTensorView dout,
+                                               KernelTensorView dx,
+                                               float *row_stats);
+__global__ void layernorm_backward_rowwarp_bf16act(KernelTensorView x,
+                                                   KernelTensorView gamma,
+                                                   KernelTensorView dout,
+                                                   KernelTensorView dx,
+                                                   float *row_stats);
+
 // The backward kernels write dx and each row's (mean, inv_std); dgamma and
 // dbeta follow in layernorm_param_grads_*. All accumulation is FP32 in a
 // fixed order, so both are bitwise reproducible.
@@ -417,11 +449,297 @@ __global__ void layernorm_forward_bf16act(KernelTensorView x,
         __float2bfloat16(__fmaf_rn(normalized, gamma_row[c], beta_row[c]));
   }
 }
+
+// The sum of v over the warp, the same bits in every lane: each xor step
+// adds the same two partial sums in every lane of a pair.
+__device__ float warp_allreduce_sum(float v) {
+  for (int mask = kWarpSize / 2; mask > 0; mask >>= 1) {
+    v = __fadd_rn(v, __shfl_xor_sync(0xffffffffu, v, mask));
+  }
+  return v;
+}
+
+// This thread's row under the row-warp launch, or -1 past the last row.
+// A warp's lanes share the row, so a warp leaves or stays as a whole and
+// the full-mask shuffles see all 32 lanes.
+__device__ int64_t rowwarp_row(int64_t rows) {
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * kRowWarpRowsPerBlock +
+                      threadIdx.x / kWarpSize;
+  return row < rows ? row : -1;
+}
+
+__global__ void __launch_bounds__(kRowWarpThreadsPerBlock, 6)
+layernorm_forward_rowwarp_f32(KernelTensorView x,
+                                              KernelTensorView gamma,
+                                              KernelTensorView beta,
+                                              KernelTensorView out) {
+  const int64_t row = rowwarp_row(x.rows);
+  if (row < 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x % kWarpSize);
+  const float *x_row = reinterpret_cast<const float *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *beta_row = reinterpret_cast<const float *>(row_ptr(beta, 0));
+  float *out_row = reinterpret_cast<float *>(row_ptr_mut(out, row));
+  const float n = static_cast<float>(x.cols);
+
+  float xv[kRowWarpColsPerLane];
+  float local_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = x_row[c];
+      local_sum = __fadd_rn(local_sum, xv[i]);
+    }
+  }
+  const float mean = warp_allreduce_sum(local_sum) / n;
+
+  float local_var = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float delta = __fsub_rn(xv[i], mean);
+      local_var = __fmaf_rn(delta, delta, local_var);
+    }
+  }
+  const float inv_std = rsqrtf(warp_allreduce_sum(local_var) / n + kLayerNormEps);
+
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float xhat = __fmul_rn(__fsub_rn(xv[i], mean), inv_std);
+      out_row[c] = __fmaf_rn(xhat, gamma_row[c], beta_row[c]);
+    }
+  }
+}
+
+__global__ void __launch_bounds__(kRowWarpThreadsPerBlock, 6)
+layernorm_forward_rowwarp_bf16act(KernelTensorView x,
+                                                  KernelTensorView gamma,
+                                                  KernelTensorView beta,
+                                                  KernelTensorView out) {
+  const int64_t row = rowwarp_row(x.rows);
+  if (row < 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x % kWarpSize);
+  const __nv_bfloat16 *x_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *beta_row = reinterpret_cast<const float *>(row_ptr(beta, 0));
+  __nv_bfloat16 *out_row =
+      reinterpret_cast<__nv_bfloat16 *>(row_ptr_mut(out, row));
+  const float n = static_cast<float>(x.cols);
+
+  float xv[kRowWarpColsPerLane];
+  float local_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = __bfloat162float(x_row[c]);
+      local_sum = __fadd_rn(local_sum, xv[i]);
+    }
+  }
+  const float mean = warp_allreduce_sum(local_sum) / n;
+
+  float local_var = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float delta = __fsub_rn(xv[i], mean);
+      local_var = __fmaf_rn(delta, delta, local_var);
+    }
+  }
+  const float inv_std = rsqrtf(warp_allreduce_sum(local_var) / n + kLayerNormEps);
+
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float xhat = __fmul_rn(__fsub_rn(xv[i], mean), inv_std);
+      out_row[c] =
+          __float2bfloat16_rn(__fmaf_rn(xhat, gamma_row[c], beta_row[c]));
+    }
+  }
+}
+
+// mean and inv_std exactly as layernorm_forward_rowwarp_* computes them;
+// xhat as layernorm_param_grads_* recomputes it from row_stats.
+__global__ void __launch_bounds__(kRowWarpThreadsPerBlock, 4)
+layernorm_backward_rowwarp_f32(KernelTensorView x,
+                                               KernelTensorView gamma,
+                                               KernelTensorView dout,
+                                               KernelTensorView dx,
+                                               float *row_stats) {
+  const int64_t row = rowwarp_row(x.rows);
+  if (row < 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x % kWarpSize);
+  const float *x_row = reinterpret_cast<const float *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const float *dout_row = reinterpret_cast<const float *>(row_ptr(dout, row));
+  float *dx_row = reinterpret_cast<float *>(row_ptr_mut(dx, row));
+  const float n = static_cast<float>(x.cols);
+
+  // xv holds x, then xhat; dxhat holds dout * gamma.
+  float xv[kRowWarpColsPerLane];
+  float dxhat[kRowWarpColsPerLane];
+  float local_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = x_row[c];
+      local_sum = __fadd_rn(local_sum, xv[i]);
+    }
+  }
+  const float mean = warp_allreduce_sum(local_sum) / n;
+
+  float local_var = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float delta = __fsub_rn(xv[i], mean);
+      local_var = __fmaf_rn(delta, delta, local_var);
+    }
+  }
+  const float inv_std = rsqrtf(warp_allreduce_sum(local_var) / n + kLayerNormEps);
+
+  float local_sum_dxhat = 0.0f;
+  float local_sum_dxhat_xhat = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = __fmul_rn(__fsub_rn(xv[i], mean), inv_std);
+      dxhat[i] = __fmul_rn(dout_row[c], gamma_row[c]);
+      local_sum_dxhat = __fadd_rn(local_sum_dxhat, dxhat[i]);
+      local_sum_dxhat_xhat = __fmaf_rn(dxhat[i], xv[i], local_sum_dxhat_xhat);
+    }
+  }
+  const float sum_dxhat = warp_allreduce_sum(local_sum_dxhat);
+  const float sum_dxhat_xhat = warp_allreduce_sum(local_sum_dxhat_xhat);
+  const float scale = inv_std / n;
+
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      dx_row[c] = __fmul_rn(
+          scale, __fmaf_rn(-xv[i], sum_dxhat_xhat,
+                           __fmaf_rn(n, dxhat[i], -sum_dxhat)));
+    }
+  }
+  if (lane == 0) {
+    row_stats[2 * row] = mean;
+    row_stats[2 * row + 1] = inv_std;
+  }
+}
+
+__global__ void __launch_bounds__(kRowWarpThreadsPerBlock, 4)
+layernorm_backward_rowwarp_bf16act(KernelTensorView x,
+                                                   KernelTensorView gamma,
+                                                   KernelTensorView dout,
+                                                   KernelTensorView dx,
+                                                   float *row_stats) {
+  const int64_t row = rowwarp_row(x.rows);
+  if (row < 0) {
+    return;
+  }
+  const int lane = static_cast<int>(threadIdx.x % kWarpSize);
+  const __nv_bfloat16 *x_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(x, row));
+  const float *gamma_row = reinterpret_cast<const float *>(row_ptr(gamma, 0));
+  const __nv_bfloat16 *dout_row =
+      reinterpret_cast<const __nv_bfloat16 *>(row_ptr(dout, row));
+  __nv_bfloat16 *dx_row = reinterpret_cast<__nv_bfloat16 *>(row_ptr_mut(dx, row));
+  const float n = static_cast<float>(x.cols);
+
+  // xv holds x, then xhat; dxhat holds dout * gamma.
+  float xv[kRowWarpColsPerLane];
+  float dxhat[kRowWarpColsPerLane];
+  float local_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = __bfloat162float(x_row[c]);
+      local_sum = __fadd_rn(local_sum, xv[i]);
+    }
+  }
+  const float mean = warp_allreduce_sum(local_sum) / n;
+
+  float local_var = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      const float delta = __fsub_rn(xv[i], mean);
+      local_var = __fmaf_rn(delta, delta, local_var);
+    }
+  }
+  const float inv_std = rsqrtf(warp_allreduce_sum(local_var) / n + kLayerNormEps);
+
+  float local_sum_dxhat = 0.0f;
+  float local_sum_dxhat_xhat = 0.0f;
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      xv[i] = __fmul_rn(__fsub_rn(xv[i], mean), inv_std);
+      dxhat[i] = __fmul_rn(__bfloat162float(dout_row[c]), gamma_row[c]);
+      local_sum_dxhat = __fadd_rn(local_sum_dxhat, dxhat[i]);
+      local_sum_dxhat_xhat = __fmaf_rn(dxhat[i], xv[i], local_sum_dxhat_xhat);
+    }
+  }
+  const float sum_dxhat = warp_allreduce_sum(local_sum_dxhat);
+  const float sum_dxhat_xhat = warp_allreduce_sum(local_sum_dxhat_xhat);
+  const float scale = inv_std / n;
+
+#pragma unroll
+  for (int i = 0; i < kRowWarpColsPerLane; ++i) {
+    const int64_t c = lane + static_cast<int64_t>(i) * kWarpSize;
+    if (c < x.cols) {
+      dx_row[c] = __float2bfloat16_rn(__fmul_rn(
+          scale, __fmaf_rn(-xv[i], sum_dxhat_xhat,
+                           __fmaf_rn(n, dxhat[i], -sum_dxhat))));
+    }
+  }
+  if (lane == 0) {
+    row_stats[2 * row] = mean;
+    row_stats[2 * row + 1] = inv_std;
+  }
+}
+
+// Rows narrow enough for the row-warp kernels. The choice depends on the
+// width alone, so a backward pass recomputes its forward pass's statistics.
+bool use_rowwarp_kernels(int64_t cols) { return cols <= kRowWarpMaxCols; }
+
+unsigned int rowwarp_blocks(int64_t rows) {
+  return static_cast<unsigned int>((rows + kRowWarpRowsPerBlock - 1) /
+                                   kRowWarpRowsPerBlock);
+}
 } // namespace
 
 void launch_layernorm_forward_f32(const TensorView &x,
                                      const TensorView &gamma,
                                      const TensorView &beta, TensorView &out) {
+  if (use_rowwarp_kernels(tensor_cols(x))) {
+    layernorm_forward_rowwarp_f32<<<rowwarp_blocks(tensor_rows(x)),
+                                    kRowWarpThreadsPerBlock>>>(
+        to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+        to_kernel_tensor_view(beta), to_kernel_tensor_view(out));
+    check_kernel_launch("layernorm_forward_rowwarp_f32");
+    return;
+  }
   layernorm_forward_f32<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
@@ -434,6 +752,14 @@ void launch_layernorm_backward_f32(const TensorView &x,
                                  const TensorView &gamma,
                                  const TensorView &dout, TensorView &dx,
                                  float *row_stats) {
+  if (use_rowwarp_kernels(tensor_cols(x))) {
+    layernorm_backward_rowwarp_f32<<<rowwarp_blocks(tensor_rows(x)),
+                                    kRowWarpThreadsPerBlock>>>(
+        to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+        to_kernel_tensor_view(dout), to_kernel_tensor_view(dx), row_stats);
+    check_kernel_launch("layernorm_backward_rowwarp_f32");
+    return;
+  }
   layernorm_backward_f32<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(2 * kThreadsPerBlock * sizeof(float))>>>(
@@ -457,6 +783,14 @@ void launch_layernorm_param_grads_f32(const TensorView &x,
 void launch_layernorm_forward_bf16act(const TensorView &x,
                                       const TensorView &gamma,
                                       const TensorView &beta, TensorView &out) {
+  if (use_rowwarp_kernels(tensor_cols(x))) {
+    layernorm_forward_rowwarp_bf16act<<<rowwarp_blocks(tensor_rows(x)),
+                                    kRowWarpThreadsPerBlock>>>(
+        to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+        to_kernel_tensor_view(beta), to_kernel_tensor_view(out));
+    check_kernel_launch("layernorm_forward_rowwarp_bf16act");
+    return;
+  }
   layernorm_forward_bf16act<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(kThreadsPerBlock * sizeof(float))>>>(
@@ -469,6 +803,14 @@ void launch_layernorm_backward_bf16act(const TensorView &x,
                                      const TensorView &gamma,
                                      const TensorView &dout, TensorView &dx,
                                      float *row_stats) {
+  if (use_rowwarp_kernels(tensor_cols(x))) {
+    layernorm_backward_rowwarp_bf16act<<<rowwarp_blocks(tensor_rows(x)),
+                                    kRowWarpThreadsPerBlock>>>(
+        to_kernel_tensor_view(x), to_kernel_tensor_view(gamma),
+        to_kernel_tensor_view(dout), to_kernel_tensor_view(dx), row_stats);
+    check_kernel_launch("layernorm_backward_rowwarp_bf16act");
+    return;
+  }
   layernorm_backward_bf16act<<<
       static_cast<unsigned int>(tensor_rows(x)), kThreadsPerBlock,
       static_cast<size_t>(2 * kThreadsPerBlock * sizeof(float))>>>(
