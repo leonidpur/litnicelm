@@ -12,7 +12,9 @@
 
 #include <cudnn_frontend.h>
 
+#include <algorithm>
 #include <cstring>
+#include <iostream>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -72,16 +74,35 @@ fe::graph::Tensor_attributes bhsd(const char *name, Uid uid, int64_t B,
 
 } // namespace
 
+using VariantPack = std::unordered_map<fe::graph::Tensor_attributes::uid_t, void *>;
+
+// A built SDPA graph and the plan it runs. Heuristics rank cuDNN's plans, but
+// for small batch x heads their first choice can be far from the fastest (a
+// causal forward at B=1, H=4, S=1024 ran 110 us on it against 59 us on its
+// third plan), so the first call times every supported plan once.
+struct SdpaPlan {
+  std::shared_ptr<fe::graph::Graph> graph;
+  int64_t index = -1; // -1 until chosen on the first call
+};
+
+// Another plan replaces the heuristic's first choice only when it is at least
+// this much faster, so near-ties cannot flip the plan, and with it the
+// rounding, from run to run.
+constexpr float kMinPlanSpeedup = 0.95f;
+constexpr int kPlanWarmupRuns = 2;
+constexpr int kPlanTimedRuns = 5;
+
 struct CudnnAttention::Impl {
   cudnnHandle_t handle = nullptr;
   void *workspace = nullptr;
   int64_t workspace_bytes = 0;
   // Keyed by direction, shape and every stride.
-  std::map<std::vector<int64_t>, std::shared_ptr<fe::graph::Graph>> graphs;
+  std::map<std::vector<int64_t>, SdpaPlan> plans;
 
-  void *workspace_of(const fe::graph::Graph &graph) {
+  void *workspace_of(const fe::graph::Graph &graph, int64_t index) {
     int64_t bytes = 0;
-    check_fe(graph.get_workspace_size(bytes), "get_workspace_size");
+    check_fe(graph.get_workspace_size_plan_at_index(index, bytes),
+             "get_workspace_size");
     if (bytes > workspace_bytes) {
       if (workspace != nullptr) {
         check_cuda(cudaFree(workspace), "cudaFree(cuDNN workspace)");
@@ -94,9 +115,89 @@ struct CudnnAttention::Impl {
     return workspace;
   }
 
+  // Builds every plan heuristic A supports, in its ranking order.
   std::shared_ptr<fe::graph::Graph> build(std::shared_ptr<fe::graph::Graph> graph) {
-    check_fe(graph->build(handle, {fe::HeurMode_t::A}), "graph build");
+    check_fe(graph->build(handle, {fe::HeurMode_t::A}, fe::BuildPlanPolicy_t::ALL),
+             "graph build");
     return graph;
+  }
+
+  // execute_plan_at_index adds pointers to values it holds only for that
+  // call (the attention scale) to the pack it is given, and later calls keep
+  // them, so every execution gets its own copy of the pack.
+  fe::error_t run_plan(const fe::graph::Graph &graph, const VariantPack &pack,
+                       void *ws, int64_t index) {
+    VariantPack fresh = pack;
+    return graph.execute_plan_at_index(handle, fresh, ws, index);
+  }
+
+  // Median time of one execution in microseconds, or -1 when the plan does
+  // not execute. Its outputs are rewritten by the call that follows.
+  float time_plan(const fe::graph::Graph &graph, const VariantPack &pack, int64_t index) {
+    void *ws = workspace_of(graph, index);
+    for (int i = 0; i < kPlanWarmupRuns; ++i) {
+      if (!run_plan(graph, pack, ws, index).is_good()) {
+        return -1.0f;
+      }
+    }
+    cudaEvent_t start = nullptr;
+    cudaEvent_t stop = nullptr;
+    check_cuda(cudaEventCreate(&start), "cudaEventCreate");
+    check_cuda(cudaEventCreate(&stop), "cudaEventCreate");
+    std::vector<float> us(kPlanTimedRuns);
+    for (float &t : us) {
+      check_cuda(cudaEventRecord(start), "cudaEventRecord");
+      check_fe(run_plan(graph, pack, ws, index), "sdpa plan timing");
+      check_cuda(cudaEventRecord(stop), "cudaEventRecord");
+      check_cuda(cudaEventSynchronize(stop), "cudaEventSynchronize");
+      check_cuda(cudaEventElapsedTime(&t, start, stop), "cudaEventElapsedTime");
+      t *= 1000.0f;
+    }
+    check_cuda(cudaEventDestroy(start), "cudaEventDestroy");
+    check_cuda(cudaEventDestroy(stop), "cudaEventDestroy");
+    std::sort(us.begin(), us.end());
+    return us[us.size() / 2];
+  }
+
+  std::string plan_name(const fe::graph::Graph &graph, int64_t index) {
+    std::string name;
+    check_fe(graph.get_plan_name_at_index(index, name), "get_plan_name");
+    return name;
+  }
+
+  // The heuristic's first plan (index 0) unless another runs at least
+  // kMinPlanSpeedup faster; logged so a run's plan can be reproduced.
+  int64_t choose_plan(const fe::graph::Graph &graph, const VariantPack &pack,
+                      const char *what) {
+    const int64_t count = graph.get_execution_plan_count();
+    std::vector<float> us(static_cast<size_t>(count));
+    int64_t fastest = -1;
+    for (int64_t i = 0; i < count; ++i) {
+      us[i] = time_plan(graph, pack, i);
+      if (us[i] >= 0.0f && (fastest < 0 || us[i] < us[fastest])) {
+        fastest = i;
+      }
+    }
+    if (fastest < 0) {
+      throw std::runtime_error(std::string("cuda_cublas_plugin: cuDNN ") + what +
+                               ": no plan executes");
+    }
+    int64_t chosen = fastest;
+    if (us[0] >= 0.0f && us[fastest] > kMinPlanSpeedup * us[0]) {
+      chosen = 0;
+    }
+    std::cerr << "cuda_cublas_plugin: cuDNN " << what << " plan " << chosen << "/"
+              << count << " " << plan_name(graph, chosen) << " (" << us[chosen]
+              << " us; heuristic first choice " << us[0] << " us)\n";
+    return chosen;
+  }
+
+  void execute(SdpaPlan &plan, const VariantPack &pack, const char *what) {
+    if (plan.index < 0) {
+      plan.index = choose_plan(*plan.graph, pack, what);
+    }
+    check_fe(run_plan(*plan.graph, pack, workspace_of(*plan.graph, plan.index), plan.index),
+             what);
   }
 
   static std::shared_ptr<fe::graph::Graph> new_graph() {
@@ -142,8 +243,8 @@ void CudnnAttention::forward(const TensorView &qkv, int64_t n_heads,
   }
   key.push_back(scale_bits(scale));
 
-  std::shared_ptr<fe::graph::Graph> &graph = impl_->graphs[key];
-  if (graph == nullptr) {
+  SdpaPlan &plan = impl_->plans[key];
+  if (plan.graph == nullptr) {
     auto g = Impl::new_graph();
     auto Q = g->tensor(bhsd("Q", kQ, B, n_heads, S, hd, qkv_strides));
     auto K = g->tensor(bhsd("K", kK, B, n_heads, S, hd, qkv_strides));
@@ -162,18 +263,17 @@ void CudnnAttention::forward(const TensorView &qkv, int64_t n_heads,
           .set_dim({B, n_heads, S, 1})
           .set_stride(st_strides);
     }
-    graph = impl_->build(g);
+    plan.graph = impl_->build(g);
   }
 
   auto *base = static_cast<uint8_t *>(qkv.data());
   const size_t third = static_cast<size_t>(D) * dtype_size(qkv.dtype());
-  std::unordered_map<fe::graph::Tensor_attributes::uid_t, void *> pack{
+  VariantPack pack{
       {kQ, base}, {kK, base + third}, {kV, base + 2 * third}, {kO, out.data()}};
   if (training) {
     pack[kStats] = stats.data();
   }
-  check_fe(graph->execute(impl_->handle, pack, impl_->workspace_of(*graph)),
-           "sdpa forward");
+  impl_->execute(plan, pack, "sdpa forward");
 }
 
 void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
@@ -195,8 +295,8 @@ void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
   }
   key.push_back(scale_bits(scale));
 
-  std::shared_ptr<fe::graph::Graph> &graph = impl_->graphs[key];
-  if (graph == nullptr) {
+  SdpaPlan &plan = impl_->plans[key];
+  if (plan.graph == nullptr) {
     auto g = Impl::new_graph();
     auto Q = g->tensor(bhsd("Q", kQ, B, n_heads, S, hd, qkv_strides));
     auto K = g->tensor(bhsd("K", kK, B, n_heads, S, hd, qkv_strides));
@@ -217,18 +317,17 @@ void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
     dQ->set_output(true).set_uid(kDQ).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dK->set_output(true).set_uid(kDK).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dV->set_output(true).set_uid(kDV).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
-    graph = impl_->build(g);
+    plan.graph = impl_->build(g);
   }
 
   const size_t third = static_cast<size_t>(D) * dtype_size(qkv.dtype());
   auto *base = static_cast<uint8_t *>(qkv.data());
   auto *dbase = static_cast<uint8_t *>(dqkv.data());
-  std::unordered_map<fe::graph::Tensor_attributes::uid_t, void *> pack{
+  VariantPack pack{
       {kQ, base},          {kK, base + third},       {kV, base + 2 * third},
       {kO, out.data()},    {kDO, dout.data()},       {kStats, stats.data()},
       {kDQ, dbase},        {kDK, dbase + third},     {kDV, dbase + 2 * third}};
-  check_fe(graph->execute(impl_->handle, pack, impl_->workspace_of(*graph)),
-           "sdpa backward");
+  impl_->execute(plan, pack, "sdpa backward");
 }
 
 } // namespace cuda_cublas_plugin
