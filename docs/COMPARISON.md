@@ -7,9 +7,10 @@ reference, and how fast and memory-hungry is it next to PyTorch?
 
 | | |
 |---|---|
-| GPU | NVIDIA GeForce RTX 4070 Laptop (8 GB), driver 580.95.05 |
-| LitniceLM | commit 110327b, CUDA 12.2, cuBLAS 12.2.5.6, gcc 14.2, Linux 6.14 |
-| PyTorch | 2.8.0+cu128 (CUDA 12.8, cuDNN 9.10.2), Python 3.13.3, eager mode |
+| GPU | NVIDIA GeForce RTX 4070 Laptop (AD106, 36 SMs, 8 GB), driver 580.95.05, SM clock locked at 1500 MHz |
+| Host | Intel Core i7-13620H, Linux 6.14.0-37, on AC, platform profile `balanced` |
+| LitniceLM | commit d01241e, Release build, CUDA 12.2 (nvcc), cuDNN 9.28.1, cudnn-frontend 1.17.0 |
+| PyTorch | 2.15.0+cu132 (CUDA 13.2, cuDNN 9.26), Triton 3.9.0, Python 3.13.3 |
 | Model | 4 layers, 4 heads, d_model 256, d_ff 1024, RoPE (and learned positions for parity), vocabulary 512 (SentencePiece) |
 | Data | Conan Doyle corpus, 485,847 tokens; validation: 1 of every 10 chunks of 8,192 tokens |
 | Training | batch 1 × 1024 tokens, 4 batches per optimizer step, AdamW (β 0.9/0.95, ε 1e-8, weight decay 0.1 on embeddings and matrices), global-norm clip 0.06, LR 6e-4 cosine to 10% after 107 warmup steps |
@@ -45,64 +46,134 @@ cd tools
 The corpus, export directory, tolerance, and all other conditions are the
 hard-coded `SPEC` in `tools/vs_bench/run.py`; there is intentionally no CLI.
 
-## Speed and memory
+## Speed
 
-The same `vs_bench` command runs each engine in isolated, GPU-sampled
-subprocesses. It writes raw child logs outside the repository under
-`/mnt/ext_ssd/litnicelm/bench/<date>/`, together with compact results,
-environment metadata, and the request file named by every rerunnable PyTorch
-worker command. It does not overwrite the historical result JSON under
-`docs/`.
+One locked-clock run (`run_180749`, 2026-11-23) measured every LitniceLM
+variant and every PyTorch mode in the same session: 3 processes each, 214
+optimizer steps of 4,096 tokens per process. Results, spec and environment:
+[`run_180749_results.json`](run_180749_results.json). Claims C6–C10 in
+[CLAIMS.md](CLAIMS.md).
 
-The table below records an earlier unlocked-clock run and is retained for
-historical comparison. It is not a current speed claim. Publication results
-will replace it only after the locked-clock and differential-timing checks are
-complete.
+| precision | engine | variant | loss read | tokens/s | range (3 processes) | vs best compiled PyTorch | vs best eager PyTorch | MFU |
+|---|---|---|---|---:|---|---:|---:|---:|
+| fp32 | LitniceLM | `preset:portable_fused` | every batch | **121,428** | 121,341–121,548 | **1.04×** | 1.15× | 28.3% |
+| fp32 | PyTorch | compiled `max-autotune` | at end | 116,847 | 116,814–117,174 | 1.00× | 1.11× | 27.3% |
+| fp32 | PyTorch | eager | at end | 105,740 | 105,727–105,938 | 0.90× | 1.00× | 24.7% |
+| fp32 | PyTorch | eager | every batch | 99,787 | 99,227–99,835 | 0.85× | 0.94× | 23.3% |
+| bf16 | LitniceLM | `preset:max_fused` | every batch | **335,711** | 335,186–336,239 | **1.02× (on par)** | **2.48×** | 39.2% |
+| bf16 | PyTorch | compiled `reduce-overhead` | at end | 328,500 | 327,202–328,515 | 1.00× | 2.43× | 38.3% |
+| bf16 | PyTorch | compiled `max-autotune` | at end | 327,673 | 327,256–336,171 | 1.00× | 2.42× | 38.2% |
+| bf16 | PyTorch | eager | at end | 135,167 | 131,621–135,707 | 0.41× | 1.00× | 15.8% |
+| bf16 | PyTorch | eager | every batch | 131,079 | 128,144–132,781 | 0.40× | 0.97× | 15.3% |
 
-| engine | precision | loss read | tokens/s | tokens/s per GHz | process peak (MiB) | engine memory (MiB) | SM clock (MHz) |
-|---|---|---|---|---|---|---|---|
-| LitniceLM | fp32 | per batch | 95,831 (95,475–116,981) | 58,971 | 538 | 360 | 1619 |
-| LitniceLM | bf16_mixed | per batch | 180,332 (180,295–204,320) | 85,246 | 404 | 219 | 2115 |
-| PyTorch | fp32 | per batch | 113,514 (112,295–120,142) | 57,469 | 330 | 140 | 1954 |
-| PyTorch | fp32 | at end | 120,734 (120,623–120,807) | 65,337 | 332 | 140 | 1849 |
-| PyTorch | bf16 | per batch | 113,919 (112,862–115,114) | 52,522 | 338 | 131 | 2169 |
-| PyTorch | bf16 | at end | 114,794 (112,097–115,254) | 53,467 | 338 | 131 | 2140 |
+- **FP32:** LitniceLM is 4% ahead of PyTorch's best compiled mode; the ranges
+  do not overlap.
+- **BF16:** on par with compiled PyTorch. The median is 2% higher, but
+  PyTorch's `max-autotune` processes reach LitniceLM's range, so no lead is
+  claimed. Against eager PyTorch, LitniceLM is 2.48× faster.
+- **Loss read.** LitniceLM reads every batch's loss on the host, which
+  synchronizes the GPU once per batch. The best PyTorch rows, compiled and
+  eager, read the loss only at the end of the run. Reading it every batch
+  costs eager PyTorch 6% in FP32 and 3% in BF16 here. The comparison is
+  therefore against PyTorch's faster setting.
+- **Host state matters for eager PyTorch.** With identical software, PyTorch's
+  BF16 eager throughput was ~108k tokens/s on one boot and ~133k on another,
+  while FP32 and the CUDA-graph modes did not move. Every process here
+  records AC power, platform profile and CPU policy.
 
-- GPU clocks could not be locked (no root); the boost clock moved between
-  1.6 and 2.4 GHz from run to run. "Tokens/s per GHz" divides by each run's
-  mean SM clock; it is the steadier comparison, though memory-bound work does
-  not scale with the clock. Raw data: `docs/comparison_results.json`.
-- Throughput counts training batches only (no validation, no checkpoints).
-  LitniceLM's comes from its profiler over all batches; PyTorch's from wall
-  time after 5 warm-up steps.
-- Process peak: `nvidia-smi` per-process memory (includes the CUDA context).
-  Engine memory: LitniceLM's managed arenas; PyTorch's
-  `torch.cuda.max_memory_allocated`.
+### Fusion ladder
+
+Each LitniceLM variant adds one fusion to the previous one.
+
+| variant | attention core | projections and FFN | bf16 tokens/s | fp32 tokens/s |
+|---|---|---|---:|---:|
+| `unfused` | per-head GEMMs; separate scale, mask and softmax | cuBLAS GEMM; separate bias and activation | 184,100 | 106,132 |
+| `fused_inplace` | per-head GEMMs; one fused scaled causal softmax | as above | 213,004 (+15.7%) | 116,933 (+10.2%) |
+| `preset:portable_fused` | as above | cuBLASLt fused linear (bias and ReLU in the GEMM epilogue) | 226,233 (+6.2%) | 121,428 (+3.8%) |
+| `preset:max_fused` | cuDNN flash attention (no score matrix) | as above | 335,711 (+48.4%) | — (BF16 only) |
+
+`cudnn_flash` alone (with unfused projections and FFN) reaches 307,715 in
+BF16: flash attention is the largest single step at this sequence length.
+
+### Memory
+
+Peak GPU memory per process (`nvidia-smi`, sampled every 100 ms):
+
+| precision | LitniceLM | PyTorch best compiled | ratio |
+|---|---:|---:|---:|
+| bf16 | 292 MiB (`max_fused`) | 340 MiB | 0.86× |
+| fp32 | 454 MiB (`portable_fused`) | 356 MiB | 1.28× |
+
+- These figures include each process's CUDA context. The engines load
+  different CUDA runtimes (LitniceLM 12.2, PyTorch 13.2), so part of each
+  difference is context size.
+- LitniceLM's own allocations are also larger. Its managed arenas total
+  304 MiB in FP32 and 129 MiB in BF16, against a PyTorch allocator peak of
+  59 MiB in its best compiled mode. The two figures are measured differently
+  (reserved arenas vs `torch.cuda.max_memory_allocated`). The temp arena
+  keeps every layer's work buffers and transpose buffers that are never used;
+  reducing it is an open backlog item.
+
+### How it was measured
+
+- **Steady state, both engines.** PyTorch: wall time after 5 warm-up steps;
+  compile time excluded. LitniceLM: the wall time of every batch after its
+  first 5 optimizer steps. Its first step includes cuDNN graph build and plan
+  selection (0.24 s per process for `max_fused`), reported separately, like
+  PyTorch's compile time. LitniceLM's figure agrees within 0.3% with an
+  independent epoch differential (1 vs 3 epochs, process wall time).
+- **Same model, same math.** Both engines train the same model on the same
+  data with the same optimizer. TF32 is off in both. BF16 means BF16
+  activations with FP32 parameters, optimizer state and GEMM accumulation in
+  both. Final training losses agree within 0.005 (LitniceLM 3.6207–3.6212,
+  PyTorch 3.6171–3.6179).
+- **Fixed conditions.** SM clock locked at 1500 MHz and verified under load
+  for every process; host on AC with the `balanced` platform profile, checked
+  before the run and recorded for every process.
+- **MFU** = tokens/s × F / peak. F = 6N + 12·L·d·S training FLOPs per token
+  (the PaLM paper's formula; N = 3,276,800 matmul weights, F = 32.2 M). Peak
+  at 1500 MHz: 27.65 TFLOPS for BF16 tensor cores with FP32 accumulate,
+  13.82 TFLOPS for FP32 without TF32. The PaLM formula counts attention
+  without the causal mask; counting only the unmasked half lowers every MFU
+  by about a fifth (LitniceLM 31.5% BF16, 22.8% FP32). Details in C9.
 
 PyTorch implementation: `F.scaled_dot_product_attention(is_causal=True)`
-(memory-efficient attention `fmha_cutlass*_f32` in fp32, FlashAttention-2 in
-bf16), `torch.optim.AdamW(fused=True)`, `clip_grad_norm_`, TF32 off,
-`torch.autocast(bfloat16)` with FP32 master weights for bf16. LitniceLM:
-cuBLAS SGEMM (fp32) or GemmEx BF16 with FP32 accumulation (bf16_mixed),
-attention unfused (per-head GEMMs and softmax kernels).
+(FlashAttention-2 in BF16, memory-efficient `fmha_cutlass` in FP32),
+`torch.optim.AdamW(fused=True)`, `clip_grad_norm_`, `torch.autocast(bfloat16)`
+with FP32 master weights for BF16, `torch.compile` in every mode.
 
-## Historical observations pending re-verification
+### Reproduce
 
-- **Memory in the earlier run**: 1.6× PyTorch at process level (538 vs 330 MiB
-  in fp32). The
-  temp arena keeps every layer's activations and work buffers, including
-  transpose buffers that are never used.
-- **FP32 speed in the earlier run**: on par with PyTorch reading the loss every
-  batch, about 10%
-  behind PyTorch reading it at the end. LitniceLM reads every batch's loss on
-  the host, which synchronizes the GPU; in PyTorch that read costs about 12%
-  in fp32 at this size.
-- **Implementation difference**: attention is unfused and launched per head;
-  PyTorch uses fused kernels.
+**Not yet reproducible from a fresh clone.** The run reads inputs that the
+repository does not contain:
 
-The earlier BF16 run showed LitniceLM ahead by about 1.6× per GHz. That result
-is not a current claim: it used an unlocked clock and one small model. The
-final comparison must establish it again under the locked-clock protocol.
+- the Conan Doyle corpus `c.doyle`, assembled from three books whose source
+  editions and cleanup are not yet recorded (see the README's "Conan Doyle
+  Corpus" section);
+- the base config
+  `conf/local/doyle/doyle_clean_spm512_seq1024_l4_d256_b1_rope_val_cosine_e12_accum4.yaml`,
+  which is untracked;
+- the SentencePiece tokenizer artifacts and the tokenized dataset, at the
+  absolute paths in `tools/vs_bench/run.py`;
+- the parity export of the 12-epoch FP32 checkpoint (`export_dir` in
+  `tools/vs_bench/run.py`);
+- a Python environment with the PyTorch versions above; the dependencies in
+  `tools/vs_bench/pyproject.toml` are not pinned.
+
+On a machine that has these inputs, build LitniceLM with the CUDA plugin as
+in [TRY_CUDA.md](TRY_CUDA.md); TRY_CUDA.md does not yet cover cuDNN, which
+`max_fused` needs. The run then needs AC power, the `balanced` platform
+profile and passwordless sudo for `/usr/bin/nvidia-smi` (clock lock); it
+checks all three before measuring:
+
+```bash
+git checkout d01241e
+cd tools
+../.venv/bin/python -m vs_bench
+```
+
+It writes a results JSON (spec, environment, versions, every row), a
+markdown report and every child log to a dated raw-benchmark directory.
 
 ## Tool status
 

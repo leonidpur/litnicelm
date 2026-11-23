@@ -67,3 +67,9 @@ and cross-entropy operand roles.
 - **`train_infer_e2e` is intermittent under `ctest -j4`.** It failed in the
   parallel run on 2026-11-18 and 2026-11-23 and passed when rerun alone both
   times; not yet investigated (likely a shared path or GPU contention).
+- **Benchmark not reproducible from a fresh clone.** `vs_bench` needs the
+  Doyle corpus (sources and cleanup unrecorded), the untracked base config
+  under `conf/local/doyle/`, tokenizer artifacts and tokenized `.bin` at
+  absolute SSD paths in `run.py`, the 12-epoch FP32 parity export, and an
+  unpinned Python environment. TRY_CUDA.md does not cover cuDNN (needed by
+  `max_fused`). docs/COMPARISON.md "Reproduce" states this.
