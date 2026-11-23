@@ -72,7 +72,13 @@ SPEC = ComparisonSpec(
         steps=300,
         repeats=3,
         differential_epochs=(1, 3),
-        equivalence_loss_tolerance=0.5,
+        # Final training loss of every row vs LitniceLM's, same repeat and
+        # precision. Observed in the locked-clock runs of 2026-11-22/23
+        # (132 rows): at most 0.0041, with LitniceLM ~0.003 above PyTorch in
+        # both precisions (different reduction orders and kernels, same
+        # model and data). 0.02 is ~5x that: it absorbs repeat-to-repeat
+        # noise but fails a variant that trains a different model.
+        equivalence_loss_tolerance=0.02,
     ),
     litnicelm=LitniceLMSettings(),
 )

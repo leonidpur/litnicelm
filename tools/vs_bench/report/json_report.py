@@ -47,6 +47,12 @@ def write_json(
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "git_commit": _command_output(["git", "rev-parse", "HEAD"]),
+            # Tracked files differ from git_commit: the run is not reproducible
+            # from the commit alone (untracked files are ignored).
+            "git_dirty": _command_output(
+                ["git", "status", "--porcelain", "--untracked-files=no"]
+            )
+            != "",
             "gpu": _command_output(
                 [
                     "nvidia-smi",
