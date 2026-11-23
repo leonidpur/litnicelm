@@ -23,17 +23,35 @@ class GateKey:
 
 @dataclass(frozen=True)
 class GateRow:
-    """Steady-state throughput samples of one cell, their median, and the
-    per-op breakdown of its profile pass ("" when the variant is unprofiled)."""
+    """Throughput samples of one cell and the per-op breakdown of its profile
+    pass ("" when the variant is unprofiled).
+
+    samples_tokens_per_s are the all-in timed runs the gate compares against
+    its baseline: whole training runs with validation, checkpoints and
+    one-time setup. samples_steady_tokens_per_s are [SteadyState] figures
+    after the warm-up optimizer steps (in older results, steady-state
+    differentials); empty for results recorded before either existed.
+    host_state_flagged: some row ran under a host power state other than
+    the spec's.
+    """
 
     key: GateKey
     samples_tokens_per_s: tuple[float, ...]
     op_breakdown: str
+    samples_steady_tokens_per_s: tuple[float, ...] = ()
+    host_state_flagged: bool = False
 
     @property
     def median_tokens_per_s(self) -> float:
-        """Median of the steady-state samples."""
+        """Median of the all-in samples."""
         return statistics.median(self.samples_tokens_per_s)
+
+    @property
+    def steady_tokens_per_s(self) -> float | None:
+        """Median of the steady-state samples, or None when none were recorded."""
+        if not self.samples_steady_tokens_per_s:
+            return None
+        return statistics.median(self.samples_steady_tokens_per_s)
 
 
 @dataclass(frozen=True)
@@ -70,17 +88,27 @@ class PyTorchReference:
 def load_litnicelm_rows(results_path: Path) -> dict[GateKey, GateRow]:
     """Read LitniceLM train_speed rows from a gate or full-run results JSON."""
     samples: dict[GateKey, list[float]] = defaultdict(list)
+    steady: dict[GateKey, list[float]] = defaultdict(list)
     breakdowns: dict[GateKey, str] = {}
+    host_flagged: dict[GateKey, bool] = defaultdict(bool)
     for row in _train_speed_rows(results_path):
         if row["engine"] != "LitniceLM":
             continue
         key = GateKey(str(row["precision"]), str(row["variant_label"]))
         samples[key].append(float(row["tokens_per_s"]))
+        # [SteadyState] after warm-up; older results only have the differential.
+        if "steady_tokens_per_s" in row:
+            steady[key].append(float(row["steady_tokens_per_s"]))
+        elif "differential_tokens_per_s" in row:
+            steady[key].append(float(row["differential_tokens_per_s"]))
+        host_flagged[key] |= bool(row.get("host_state_flagged"))
         breakdowns[key] = str(row.get("attention_cuda_kernels", ""))
     if not samples:
         raise ValueError(f"{results_path}: no LitniceLM train_speed rows")
     return {
-        key: GateRow(key, tuple(values), breakdowns[key])
+        key: GateRow(
+            key, tuple(values), breakdowns[key], tuple(steady[key]), host_flagged[key]
+        )
         for key, values in samples.items()
     }
 

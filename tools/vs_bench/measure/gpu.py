@@ -17,6 +17,9 @@ class GpuSampleSummary:
 
     process_peak_mib: int
     clock_samples_mhz: tuple[int, ...]
+    memory_clock_samples_mhz: tuple[int, ...] = ()
+    power_draw_samples_w: tuple[float, ...] = ()
+    power_limit_samples_w: tuple[float, ...] = ()
 
     @property
     def mean_clock_mhz(self) -> int:
@@ -56,6 +59,19 @@ class GpuSampleSummary:
                 "the ±15 MHz target band; maximum allowed fraction 5%)"
             )
 
+    def state_metrics(self) -> dict[str, int | float]:
+        """Under-load memory clock and power draw/limit, for result rows."""
+        memory = self.memory_clock_samples_mhz
+        draw = self.power_draw_samples_w
+        return {
+            "mem_clock_mhz": round(statistics.mean(memory)) if memory else 0,
+            "mem_clock_min_mhz": min(memory, default=0),
+            "mem_clock_max_mhz": max(memory, default=0),
+            "power_draw_mean_w": round(statistics.mean(draw), 1) if draw else 0.0,
+            "power_draw_max_w": max(draw, default=0.0),
+            "power_limit_min_w": min(self.power_limit_samples_w, default=0.0),
+        }
+
     def clock_outlier_count(self, requested_mhz: int) -> int:
         """Count samples outside the narrow target band used in reports."""
         return sum(
@@ -72,6 +88,9 @@ class GpuSampler:
         self.process_id: int | None = None
         self._memory: list[int] = []
         self._clocks: list[int] = []
+        self._memory_clocks: list[int] = []
+        self._power_draw: list[float] = []
+        self._power_limit: list[float] = []
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._sample_loop, daemon=True)
 
@@ -95,15 +114,28 @@ class GpuSampler:
                         target_present = True
                         self._memory.append(int(used_memory))
                 if target_present:
-                    for clock, utilization in self._query(
-                        ["--query-gpu=clocks.sm,utilization.gpu"]
+                    for clock, utilization, memory_clock, draw, limit in self._query(
+                        [
+                            "--query-gpu=clocks.sm,utilization.gpu,clocks.mem,"
+                            "power.draw,enforced.power.limit"
+                        ]
                     ):
                         # Clock transitions while a CUDA context is merely
                         # resident are not under-load evidence. Verify only
                         # samples in which the GPU was doing work.
                         if int(utilization) > 0:
                             self._clocks.append(int(clock))
+                            self._memory_clocks.append(int(memory_clock))
+                            self._append_watts(self._power_draw, draw)
+                            self._append_watts(self._power_limit, limit)
             time.sleep(self.interval_seconds)
+
+    @staticmethod
+    def _append_watts(samples: list[float], value: str) -> None:
+        try:
+            samples.append(float(value))
+        except ValueError:
+            pass  # "[N/A]" on GPUs that do not report power
 
     def __enter__(self) -> "GpuSampler":
         self._thread.start()
@@ -118,5 +150,8 @@ class GpuSampler:
         return GpuSampleSummary(
             process_peak_mib=max(self._memory, default=0),
             clock_samples_mhz=tuple(self._clocks),
+            memory_clock_samples_mhz=tuple(self._memory_clocks),
+            power_draw_samples_w=tuple(self._power_draw),
+            power_limit_samples_w=tuple(self._power_limit),
         )
 

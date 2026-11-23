@@ -8,8 +8,9 @@ Usage, from tools/:
     python3 -m vs_bench.gate --baseline <results.json>
         [--pytorch-reference <full-run results.json>]
 
-Exit status 1 when any baseline cell's median steady-state throughput drops
-by more than 0.5%.
+Exit status 1 when any baseline cell's median all-in throughput (the timed
+training runs) drops by more than 0.5%. The PyTorch ratios use steady-state
+throughput instead.
 """
 
 import argparse
@@ -19,6 +20,7 @@ import subprocess
 import sys
 
 from ..device.clock import LockedGpuClock
+from ..device.host_power import HostPowerCondition
 from ..engines.litnicelm import LitniceLMEngine
 from ..measure.process import configure_raw_logs, raw_artifact_path
 from ..run import RAW_LOG_ROOT, SPEC
@@ -56,6 +58,7 @@ def main() -> int:
     baseline = load_litnicelm_rows(arguments.baseline)
     references = load_pytorch_references(arguments.pytorch_reference or arguments.baseline)
 
+    HostPowerCondition(SPEC.environment).preflight()
     configure_raw_logs(RAW_LOG_ROOT / date.today().isoformat())
     results_path = raw_artifact_path("gate_results.json")
     gate = LitniceLMGateRun(LitniceLMEngine())

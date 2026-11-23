@@ -776,6 +776,10 @@ bool map_logging_fields(const std::string &key, const std::string &value, Config
     cfg.logging.profile_backend_skip_batches = parse_u32_or_throw(value, key);
     return true;
   }
+  if (key == "logging.steady_state_warmup_steps") {
+    cfg.logging.steady_state_warmup_steps = parse_u32_or_throw(value, key);
+    return true;
+  }
   if (key == "logging.profile_backend_steps") {
     cfg.logging.profile_backend_steps = parse_u32_or_throw(value, key);
     if (cfg.logging.profile_backend_steps == 0) {

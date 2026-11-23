@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 
+from .environment import host_power_state
 from .gpu import GpuSampleSummary, GpuSampler
 
 
@@ -62,6 +63,14 @@ class ProcessMeasurement:
     output: str
     wall_seconds: float
     gpu: GpuSampleSummary
+    host_state: dict[str, object]
+
+    def state_metrics(self) -> dict[str, object]:
+        """Memory clock, GPU power and host power state, for result rows."""
+        return {
+            **self.gpu.state_metrics(),
+            **{f"host_{key}": value for key, value in self.host_state.items()},
+        }
 
 
 def run_sampled_process(
@@ -69,6 +78,7 @@ def run_sampled_process(
 ) -> ProcessMeasurement:
     """Launch one fresh child, sample its PID, and capture combined output."""
     print(f"\033[32m$ {shlex.join(command)}\033[0m", file=sys.stderr, flush=True)
+    host_state = host_power_state()
     start = time.perf_counter()
     with GpuSampler() as sampler:
         process = subprocess.Popen(
@@ -89,4 +99,9 @@ def run_sampled_process(
             f"child failed ({process.returncode}): {shlex.join(command)}\n"
             f"{output[-2000:]}{location}"
         )
-    return ProcessMeasurement(output=output, wall_seconds=wall_seconds, gpu=sampler.result())
+    return ProcessMeasurement(
+        output=output,
+        wall_seconds=wall_seconds,
+        gpu=sampler.result(),
+        host_state=host_state,
+    )

@@ -13,6 +13,7 @@
 #include <cudnn_frontend.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -83,6 +84,7 @@ using VariantPack = std::unordered_map<fe::graph::Tensor_attributes::uid_t, void
 struct SdpaPlan {
   std::shared_ptr<fe::graph::Graph> graph;
   int64_t index = -1; // -1 until chosen on the first call
+  double build_ms = 0.0; // building every plan, part of the selection cost
 };
 
 // Another plan replaces the heuristic's first choice only when it is at least
@@ -116,10 +118,18 @@ struct CudnnAttention::Impl {
   }
 
   // Builds every plan heuristic A supports, in its ranking order.
-  std::shared_ptr<fe::graph::Graph> build(std::shared_ptr<fe::graph::Graph> graph) {
+  void build(SdpaPlan &plan, std::shared_ptr<fe::graph::Graph> graph) {
+    const auto start = std::chrono::steady_clock::now();
     check_fe(graph->build(handle, {fe::HeurMode_t::A}, fe::BuildPlanPolicy_t::ALL),
              "graph build");
-    return graph;
+    plan.build_ms = elapsed_ms(start);
+    plan.graph = std::move(graph);
+  }
+
+  static double elapsed_ms(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - start)
+        .count();
   }
 
   // execute_plan_at_index adds pointers to values it holds only for that
@@ -166,9 +176,11 @@ struct CudnnAttention::Impl {
   }
 
   // The heuristic's first plan (index 0) unless another runs at least
-  // kMinPlanSpeedup faster; logged so a run's plan can be reproduced.
+  // kMinPlanSpeedup faster; logged so a run's plan can be reproduced, with
+  // the one-time selection cost (building plus timing every plan).
   int64_t choose_plan(const fe::graph::Graph &graph, const VariantPack &pack,
-                      const char *what) {
+                      const char *what, double build_ms) {
+    const auto start = std::chrono::steady_clock::now();
     const int64_t count = graph.get_execution_plan_count();
     std::vector<float> us(static_cast<size_t>(count));
     int64_t fastest = -1;
@@ -188,13 +200,14 @@ struct CudnnAttention::Impl {
     }
     std::cerr << "cuda_cublas_plugin: cuDNN " << what << " plan " << chosen << "/"
               << count << " " << plan_name(graph, chosen) << " (" << us[chosen]
-              << " us; heuristic first choice " << us[0] << " us)\n";
+              << " us; heuristic first choice " << us[0] << " us; selection "
+              << build_ms + elapsed_ms(start) << " ms)\n";
     return chosen;
   }
 
   void execute(SdpaPlan &plan, const VariantPack &pack, const char *what) {
     if (plan.index < 0) {
-      plan.index = choose_plan(*plan.graph, pack, what);
+      plan.index = choose_plan(*plan.graph, pack, what, plan.build_ms);
     }
     check_fe(run_plan(*plan.graph, pack, workspace_of(*plan.graph, plan.index), plan.index),
              what);
@@ -263,7 +276,7 @@ void CudnnAttention::forward(const TensorView &qkv, int64_t n_heads,
           .set_dim({B, n_heads, S, 1})
           .set_stride(st_strides);
     }
-    plan.graph = impl_->build(g);
+    impl_->build(plan, g);
   }
 
   auto *base = static_cast<uint8_t *>(qkv.data());
@@ -317,7 +330,7 @@ void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
     dQ->set_output(true).set_uid(kDQ).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dK->set_output(true).set_uid(kDK).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dV->set_output(true).set_uid(kDV).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
-    plan.graph = impl_->build(g);
+    impl_->build(plan, g);
   }
 
   const size_t third = static_cast<size_t>(D) * dtype_size(qkv.dtype());

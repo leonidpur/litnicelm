@@ -11,6 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from ..spec import ComparisonSpec
+from ..device.host_power import HostPowerCondition
 from ..measure.process import run_sampled_process
 from .base import Engine, EngineResult, EngineVariant
 
@@ -35,6 +36,18 @@ NATIVE_CONFIG = MappingProxyType(
 )
 
 # Adapter mechanics that do not belong in LitniceLM's YAML.
+# What each attention core computes, from its implementation (src/model/algo).
+ATTENTION_BACKENDS = MappingProxyType(
+    {
+        "unfused": "unfused per-head GEMMs + separate scale, mask and softmax",
+        "fused_inplace": "per-head GEMMs + one fused scaled causal softmax",
+        "fused_inplace_multistream": (
+            "per-head GEMMs + one fused scaled causal softmax, heads on multiple streams"
+        ),
+        "cudnn_flash": "cuDNN fused flash attention (SDPA, no score matrix)",
+    }
+)
+
 ADAPTER_PARAMS = MappingProxyType(
     {
         "binary": "build/litnicelm",
@@ -44,6 +57,11 @@ ADAPTER_PARAMS = MappingProxyType(
         ),
         "benchmark.epochs": 2,
         "profiler.batch_step_pattern": r"^- batch_step total=(.+?) count=(\d+)",
+        "steady_state.pattern": (
+            r"\[SteadyState\] after (\d+) warm-up optimizer steps: "
+            r"total=([0-9.]+) s steps=(\d+)"
+        ),
+        "plan_selection.pattern": r"cuDNN sdpa .* selection ([0-9.]+) ms\)",
     }
 )
 
@@ -153,7 +171,7 @@ class LitniceLMEngine(Engine):
         attention_mode = variant.options["attention_mode"]
         if "multistream" in attention_mode:
             return {
-                "attention_backend": "unfused per-head GEMMs + softmax",
+                "attention_backend": self.attention_backend(attention_mode),
                 "attention_backend_source": "LitniceLM implementation",
                 "attention_cuda_kernels": "not profiled: multistream",
             }
@@ -222,8 +240,8 @@ class LitniceLMEngine(Engine):
         )
         evidence = f"{top}; idle gaps {idle.group(2)}% ({idle.group(1)} ms)"
         return {
-            "attention_backend": "unfused per-head GEMMs + softmax",
-            "attention_backend_source": "LitniceLM backend event markers",
+            "attention_backend": self.attention_backend(variant.options["attention_mode"]),
+            "attention_backend_source": "LitniceLM implementation",
             "attention_cuda_kernels": evidence,
             "profile_window": (
                 f"skip {header.group(1)} batches; "
@@ -289,6 +307,27 @@ class LitniceLMEngine(Engine):
         if not modes:
             raise RuntimeError(f"{self.binary} list_variants registered no attention")
         return modes
+
+    def attention_backend(self, attention_mode: str) -> str:
+        """What the attention core of this mode computes; a preset's core comes
+        from its `list_variants` line `preset <name> attention=<core> ...`."""
+        core = attention_mode
+        if attention_mode.startswith("preset:"):
+            name = attention_mode.split(":", 1)[1]
+            completed = subprocess.run(
+                [str(self.binary), "list_variants"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            for line in completed.stdout.splitlines():
+                fields = line.split()
+                if fields[:2] == ["preset", name]:
+                    core = next(
+                        (f.split("=", 1)[1] for f in fields if f.startswith("attention=")),
+                        "",
+                    )
+        return ATTENTION_BACKENDS.get(core, f"unknown attention core {core!r}")
 
     def _registered_attention(self) -> dict[str, str]:
         """Attention mode -> the only native precision it runs in, or "".
@@ -387,6 +426,12 @@ class LitniceLMEngine(Engine):
             text = _set_key(text, "model_algo", "preset", attention_mode.split(":", 1)[1])
             text = _set_key(text, "model_algo", "attention", "unfused")
             text = _set_key(text, "model_algo", "ffn", "reference")
+        text = _set_key(
+            text,
+            "logging",
+            "steady_state_warmup_steps",
+            spec.litnicelm.steady_state_warmup_steps,
+        )
         if profile_backend_ops:
             text = _set_key(text, "logging", "profile_backend_ops", True)
             text = _set_key(
@@ -454,6 +499,7 @@ class LitniceLMEngine(Engine):
             r"Validation epoch \d+:.*?\| train ([0-9.eE+-]+),", output
         )
         tokens = steps * spec.workload.tokens_per_step
+        steady = self._steady_state_metrics(spec, output)
         return EngineResult(
             engine=self.name,
             operation="train_speed",
@@ -470,8 +516,31 @@ class LitniceLMEngine(Engine):
                 "d_model": spec.workload.d_model,
                 "d_ff": spec.workload.d_ff,
                 **({"final_train_loss": float(losses[-1])} if losses else {}),
+                **steady,
             },
         )
+
+    @staticmethod
+    def _steady_state_metrics(spec: ComparisonSpec, output: str) -> dict[str, float | int]:
+        """[SteadyState] throughput after warm-up and the one-time cuDNN plan
+        selection cost (0 when no cuDNN plan was chosen in this process)."""
+        selections = re.findall(str(ADAPTER_PARAMS["plan_selection.pattern"]), output)
+        metrics: dict[str, float | int] = {
+            "plan_selection_seconds": sum(float(ms) for ms in selections) / 1000.0
+        }
+        lines = re.findall(str(ADAPTER_PARAMS["steady_state.pattern"]), output)
+        if len(lines) == 1:
+            warmup, total, steps = int(lines[0][0]), float(lines[0][1]), int(lines[0][2])
+            if steps > 0 and total > 0:
+                metrics.update(
+                    {
+                        "steady_warmup_steps": warmup,
+                        "steady_steps": steps,
+                        "steady_step_ms": 1000.0 * total / steps,
+                        "steady_tokens_per_s": steps * spec.workload.tokens_per_step / total,
+                    }
+                )
+        return metrics
 
     def train(
         self,
@@ -520,6 +589,8 @@ class LitniceLMEngine(Engine):
                         spec.environment.clock_mhz
                     ),
                     "sm_clock_stable": True,
+                    **measured.state_metrics(),
+                    **HostPowerCondition(spec.environment).row_flags(measured.host_state),
                     "epochs": epochs or ADAPTER_PARAMS["benchmark.epochs"],
                     "validation_enabled": validation_fraction != 0.0,
                     "checkpointing_enabled": operation != "dry_run",

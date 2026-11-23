@@ -12,6 +12,7 @@ from .engines.litnicelm import LitniceLMEngine
 from .engines.torch_engine import TorchEngine
 from .engines.base import EngineResult
 from .device.clock import LockedGpuClock
+from .device.host_power import HostPowerCondition
 from .measure.process import configure_raw_logs, raw_artifact_path
 from .report.console import print_phase_result, print_phase_start, print_plan
 from .report.json_report import write_json
@@ -103,6 +104,7 @@ def main() -> None:
     )
     plans = tuple(vertical.plan(SPEC, engines) for vertical in verticals)
     print_plan(SPEC, plans)
+    HostPowerCondition(SPEC.environment).preflight()
     try:
         with LockedGpuClock(SPEC.environment.clock_mhz) as clock:
             for vertical, plan in zip(verticals, plans, strict=True):

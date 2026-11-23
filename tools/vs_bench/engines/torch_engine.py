@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from ..corpus.corpus import CorpusManager, validation_windows, window_batch
+from ..device.host_power import HostPowerCondition
 from ..measure.process import run_sampled_process, write_process_request
 from ..spec import ComparisonSpec
 from .base import Engine, EngineResult, EngineVariant
@@ -151,6 +152,8 @@ class TorchEngine(Engine):
                     spec.environment.clock_mhz
                 ),
                 "sm_clock_stable": True,
+                **measured.state_metrics(),
+                **HostPowerCondition(spec.environment).row_flags(measured.host_state),
             }
         )
         return EngineResult(engine=self.name, operation="train_speed", metrics=metrics)

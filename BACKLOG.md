@@ -51,3 +51,19 @@ and cross-entropy operand roles.
 - **Vector loads.** The row-warp kernels use coalesced scalar loads, so the
   path needs only `cols <= 1024`. `float2` / `__nv_bfloat162` loads would
   add width-parity and alignment conditions; measure before adding them.
+
+## Benchmark timing follow-ups (2026-11-22)
+
+- **Full-run report mislabels LitniceLM's speed as steady state.** The
+  `train_speed` vertical's "steady-state tokens/s" for LitniceLM is the
+  `batch_step` total of one `train` run, which includes the first batch's
+  one-time setup (cuDNN graph build and plan timing, ~300 ms in bf16
+  `max_fused`), validation and checkpoints. PyTorch's figure excludes warm-up.
+  The gate's PyTorch ratio now uses the steady-state differential; the full
+  report's ratio and conclusions do not yet.
+- **Re-measure PyTorch.** The gate's reference is `run_003316` (2026-11-03).
+- **LitniceLM first-call cost.** About 300 ms per process in bf16 `max_fused`,
+  mostly cuDNN graph building; plan timing adds ~112 ms of it.
+- **`train_infer_e2e` is intermittent under `ctest -j4`.** It failed in the
+  parallel run on 2026-11-18 and 2026-11-23 and passed when rerun alone both
+  times; not yet investigated (likely a shared path or GPU contention).

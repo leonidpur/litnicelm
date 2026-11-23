@@ -12,6 +12,7 @@ import subprocess
 import sys
 from typing import Sequence
 
+from ..measure.environment import power_state, software_versions
 from ..spec import ComparisonSpec
 from ..verticals.base import VerticalResult
 
@@ -54,6 +55,8 @@ def write_json(
                 ]
             ),
             "raw_logs": str(raw_log_directory),
+            "versions": software_versions(),
+            "state_at_write": power_state(),
         },
         "verticals": [
             {

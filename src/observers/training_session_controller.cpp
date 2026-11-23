@@ -9,6 +9,7 @@
 #include "eta_observer.hpp"
 #include "profiling_observer.hpp"
 #include "reporting_observer.hpp"
+#include "steady_state_observer.hpp"
 #include "tracking_observer.hpp"
 #include "report_renderer.hpp"
 
@@ -53,6 +54,8 @@ TrainingSessionController::TrainingSessionController(const Config &cfg,
           cfg.model_algo.attention);
   profiling_observer_ = profiling.get();
   add_observer(std::move(profiling));
+  add_observer(
+      std::make_unique<SteadyStateObserver>(cfg.logging.steady_state_warmup_steps));
   add_observer(std::make_unique<EtaObserver>(
       cfg, training_plan_, cmd.runtime_flags.epoch_report_every == 0
                                     ? cfg.logging.epoch_report_every

@@ -10,6 +10,12 @@ from typing import Sequence
 from ..verticals.base import VerticalResult
 
 
+def _steady_tokens_per_s(row: dict[str, object]) -> float:
+    """Throughput after warm-up: LitniceLM's [SteadyState] figure when the row
+    has one, otherwise tokens_per_s (PyTorch measures after its warm-up)."""
+    return float(row.get("steady_tokens_per_s", row["tokens_per_s"]))
+
+
 def render_markdown(results: Sequence[VerticalResult]) -> str:
     """Render parity rows and median speed rows with observed ranges."""
     sections = []
@@ -49,7 +55,7 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
             for precision in dict.fromkeys(key[0] for key in groups):
                 precision_groups = {key: rows for key, rows in groups.items() if key[0] == precision}
                 medians = {
-                    key: statistics.median(float(row["tokens_per_s"]) for row in rows)
+                    key: statistics.median(_steady_tokens_per_s(row) for row in rows)
                     for key, rows in precision_groups.items()
                 }
                 pytorch_keys = [key for key in precision_groups if key[1] == "PyTorch"]
@@ -58,13 +64,13 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                 lines = [
                     f"## Training speed — {precision}",
                     "",
-                    "| engine | variant | options | attention backend | top CUDA kernels by time | best PyTorch | steady-state tokens/s | differential tokens/s | cross-check | differential step (ms) | compile time (s) | process peak (MiB) | engine memory (MiB) | clock (MHz) |",
-                    "|---|---|---|---|---|---|---:|---:|---|---:|---:|---:|---:|---:|",
+                    "| engine | variant | options | attention backend | top CUDA kernels by time | best PyTorch | steady-state tokens/s | all-in tokens/s | differential tokens/s | cross-check | differential step (ms) | compile time (s) | plan selection (s) | process peak (MiB) | engine memory (MiB) | clock (MHz) |",
+                    "|---|---|---|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|",
                 ]
                 for key, rows in precision_groups.items():
                     _, engine, label, options = key
                     median = lambda field: statistics.median(float(row[field]) for row in rows)
-                    throughputs = [float(row["tokens_per_s"]) for row in rows]
+                    throughputs = [_steady_tokens_per_s(row) for row in rows]
                     memory_values = [row["engine_memory_mib"] for row in rows]
                     memory = (
                         f"{statistics.median(float(value) for value in memory_values):.0f}"
@@ -76,23 +82,53 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                         if "compile_warmup_seconds" in rows[0]
                         else "—"
                     )
-                    steady = median("tokens_per_s")
-                    differential = median("differential_tokens_per_s")
-                    disagreement = 100.0 * abs(steady - differential) / steady
-                    cross_check = (
-                        f"FLAG {disagreement:.1f}%"
-                        if disagreement > 3.0
-                        else f"ok ({disagreement:.1f}%)"
+                    steady = statistics.median(throughputs)
+                    all_in = (
+                        f"{median('tokens_per_s'):,.0f}"
+                        if "steady_tokens_per_s" in rows[0]
+                        else "—"
                     )
+                    plan_selection = (
+                        f"{median('plan_selection_seconds'):.3f}"
+                        if "plan_selection_seconds" in rows[0]
+                        else "—"
+                    )
+                    valid = [row for row in rows if "differential_tokens_per_s" in row]
+                    valid_note = (
+                        f" ({len(valid)}/{len(rows)} valid)" if len(valid) < len(rows) else ""
+                    )
+                    if valid:
+                        differential = statistics.median(
+                            float(row["differential_tokens_per_s"]) for row in valid
+                        )
+                        differential_step = statistics.median(
+                            float(row["differential_step_ms"]) for row in valid
+                        )
+                        disagreement = 100.0 * abs(steady - differential) / steady
+                        cross_check = (
+                            f"FLAG {disagreement:.1f}%"
+                            if disagreement > 3.0 or valid_note
+                            else f"ok ({disagreement:.1f}%)"
+                        ) + valid_note
+                        differential_text = f"{differential:,.0f}"
+                        differential_step_text = f"{differential_step:.1f}"
+                    else:
+                        cross_check = "FLAG invalid differential"
+                        differential_text = "invalid"
+                        differential_step_text = "—"
+                    flagged_host = sum(bool(row.get("host_state_flagged")) for row in rows)
+                    if flagged_host:
+                        cross_check += f"; FLAG host state ({flagged_host}/{len(rows)})"
                     lines.append(
                         f"| {engine} | {label} | {options or '—'} | "
                         f"{rows[0]['attention_backend']} | "
                         f"{rows[0]['attention_cuda_kernels']} | "
                         f"{'yes' if key == best_pytorch else ''} | "
                         f"{steady:,.0f} ({min(throughputs):,.0f}–{max(throughputs):,.0f}) | "
-                        f"{differential:,.0f} | {cross_check} | "
-                        f"{median('differential_step_ms'):.1f} | "
-                        f"{compile_time} | "
+                        f"{all_in} | "
+                        f"{differential_text} | {cross_check} | "
+                        f"{differential_step_text} | "
+                        f"{compile_time} | {plan_selection} | "
                         f"{median('process_peak_mib'):.0f} | {memory} | "
                         f"{median('sm_clock_mhz'):.0f} |"
                     )
@@ -104,9 +140,8 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                     for key in litnice_keys
                 )
                 litnice_attention = (
-                    "LitniceLM attention is implemented as unfused per-head "
-                    "GEMMs plus softmax; this is an implementation statement, "
-                    "not a PyTorch-profiler inference."
+                    "LitniceLM attention backends are stated from each "
+                    "variant's implementation, not inferred by a profiler."
                 )
                 equivalence = [
                     f"### Training equivalence — {precision}",
@@ -125,8 +160,24 @@ def render_markdown(results: Sequence[VerticalResult]) -> str:
                         f"{statistics.median(float(row['loss_difference']) for row in rows):.4f} | "
                         f"{str(all(bool(row['equivalence_passed']) for row in rows)).lower()} |"
                     )
+                host_flags = [
+                    f"- {key[1]} {key[2]} repeat {row.get('repeat')}: "
+                    f"AC online={row.get('host_ac_online')}, "
+                    f"platform profile {row.get('host_platform_profile')}"
+                    for key, rows in precision_groups.items()
+                    for row in rows
+                    if row.get("host_state_flagged")
+                ]
+                host_note = (
+                    "Rows measured under a host power state other than the spec's:\n"
+                    + "\n".join(host_flags)
+                    if host_flags
+                    else "Host power state matched the spec in every row."
+                )
                 sections.append(
                     "\n".join(lines)
+                    + "\n\n"
+                    + host_note
                     + "\n\n"
                     + verdict
                     + "\n\n"

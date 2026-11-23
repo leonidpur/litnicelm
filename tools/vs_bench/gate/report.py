@@ -27,7 +27,8 @@ def render_gate_report(
             f"{item.baseline.median_tokens_per_s:,.0f} | "
             f"{item.current.median_tokens_per_s:,.0f} | "
             f"{min(samples):,.0f}–{max(samples):,.0f} | "
-            f"{item.change_pct:+.2f}% | {'pass' if item.passed else 'FAIL'} |"
+            f"{item.change_pct:+.2f}% | {'pass' if item.passed else 'FAIL'}"
+            f"{'; FLAG host state' if item.current.host_state_flagged else ''} |"
         )
     for row in new_rows:
         samples = row.samples_tokens_per_s
@@ -70,23 +71,43 @@ def render_gate_report(
     return "\n".join(lines)
 
 
+PYTORCH_RATIO_NOTE = (
+    "Ratios use LitniceLM steady-state tokens/s (batches after its warm-up "
+    "optimizer steps, which cover cuDNN plan selection; older results use the "
+    "epoch differential) against PyTorch tokens/s after its warm-up steps. "
+    "\"all-in\" is the gate's timed run, which also counts validation, "
+    "checkpoints and one-time setup; a row marked (all-in) has no steady-state "
+    "samples and uses the all-in figure."
+)
+
+
 def render_pytorch_ratios(
     rows: Sequence[GateRow], references: dict[str, PyTorchReference]
 ) -> str:
-    """LitniceLM vs best eager and best compiled PyTorch, per precision."""
+    """LitniceLM vs best eager and best compiled PyTorch, per precision.
+
+    Steady state against steady state; the all-in ratio to best compiled
+    PyTorch is shown alongside.
+    """
     lines = [
-        "| precision | variant | vs best eager PyTorch | vs best compiled PyTorch |",
-        "|---|---|---:|---:|",
+        "| precision | variant | steady-state tokens/s | vs best eager PyTorch "
+        "| vs best compiled PyTorch | all-in vs best compiled |",
+        "|---|---|---:|---:|---:|---:|",
     ]
     for row in rows:
         reference = references.get(row.key.precision)
         if reference is None:
             continue
+        steady = row.steady_tokens_per_s
+        value = steady if steady is not None else row.median_tokens_per_s
+        marker = "" if steady is not None else " (all-in)"
         lines.append(
             f"| {row.key.precision} | {row.key.variant} | "
-            f"{row.median_tokens_per_s / reference.best_eager_tokens_per_s:.3f}× "
+            f"{value:,.0f}{marker} | "
+            f"{value / reference.best_eager_tokens_per_s:.3f}× "
             f"({reference.best_eager_label}) | "
-            f"{row.median_tokens_per_s / reference.best_compiled_tokens_per_s:.3f}× "
-            f"({reference.best_compiled_label}) |"
+            f"{value / reference.best_compiled_tokens_per_s:.3f}× "
+            f"({reference.best_compiled_label}) | "
+            f"{row.median_tokens_per_s / reference.best_compiled_tokens_per_s:.3f}× |"
         )
-    return "\n".join(lines)
+    return "\n".join(lines + ["", PYTORCH_RATIO_NOTE])

@@ -53,6 +53,10 @@ class EnvironmentSpec:
     """Hardware and process environment shared by all verticals."""
 
     clock_mhz: int
+    # Host power is a benchmark condition: checked in preflight, and rows
+    # measured under a different state are flagged.
+    require_ac_power: bool = True
+    platform_profile: str = "balanced"
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,9 @@ class LitniceLMSettings:
     attention_modes: tuple[str, ...] = ()
     profile_skip_batches: int = 8
     profile_optimizer_steps: int = 3
+    # Optimizer steps excluded from the [SteadyState] timing, like PyTorch's
+    # benchmark_warmup_steps; the first covers cuDNN plan selection.
+    steady_state_warmup_steps: int = 5
 
 
 @dataclass(frozen=True)

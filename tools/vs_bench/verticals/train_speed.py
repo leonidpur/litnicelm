@@ -175,25 +175,33 @@ class TrainSpeedVertical(Vertical):
     @staticmethod
     def _differential_metrics(
         endpoints: tuple[EngineResult, EngineResult],
-    ) -> dict[str, int | float]:
+    ) -> dict[str, bool | int | float]:
+        """Per-step cost from two run lengths, or differential_valid False.
+
+        The differential is invalid when the longer run did not take longer
+        (one-time costs such as compilation varied by more than the extra
+        steps cost); then only the endpoints are recorded, with no step time
+        or throughput, and the row's cross-check is flagged.
+        """
         low, high = endpoints
         low_steps = int(low.metrics["steps"])
         high_steps = int(high.metrics["steps"])
         step_delta = high_steps - low_steps
-        wall_delta = float(high.metrics["process_wall_seconds"]) - float(
-            low.metrics["process_wall_seconds"]
-        )
-        if step_delta <= 0 or wall_delta <= 0:
-            raise ValueError(
-                f"invalid differential endpoints: steps {low_steps}/{high_steps}, "
-                f"wall {low.metrics['process_wall_seconds']}/{high.metrics['process_wall_seconds']}"
-            )
-        tokens_per_step = int(low.metrics["tokens_per_step"])
-        return {
+        low_wall = float(low.metrics["process_wall_seconds"])
+        high_wall = float(high.metrics["process_wall_seconds"])
+        wall_delta = high_wall - low_wall
+        endpoints_metrics: dict[str, bool | int | float] = {
             "differential_low_steps": low_steps,
             "differential_high_steps": high_steps,
-            "differential_low_wall_seconds": float(low.metrics["process_wall_seconds"]),
-            "differential_high_wall_seconds": float(high.metrics["process_wall_seconds"]),
+            "differential_low_wall_seconds": low_wall,
+            "differential_high_wall_seconds": high_wall,
+        }
+        if step_delta <= 0 or wall_delta <= 0:
+            return {**endpoints_metrics, "differential_valid": False}
+        tokens_per_step = int(low.metrics["tokens_per_step"])
+        return {
+            **endpoints_metrics,
+            "differential_valid": True,
             "differential_step_ms": 1000 * wall_delta / step_delta,
             "differential_tokens_per_s": tokens_per_step * step_delta / wall_delta,
         }
@@ -202,7 +210,9 @@ class TrainSpeedVertical(Vertical):
     def _timing_cross_check(
         metrics: dict[str, bool | int | float | str],
     ) -> dict[str, bool | float]:
-        steady = float(metrics["tokens_per_s"])
+        if "differential_tokens_per_s" not in metrics:
+            return {"throughput_cross_check_flagged": True}
+        steady = float(metrics.get("steady_tokens_per_s", metrics["tokens_per_s"]))
         differential = float(metrics["differential_tokens_per_s"])
         difference_pct = 100.0 * abs(steady - differential) / steady
         return {

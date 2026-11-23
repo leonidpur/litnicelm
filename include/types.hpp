@@ -145,6 +145,8 @@ struct LoggingConfig {
   bool profile_backend_ops = false;
   uint32_t profile_backend_skip_batches = 0;
   uint32_t profile_backend_steps = 1;
+  // Optimizer steps excluded from the [SteadyState] batch timing; 0 = off.
+  uint32_t steady_state_warmup_steps = 0;
 };
 
 struct ReportingConfig {

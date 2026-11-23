@@ -87,4 +87,8 @@ inline constexpr EventDef kEtaSummary{
 // ProfilingObserver
 inline constexpr EventDef kProfilingSummary{"observers.profiling_summary", EventType::Info, ""};
 
+// SteadyStateObserver
+inline constexpr EventDef kSteadyStateSummary{
+    "observers.steady_state_summary", EventType::Info, "[SteadyState]"};
+
 } // namespace observers_events

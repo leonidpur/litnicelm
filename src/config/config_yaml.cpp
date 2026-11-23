@@ -216,8 +216,9 @@ std::string config_to_yaml(const Config &cfg) {
     << boolean(cfg.logging.profile_backend_ops) << "\n"
     << "  profile_backend_skip_batches: "
     << cfg.logging.profile_backend_skip_batches << "\n"
-    << "  profile_backend_steps: " << cfg.logging.profile_backend_steps
-    << "\n\n";
+    << "  profile_backend_steps: " << cfg.logging.profile_backend_steps << "\n"
+    << "  steady_state_warmup_steps: "
+    << cfg.logging.steady_state_warmup_steps << "\n\n";
 
   y << "reporting:\n  verbose_epoch_index: [";
   for (size_t i = 0; i < cfg.reporting.verbose_epoch_index.size(); ++i) {
