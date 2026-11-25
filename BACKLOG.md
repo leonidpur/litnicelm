@@ -73,3 +73,10 @@ and cross-entropy operand roles.
   absolute SSD paths in `run.py`, the 12-epoch FP32 parity export, and an
   unpinned Python environment. TRY_CUDA.md does not cover cuDNN (needed by
   `max_fused`). docs/COMPARISON.md "Reproduce" states this.
+- **Inference re-selects cuDNN plans for every new length.** `litnicelm infer`
+  recomputes the full context each step, so each token is a new sequence length
+  and a new cuDNN SDPA graph: ~111 ms of plan selection per generated token in
+  bf16 `max_fused` (TinyStories ts10, 2026-11-24). No KV cache either.
+- **`reference_torch.py` can't read the val loss from a hand-written model card.**
+  It looks for the exporter's `| best val loss | …` row; the TinyStories card
+  (2026-11-25) labels it differently, so the comparison needs `--litnicelm-loss`.

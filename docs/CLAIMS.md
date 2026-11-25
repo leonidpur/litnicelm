@@ -241,3 +241,157 @@ locked-clock publication run; each lists its evidence.
 - **Conditions:** The shared conditions above. `cudnn_flash` alone (with
   unfused projections and FFN) gives 307,715 in BF16.
 - **Evidence and reproduce:** shared conditions above.
+
+## TinyStories demo model: shared conditions (C11-C15)
+
+These entries back the model card of
+[LeonidP31/litnicelm-tinystories-29m](https://huggingface.co/LeonidP31/litnicelm-tinystories-29m).
+
+- **Model:** checkpoint
+  `ts10_spm4096_seq512_l8_d512_b16_rope_val_cosine_e2_16mix_max_fused_best.ckpt`
+  (format v7, trained 2026-11-13, run id
+  `20261113-155119-8b60_…`), config
+  `conf/local/tinystories/ts10_spm4096_seq512_l8_d512_b16_rope_val_cosine_e2_16mix_max_fused.yaml`
+  (untracked). The training run recorded no Git commit.
+- **Export:** `litnicelm export` at commit fec3a3d;
+  `model.safetensors` sha256 `5530079d52ac118b066038ac3619b5af575b2f4fa60af43e058c639ec5c10b0a`,
+  identical to the file on the Hub (Hub commits d57dcfd, weights; 966f438,
+  card only).
+- **Environment:** NVIDIA GeForce RTX 4070 Laptop GPU; PyTorch
+  2.15.0+cu132, safetensors 0.8.0, NumPy 2.5.4, sentencepiece 0.2.3. PyTorch
+  "FP32" means FP32 with TF32 disabled, as in `litnicelm_torch.py`; "BF16
+  autocast" means `torch.autocast(bfloat16)`. sentencepiece is not in
+  `.venv`; it was installed separately and put on `PYTHONPATH`.
+- **Evidence:** outside the repository, in
+  `/mnt/ext_ssd/litnicelm/tinystories/exports/verification_20261125/`
+  (before upload) and `…/exports/hub_roundtrip_20261125/` (fresh download
+  from the Hub, 2026-11-25). The scripts `greedy_parity.py` and
+  `official_valid_loss.py` and the scratch configs `ts10_fp32_infer.yaml`
+  and `ts10_official_valid.yaml` live there too, not in the repository.
+- **Reproduce:** not possible from a fresh clone: the corpus files, tokenized
+  datasets, tokenizer artifacts, checkpoint, config and scripts above are on
+  the external SSD. The commands below assume them; `$V` is the
+  verification folder, `$CFG` the config, `$X` the export or downloaded
+  repo directory.
+
+## C11: From-scratch C++/CUDA training engine
+
+- **Claim:** LitniceLM is a from-scratch C++/CUDA training engine: model,
+  training loop, optimizer, mixed precision, checkpointing, inference and
+  export are its own C++17 and CUDA code, not built on an ML framework
+  (PyTorch, TensorFlow, JAX, ggml or similar).
+- **Conditions:** "From scratch" excludes frameworks, not libraries: it calls
+  NVIDIA's cuBLAS, cuBLASLt and cuDNN for GEMMs and fused attention, and
+  SentencePiece for tokenization. PyTorch is used only by the comparison and
+  reference tools under `tools/`, never by the engine.
+- **Standard:** As C1: the build's declared dependencies and the source tree.
+- **Evidence:** `CMakeLists.txt` (`pkg_check_modules(SPM REQUIRED
+  sentencepiece)` and the CUDA libraries of the backend plugins); `src/`.
+- **Reproduce:** as C1, then `ldd build/litnicelm build/*.so` lists no
+  framework library.
+
+## C12: The demo model and how it was trained
+
+- **Claim:** 29,414,400 FP32 parameters; decoder-only, 8 layers, 8 heads,
+  d_model 512, d_ff 2048, pre-LayerNorm, final LayerNorm, RoPE (base 10000),
+  ReLU MLP, untied LM head without bias, context 512, SentencePiece BPE
+  vocabulary 4,096. Trained by LitniceLM on the first 222,774,832 bytes
+  (10%) of `TinyStoriesV2-GPT4-train.txt` (57,763,614 tokens), 2 epochs,
+  13,952 optimizer steps of 16 × 512 tokens, AdamW (0.9, 0.95, weight decay
+  0.1), clip 1.0, LR 6e-4 with 300 warm-up steps and cosine decay to 10%,
+  `preset: max_fused`, `precision: bf16_mixed`. Best validation loss
+  1.2931676 on the held-out 1% (532,480 tokens), at epoch 2, the last. The
+  tokenizer was trained on the first 19,999,583 bytes of the same file.
+  Because of ReLU, the untied head and RoPE, a stock `GPT2LMHeadModel` does
+  not compute this model.
+- **Conditions:** The held-out split is DatasetSplit's: the last
+  8,192-token chunk of every 100 of the 10% file. It is not TinyStories'
+  official validation file.
+- **Standard:** The checkpoint header (parameter bytes / 4, step, epoch,
+  best loss and its flags), the config, and `cmp` of the 10% and tokenizer
+  files against the official train file (EOF on the shorter file, no
+  mismatch). For GPT-2: the Hugging Face `transformers` GPT-2 architecture
+  (GELU, learned `wpe` positions, tied head).
+- **Evidence:** `$V/data_and_split.txt`, `$V/verify_export.txt`.
+- **Reproduce:**
+
+  ```bash
+  cmp /mnt/ext_ssd/litnicelm/tinystories/tinystories_v2_train10pct.txt /mnt/ext_ssd/litnicelm/tinystories/TinyStoriesV2-GPT4-train.txt
+  tools/hf_upload/verify_export.py $X
+  ```
+
+## C13: Validation-loss parity of the exported weights with PyTorch
+
+- **Claim:** On LitniceLM's held-out validation windows (65 batches, 532,480
+  tokens), LitniceLM's PyTorch reference on the exported weights gives
+  1.2930687 in FP32 and 1.2931516 under BF16 autocast, against 1.2931676
+  recorded by LitniceLM in `bf16_mixed`: absolute differences 9.89e-5 and
+  1.60e-5. The same values result from the weights downloaded from the Hub.
+- **Conditions:** C12's checkpoint and split; mean over batches of each
+  batch's mean cross-entropy, as `Trainer::evaluate`.
+- **Standard:** PyTorch `F.cross_entropy` on the safetensors weights,
+  loaded by `tools/litnicelm_vs_pytorch/litnicelm_torch.py` at fec3a3d.
+- **Evidence:** `$V/parity_val.txt`,
+  `…/hub_roundtrip_20261125/parity_val_hub.txt`.
+- **Reproduce:**
+
+  ```bash
+  .venv/bin/python tools/litnicelm_vs_pytorch/reference_torch.py $X --config $CFG --litnicelm-loss 1.2931676
+  .venv/bin/python tools/litnicelm_vs_pytorch/reference_torch.py $X --config $CFG --litnicelm-loss 1.2931676 --bf16
+  ```
+
+## C14: Loss on the official TinyStories validation set
+
+- **Claim:** On the official `TinyStoriesV2-GPT4-valid.txt` (5,832,704
+  predicted tokens), the exported weights give a mean cross-entropy of
+  1.2867372 per SentencePiece-4096 token in FP32 and 1.2868118 under BF16
+  autocast.
+- **Conditions:** The file was tokenized by `litnicelm encode` with this
+  model's tokenizer (5,833,174 tokens) and was not part of the training
+  input. Windowing as our validation: back-to-back windows of 512 predicted
+  tokens at stride 512 over the whole file, whole batches of 16, mean of
+  batch means. Per-token losses are not comparable across tokenizers.
+- **Standard:** PyTorch `F.cross_entropy`, as C13.
+- **Evidence:** `$V/official_valid_loss.txt`, `$V/official_valid_sha256.txt`,
+  `…/hub_roundtrip_20261125/roundtrip.log`.
+- **Reproduce:**
+
+  ```bash
+  ./build/litnicelm encode --config $V/ts10_official_valid.yaml
+  .venv/bin/python $V/official_valid_loss.py $X $CFG /mnt/ext_ssd/litnicelm/tinystories/tinystories-v2-official-valid-spm4096_tokenized_dataset.bin
+  ```
+
+## C15: Greedy generation matches PyTorch in FP32; BF16 near-ties can flip
+
+- **Claim:** For the prompts "Once upon a time", "One day, a little dog
+  named Max" and "Lily and Ben went to the park", 200 greedy tokens each,
+  `litnicelm infer --temp 0` in FP32 and the PyTorch reference in FP32
+  produce identical text (3 of 3, also on the weights downloaded from the
+  Hub). In `bf16_mixed`, LitniceLM's logits are BF16 and near-ties can flip:
+  it matched in 1 of 3 and differed from generated tokens 82 and 91. At
+  token 82 of the first prompt PyTorch FP32 gives " big" 8.96732 and
+  " mom" 8.95176, which BF16 rounds to 8.9375 and 9.0; at token 91 of the
+  third, " in" 11.35093 and " and" 11.34281 both round to 11.3125, and the
+  tie goes to the lower id, " and". The card's samples are these FP32
+  outputs (samples 1 and 2 cut at the first `<|endoftext|>`), and its
+  loading snippet prints sample 1 exactly.
+- **Conditions:** LitniceLM FP32 from `$V/ts10_fp32_infer.yaml`, which
+  differs from the training config only in `precision: fp32` and
+  `preset: portable_fused` (the checkpoint holds FP32 weights). The PyTorch
+  loop mirrors `generate_text`: prompt encoded without BOS, full forward of
+  the last 512 tokens each step, argmax.
+- **Standard:** Token-by-token comparison with PyTorch FP32 greedy decoding
+  on the exported weights.
+- **Evidence:** `$V/greedy_litnicelm_fp32.json`,
+  `$V/greedy_litnicelm_bf16_mixed.json`,
+  `$V/divergence_torch_fp32_top3.jsonl`,
+  `$V/litnicelm_bf16_logits_at_divergence.txt`,
+  `$V/card_snippet_check.txt`,
+  `…/hub_roundtrip_20261125/greedy_hub_fp32.json`,
+  `…/hub_roundtrip_20261125/card_snippet_hub_output.txt`.
+- **Reproduce:**
+
+  ```bash
+  .venv/bin/python $V/greedy_parity.py $X $V/ts10_fp32_infer.yaml out_fp32.json 200 "Once upon a time" "One day, a little dog named Max" "Lily and Ben went to the park"
+  .venv/bin/python $V/greedy_parity.py $X $CFG out_bf16.json 200 "Once upon a time" "One day, a little dog named Max" "Lily and Ben went to the park"
+  ```
