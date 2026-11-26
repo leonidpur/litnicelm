@@ -21,10 +21,10 @@ public:
             const Ops &ops) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
-  void apply_to_input(TensorView &x) override;
+  void apply_to_input(TensorView &x, int64_t first_position) override;
   void backward_input(const TensorView &dx) override;
 
-  void apply_to_qk(TensorView &) override {}
+  void apply_to_qk(TensorView &, int64_t) override {}
   void backward_qk(TensorView &) override {}
 
   void report_probes() const override;
@@ -46,10 +46,10 @@ public:
   void bind(TensorStore &, GradientStore *, const Ops &) override {}
   void set_diagnostics(TrainingDiagnosticsController *) override {}
 
-  void apply_to_input(TensorView &) override {}
+  void apply_to_input(TensorView &, int64_t) override {}
   void backward_input(const TensorView &) override {}
 
-  void apply_to_qk(TensorView &) override {}
+  void apply_to_qk(TensorView &, int64_t) override {}
   void backward_qk(TensorView &) override {}
 
   void report_probes() const override {}
@@ -72,16 +72,16 @@ public:
             const Ops &ops) override;
   void set_diagnostics(TrainingDiagnosticsController *) override {}
 
-  void apply_to_input(TensorView &) override {}
+  void apply_to_input(TensorView &, int64_t) override {}
   void backward_input(const TensorView &) override {}
 
-  void apply_to_qk(TensorView &qkv) override;
+  void apply_to_qk(TensorView &qkv, int64_t first_position) override;
   void backward_qk(TensorView &dqkv) override;
 
   void report_probes() const override {}
 
 private:
-  void rotate_qk(TensorView &qkv, bool inverse);
+  void rotate_qk(TensorView &qkv, bool inverse, int64_t first_position);
 
   const Config &cfg_;
   const Ops *ops_ = nullptr;

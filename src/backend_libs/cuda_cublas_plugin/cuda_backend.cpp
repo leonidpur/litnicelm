@@ -728,7 +728,7 @@ public:
   }
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                bool inverse) override {
+                                bool inverse, int64_t first_position) override {
     const PrecisionVariant variant = precision_variant_of(x);
     check_cuda_row_major(x, {activation_dtype(variant)},
                          "rotary_embedding_inplace");
@@ -736,8 +736,10 @@ public:
       return;
     }
     variant == PrecisionVariant::Bf16Act
-        ? launch_rotary_embedding_inplace_bf16act(x, n_heads, base, inverse)
-        : launch_rotary_embedding_inplace_f32(x, n_heads, base, inverse);
+        ? launch_rotary_embedding_inplace_bf16act(x, n_heads, base, inverse,
+                                                  first_position)
+        : launch_rotary_embedding_inplace_f32(x, n_heads, base, inverse,
+                                              first_position);
   }
 
   uint32_t fused_ops() const override {

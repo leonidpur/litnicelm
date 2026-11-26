@@ -167,11 +167,12 @@ struct BackendApiV1 {
                                     const TensorViewStruct *scores,
                                     float neg_inf);
   // Rotates channel pairs (i, i + head_dim/2) of every head of x [..., S, D]
-  // by angle pos * base^(-2i/head_dim); inverse != 0 rotates by the negative
-  // angle (the transpose, used for gradients).
+  // by angle pos * base^(-2i/head_dim), where row s has the absolute position
+  // pos = first_position + s; inverse != 0 rotates by the negative angle (the
+  // transpose, used for gradients).
   void (*rotary_embedding_inplace)(void *backend, const TensorViewStruct *x,
                                    int64_t n_heads, float base,
-                                   uint32_t inverse);
+                                   uint32_t inverse, int64_t first_position);
   void (*adamw_step)(void *backend, const TensorViewStruct *params,
                      const TensorViewStruct *grads,
                      const TensorViewStruct *m,
@@ -229,7 +230,7 @@ struct BackendApiV1 {
                                             const TensorViewStruct *dbias);
 };
 
-inline constexpr uint32_t kBackendApiVersion = 25;
+inline constexpr uint32_t kBackendApiVersion = 26;
 
 extern "C" {
 typedef const BackendApiV1 *(*BackendGetApiFn)();

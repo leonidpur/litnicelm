@@ -61,10 +61,13 @@ void launch_transpose(const TensorView &x, TensorView &out);
 void launch_apply_causal_mask_inplace_f32(TensorView &scores, float neg_inf);
 void launch_apply_causal_mask_inplace_bf16act(TensorView &scores,
                                               float neg_inf);
+// Row s of x [..., S, D] is at absolute position first_position + s.
 void launch_rotary_embedding_inplace_f32(TensorView &x, int64_t n_heads,
-                                         float base, bool inverse);
+                                         float base, bool inverse,
+                                         int64_t first_position);
 void launch_rotary_embedding_inplace_bf16act(TensorView &x, int64_t n_heads,
-                                             float base, bool inverse);
+                                             float base, bool inverse,
+                                             int64_t first_position);
 
 void launch_sum_squares_f32(const TensorView &x, float *device_sum_sq);
 void launch_row_sum_f32(const TensorView &x, TensorView &out_1xC);

@@ -62,7 +62,7 @@ void Transformer::check_contract() const {
 }
 
 void Transformer::forward(const TensorView &ids, TensorView &logits,
-                          TensorView *last_hidden) {
+                          TensorView *last_hidden, int64_t first_position) {
   observer_->on_forward_start();
   const int64_t vocab_size = static_cast<int64_t>(cfg_.model.vocab_size);
   const int64_t max_seq_len = static_cast<int64_t>(cfg_.model.max_seq_len);
@@ -78,7 +78,7 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
   TensorView X = tensorStore_.temp_tr_X(batch_size, seq_len);
 
   ops_.embedding_lookup(tok_emb, ids, X);
-  positionEncoding_->apply_to_input(X);
+  positionEncoding_->apply_to_input(X, first_position);
   cache_x0_ = X;
 
   TensorView report_Y = tensorStore_.temp_tr_Y(batch_size, seq_len);
@@ -88,7 +88,7 @@ void Transformer::forward(const TensorView &ids, TensorView &logits,
     TensorView Y = tensorStore_.temp_layer_hidden(static_cast<int>(l),
                                                     batch_size, seq_len);
     observer_->on_layer_start(static_cast<int>(l));
-    layers_[l].forward(X, Y);
+    layers_[l].forward(X, Y, first_position);
     observer_->on_layer_end(static_cast<int>(l));
     X = Y;
   }

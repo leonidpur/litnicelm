@@ -58,6 +58,10 @@ inline constexpr EventDef kInferenceMargin{
     "model.inference_margin",
     EventType::Info,
     "[Inference][Margin]"};
+inline constexpr EventDef kInferenceTiming{
+    "model.inference_timing",
+    EventType::Info,
+    "[Inference][Timing]"};
 
 // runtime_config.cpp
 inline constexpr EventDef kVocabSizeImported{

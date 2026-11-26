@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
   Config cfg = Config::load_from_file(argv[1]);
   cfg.backend.library = argv[2];
   const std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(cfg);
-  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(cfg));
+  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(cfg), ModelRole::Inference);
   const PrecisionPolicy precision =
       PrecisionPolicy::create(cfg, backend->precision_variants());
   InferenceMemoryManager memory(cfg, algo, *backend, precision);

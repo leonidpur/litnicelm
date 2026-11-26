@@ -376,15 +376,20 @@ NamedLayout NamedLayout::build_inference_temp_layout(
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.ids",
              NamedLayout::tensor_bytes(S, 1, ids, "infer.ids"), cursor,
              ids);
+  // Decoding reads FP32 logits whatever the activation dtype, so that BF16
+  // rounding cannot tie or reorder near-equal logits.
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.logits",
-             NamedLayout::tensor_bytes(S, V, dtype, "infer.logits"),
-             cursor, dtype);
+             NamedLayout::tensor_bytes(S, V, DType::F32, "infer.logits"),
+             cursor, DType::F32);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.X",
              NamedLayout::tensor_bytes(S, D, dtype, "infer.X"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.Y",
              NamedLayout::tensor_bytes(S, D, dtype, "infer.Y"), cursor, dtype);
   push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.Xn",
              NamedLayout::tensor_bytes(S, D, dtype, "infer.Xn"), cursor, dtype);
+  push_slice(layout.slices_, cfg.memory.alignment_bytes, "infer.Xn_f32",
+             NamedLayout::tensor_bytes(S, D, DType::F32, "infer.Xn_f32"),
+             cursor, DType::F32);
 
   for (uint64_t l = 0; l < cfg.model.n_layers; ++l) {
     const std::string p = "infer.layer" + std::to_string(l) + ".";

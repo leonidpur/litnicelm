@@ -63,7 +63,7 @@ GuardedSelfAttention::GuardedSelfAttention(
     const std::vector<uint8_t> canary(static_cast<size_t>(guard.bytes()), kCanary);
     backend_.copy_host2device(guard.data(), canary.data(), guard.bytes());
     guards_.emplace_back(request.name, guard);
-    if (request.lifetime == SliceLifetime::Step) {
+    if (request.lifetime != SliceLifetime::Op) {
       saved_.push_back(Watched{request.name, slices.at(request.name), 0});
     }
   }
@@ -90,9 +90,10 @@ void GuardedSelfAttention::set_diagnostics(
   inner_->set_diagnostics(diagnostics);
 }
 
-void GuardedSelfAttention::forward(const TensorView &x, TensorView &out) {
+void GuardedSelfAttention::forward(const TensorView &x, TensorView &out,
+                                   int64_t first_position) {
   check_guards("before forward");
-  inner_->forward(x, out);
+  inner_->forward(x, out, first_position);
   check_guards("after forward");
   saved_.back().view = x;
   for (Watched &watched : saved_) {

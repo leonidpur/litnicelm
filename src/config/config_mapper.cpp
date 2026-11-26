@@ -721,6 +721,10 @@ bool map_inference_fields(const std::string &key, const std::string &value, Conf
     cfg.inference.report_margin = parse_bool_or_throw(value, key);
     return true;
   }
+  if (key == "inference.kv_cache") {
+    cfg.inference.kv_cache = parse_bool_or_throw(value, key);
+    return true;
+  }
   return false;
 }
 

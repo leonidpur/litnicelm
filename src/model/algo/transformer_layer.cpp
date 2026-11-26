@@ -55,7 +55,8 @@ void TransformerLayer::check_contract() const {
                                     "TransformerLayer ln1/ln2");
 }
 
-void TransformerLayer::forward(const TensorView &x, TensorView &out) {
+void TransformerLayer::forward(const TensorView &x, TensorView &out,
+                               int64_t first_position) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const TensorContracts::BatchSeqDims dims =
       TensorContracts::check_bsd_io(x, out, model_dim,
@@ -78,7 +79,7 @@ void TransformerLayer::forward(const TensorView &x, TensorView &out) {
       tensorStore_.temp_layer_ffn_out(idx_, batch_size, seq_len);
 
   ops_.layernorm(x, ln1_gamma, ln1_beta, ln1);
-  attn_->forward(ln1, attn_out);
+  attn_->forward(ln1, attn_out, first_position);
   ops_.add(x, attn_out, y);
 
   ops_.layernorm(y, ln2_gamma, ln2_beta, ln2);

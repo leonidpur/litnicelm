@@ -201,7 +201,7 @@ std::vector<BenchCase> cases(int64_t batch) {
       {"causal_mask " + b + "8,128,128]", {scores}, "A", 2.0,
        [](DeviceBackend &b, V &v) { b.apply_causal_mask_inplace(v[0], -1e9f); }},
       {"rotary " + b + "128,512]", {act}, "A", 2.0,
-       [](DeviceBackend &b, V &v) { b.rotary_embedding_inplace(v[0], 8, 10000.0f, false); }},
+       [](DeviceBackend &b, V &v) { b.rotary_embedding_inplace(v[0], 8, 10000.0f, false, 0); }},
   };
 }
 

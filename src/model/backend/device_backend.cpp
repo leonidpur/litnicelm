@@ -471,9 +471,9 @@ public:
   }
 
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                bool inverse) override {
+                                bool inverse, int64_t first_position) override {
     api_->rotary_embedding_inplace(instance_, &x, n_heads, base,
-                                   inverse ? 1u : 0u);
+                                   inverse ? 1u : 0u, first_position);
   }
 
   uint32_t fused_ops() const override {
@@ -1679,7 +1679,8 @@ void DefaultCpuBackend::apply_causal_mask_inplace(TensorView &scores, float neg_
 
 void DefaultCpuBackend::rotary_embedding_inplace(TensorView &x,
                                                  int64_t n_heads, float base,
-                                                 bool inverse) {
+                                                 bool inverse,
+                                                 int64_t first_position) {
   const Checker &checks = checker();
   const char *who = "DefaultCpuBackend rotary_embedding_inplace";
   checks.check(CheckKind::Contract, x.rank() >= 2, who,
@@ -1702,6 +1703,7 @@ void DefaultCpuBackend::rotary_embedding_inplace(TensorView &x,
   const uint64_t row_count = view_geometry::prefix_count(x, 1);
   for (uint64_t row = 0; row < row_count; ++row) {
     const float pos = static_cast<float>(
+        first_position +
         static_cast<int64_t>(row % static_cast<uint64_t>(seq_len)));
     for (int64_t h = 0; h < n_heads; ++h) {
       for (int64_t i = 0; i < half; ++i) {

@@ -5,6 +5,7 @@
 #pragma once
 
 #include "attention_dims.hpp"
+#include "i_attention_core.hpp"
 #include "i_ffn.hpp"
 #include "i_output_head.hpp"
 #include "i_output_projection.hpp"
@@ -25,7 +26,7 @@ class TensorStore;
 
 class ModelAlgoFactory {
 public:
-  explicit ModelAlgoFactory(ModelAlgoConfig cfg);
+  ModelAlgoFactory(ModelAlgoConfig cfg, ModelRole role);
 
   std::unique_ptr<ISelfAttention>
   create_attention(int layer_index, const Config &cfg, TensorStore &tensor_store,
@@ -62,6 +63,16 @@ private:
   std::unique_ptr<IOutputProjection>
   make_output_projection(int layer_index, const LinearParams &params,
                          const Ops &ops) const;
+  // The configured core of a composed attention (not multistream).
+  std::unique_ptr<IAttentionCore> make_core(int layer_index, const Config &cfg,
+                                            const Ops &ops,
+                                            const NodeSlices &slices) const;
+  // The core as the role runs it: wrapped in KvCachedAttentionCore for
+  // inference with inference.kv_cache.
+  std::unique_ptr<IAttentionCore>
+  for_role(std::unique_ptr<IAttentionCore> core, int layer_index,
+           const Config &cfg, const Ops &ops, const NodeSlices &slices) const;
 
   ModelAlgoConfig cfg_;
+  ModelRole role_;
 };

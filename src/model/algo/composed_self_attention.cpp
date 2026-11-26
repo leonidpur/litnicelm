@@ -68,7 +68,8 @@ void ComposedSelfAttention::check_contract(const AttentionParams &params) const 
       model_dim, "ComposedSelfAttention");
 }
 
-void ComposedSelfAttention::forward(const TensorView &x, TensorView &out) {
+void ComposedSelfAttention::forward(const TensorView &x, TensorView &out,
+                                    int64_t first_position) {
   observer_->on_attention_start(idx_);
   const TensorContracts::BatchSeqDims dims = TensorContracts::check_bsd_io(
       x, out, static_cast<int64_t>(cfg_.model.d_model), "ComposedSelfAttention");
@@ -76,11 +77,11 @@ void ComposedSelfAttention::forward(const TensorView &x, TensorView &out) {
   TensorView qkv = slice_views::batch_seq(
       slices_.qkv, dims.batch_size, dims.seq_len, "ComposedSelfAttention qkv");
   qkvProjection_->forward(x, qkv);
-  positionEncoding_.apply_to_qk(qkv);
+  positionEncoding_.apply_to_qk(qkv, first_position);
 
   TensorView context = slice_views::batch_seq(
       slices_.context, dims.batch_size, dims.seq_len, "ComposedSelfAttention context");
-  core_->forward(qkv, context);
+  core_->forward(qkv, context, first_position);
   outputProjection_->forward(context, out);
 
   cache_x_ = x;

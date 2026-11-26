@@ -104,9 +104,10 @@ public:
   void apply_causal_mask_inplace(TensorView &scores, float neg_inf = -1e9f) const;
   // x: [B, S, D] (columns may be strided, e.g. the Q or K slice of qkv).
   // Rotates channel pairs (i, i + head_dim/2) of each head by
-  // pos * base^(-2i/head_dim); inverse applies the transpose rotation.
+  // pos * base^(-2i/head_dim), pos = first_position + s for row s;
+  // inverse applies the transpose rotation.
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                bool inverse) const;
+                                bool inverse, int64_t first_position) const;
   // Optional fused ops: the backend's kFusedOp* bits.
   uint32_t fused_ops() const;
   // qkv [B, S, 3D] (Q | K | V) -> out [B, S, D], causal softmax attention

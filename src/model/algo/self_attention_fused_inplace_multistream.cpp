@@ -64,8 +64,13 @@ void SelfAttentionFusedInplaceMultistream::set_diagnostics(
 }
 
 void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
-                                                   TensorView &out) {
+                                                   TensorView &out,
+                                                   int64_t first_position) {
   observer_->on_attention_start(idx_);
+  checker().check(CheckKind::Contract, first_position == 0,
+                  "SelfAttentionFusedInplaceMultistream",
+                  "attends within the call only (no KV cache): first_position "
+                  "must be 0");
   if (!ops_.supports_exec_context_iteration()) {
     throw std::runtime_error(
         "SelfAttentionFusedInplaceMultistream: backend does not support exec context iteration");
@@ -94,7 +99,7 @@ void SelfAttentionFusedInplaceMultistream::forward(const TensorView &x,
       "SelfAttentionFusedInplaceMultistream qkv");
   ops_.gemm_ranked_matrix_rhs(x, compute_Wqkv, qkv);
   ops_.add_bias_rowwise(qkv, bqkv, qkv);
-  positionEncoding_.apply_to_qk(qkv);
+  positionEncoding_.apply_to_qk(qkv, first_position);
 
   TensorView Q = qkv.subcols(0, model_dim);
   TensorView K = qkv.subcols(model_dim, model_dim);

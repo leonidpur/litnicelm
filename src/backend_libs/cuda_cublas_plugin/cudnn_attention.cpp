@@ -77,16 +77,6 @@ fe::graph::Tensor_attributes bhsd(const char *name, Uid uid, int64_t B,
 
 using VariantPack = std::unordered_map<fe::graph::Tensor_attributes::uid_t, void *>;
 
-// A built SDPA graph and the plan it runs. Heuristics rank cuDNN's plans, but
-// for small batch x heads their first choice can be far from the fastest (a
-// causal forward at B=1, H=4, S=1024 ran 110 us on it against 59 us on its
-// third plan), so the first call times every supported plan once.
-struct SdpaPlan {
-  std::shared_ptr<fe::graph::Graph> graph;
-  int64_t index = -1; // -1 until chosen on the first call
-  double build_ms = 0.0; // building every plan, part of the selection cost
-};
-
 // Another plan replaces the heuristic's first choice only when it is at least
 // this much faster, so near-ties cannot flip the plan, and with it the
 // rounding, from run to run.
@@ -95,6 +85,64 @@ constexpr int kPlanWarmupRuns = 2;
 constexpr int kPlanTimedRuns = 5;
 
 struct CudnnAttention::Impl {
+  // How a graph's plan is chosen, decided when the graph is created.
+  // Heuristics rank cuDNN's plans, but for small batch x heads their first
+  // choice can be far from the fastest (a causal forward at B=1, H=4, S=1024
+  // ran 110 us on it against 59 us on its third plan), so training times
+  // every supported plan once. Inference (no softmax statistics) meets a new
+  // sequence length at nearly every prompt, and timing every plan of each
+  // cost ~0.1 s, so it runs the heuristic's first choice untimed.
+  struct PlanSelection {
+    virtual ~PlanSelection() = default;
+    virtual fe::BuildPlanPolicy_t build_policy() const = 0;
+    // The plan to run on the graph built with build_policy().
+    virtual int64_t plan_index(Impl &impl, const fe::graph::Graph &graph,
+                               const VariantPack &pack, const char *what,
+                               double build_ms) = 0;
+  };
+
+  // Every plan heuristic A supports, timed on the first call (choose_plan).
+  struct TimedPlanSelection final : PlanSelection {
+    int64_t index = -1;  // -1 until chosen on the first call
+    fe::BuildPlanPolicy_t build_policy() const override {
+      return fe::BuildPlanPolicy_t::ALL;
+    }
+    int64_t plan_index(Impl &impl, const fe::graph::Graph &graph,
+                       const VariantPack &pack, const char *what,
+                       double build_ms) override {
+      if (index < 0) {
+        index = impl.choose_plan(graph, pack, what, build_ms);
+      }
+      return index;
+    }
+  };
+
+  // Only the heuristic's first choice is built; it runs untimed.
+  struct HeuristicPlanSelection final : PlanSelection {
+    fe::BuildPlanPolicy_t build_policy() const override {
+      return fe::BuildPlanPolicy_t::HEURISTICS_CHOICE;
+    }
+    int64_t plan_index(Impl &, const fe::graph::Graph &, const VariantPack &,
+                       const char *, double) override {
+      return 0;
+    }
+  };
+
+  // Training graphs (with softmax statistics, and every backward) are timed.
+  static std::unique_ptr<PlanSelection> selection_for(bool training) {
+    if (training) {
+      return std::make_unique<TimedPlanSelection>();
+    }
+    return std::make_unique<HeuristicPlanSelection>();
+  }
+
+  // A built SDPA graph and how its plan is chosen.
+  struct SdpaPlan {
+    std::shared_ptr<fe::graph::Graph> graph;
+    std::unique_ptr<PlanSelection> selection;
+    double build_ms = 0.0;  // building the plans, part of the selection cost
+  };
+
   cudnnHandle_t handle = nullptr;
   void *workspace = nullptr;
   int64_t workspace_bytes = 0;
@@ -117,13 +165,15 @@ struct CudnnAttention::Impl {
     return workspace;
   }
 
-  // Builds every plan heuristic A supports, in its ranking order.
-  void build(SdpaPlan &plan, std::shared_ptr<fe::graph::Graph> graph) {
+  // Builds the plans the selection asks for, in heuristic A's ranking order.
+  void build(SdpaPlan &plan, std::shared_ptr<fe::graph::Graph> graph,
+             std::unique_ptr<PlanSelection> selection) {
     const auto start = std::chrono::steady_clock::now();
-    check_fe(graph->build(handle, {fe::HeurMode_t::A}, fe::BuildPlanPolicy_t::ALL),
+    check_fe(graph->build(handle, {fe::HeurMode_t::A}, selection->build_policy()),
              "graph build");
     plan.build_ms = elapsed_ms(start);
     plan.graph = std::move(graph);
+    plan.selection = std::move(selection);
   }
 
   static double elapsed_ms(std::chrono::steady_clock::time_point start) {
@@ -206,10 +256,9 @@ struct CudnnAttention::Impl {
   }
 
   void execute(SdpaPlan &plan, const VariantPack &pack, const char *what) {
-    if (plan.index < 0) {
-      plan.index = choose_plan(*plan.graph, pack, what, plan.build_ms);
-    }
-    check_fe(run_plan(*plan.graph, pack, workspace_of(*plan.graph, plan.index), plan.index),
+    const int64_t index =
+        plan.selection->plan_index(*this, *plan.graph, pack, what, plan.build_ms);
+    check_fe(run_plan(*plan.graph, pack, workspace_of(*plan.graph, index), index),
              what);
   }
 
@@ -256,7 +305,7 @@ void CudnnAttention::forward(const TensorView &qkv, int64_t n_heads,
   }
   key.push_back(scale_bits(scale));
 
-  SdpaPlan &plan = impl_->plans[key];
+  Impl::SdpaPlan &plan = impl_->plans[key];
   if (plan.graph == nullptr) {
     auto g = Impl::new_graph();
     auto Q = g->tensor(bhsd("Q", kQ, B, n_heads, S, hd, qkv_strides));
@@ -276,7 +325,7 @@ void CudnnAttention::forward(const TensorView &qkv, int64_t n_heads,
           .set_dim({B, n_heads, S, 1})
           .set_stride(st_strides);
     }
-    impl_->build(plan, g);
+    impl_->build(plan, g, Impl::selection_for(training));
   }
 
   auto *base = static_cast<uint8_t *>(qkv.data());
@@ -308,7 +357,7 @@ void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
   }
   key.push_back(scale_bits(scale));
 
-  SdpaPlan &plan = impl_->plans[key];
+  Impl::SdpaPlan &plan = impl_->plans[key];
   if (plan.graph == nullptr) {
     auto g = Impl::new_graph();
     auto Q = g->tensor(bhsd("Q", kQ, B, n_heads, S, hd, qkv_strides));
@@ -330,7 +379,7 @@ void CudnnAttention::backward(const TensorView &qkv, const TensorView &out,
     dQ->set_output(true).set_uid(kDQ).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dK->set_output(true).set_uid(kDK).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
     dV->set_output(true).set_uid(kDV).set_dim({B, n_heads, S, hd}).set_stride(dqkv_strides);
-    impl_->build(plan, g);
+    impl_->build(plan, g, Impl::selection_for(/*training=*/true));
   }
 
   const size_t third = static_cast<size_t>(D) * dtype_size(qkv.dtype());

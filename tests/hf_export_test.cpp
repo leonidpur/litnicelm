@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
   const std::unique_ptr<Tokenizer> tokenizer = TokenizerFactory::create(cfg);
   cfg = with_tokenizer_vocab_size(cfg, *tokenizer);
   const std::unique_ptr<DeviceBackend> backend = DeviceBackend::create_instance(cfg);
-  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(cfg));
+  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(cfg), ModelRole::Inference);
   const PrecisionPolicy precision = PrecisionPolicy::create(cfg, backend->precision_variants());
   InferenceMemoryManager memory(cfg, algo, *backend, precision);
   CheckpointIO(cfg, algo, *backend, memory.data_arena(), memory.adam_state())

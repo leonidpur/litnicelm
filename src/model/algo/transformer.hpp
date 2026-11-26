@@ -50,8 +50,11 @@ public:
   // ids: [B, S] semantically. Inference may use batch size 1.
   // logits: [B, S, V]
   // last_hidden (optional): receives final normalized hidden [B, S, D].
+  // first_position: absolute position of ids' first column; nonzero only for
+  // a KV-cached decode step (inference.kv_cache), which then attends to the
+  // positions cached by the calls before it.
   void forward(const TensorView &ids, TensorView &logits,
-               TensorView *last_hidden = nullptr);
+               TensorView *last_hidden = nullptr, int64_t first_position = 0);
   void backward(const TensorView &ids, const TensorView &dlogits,
                 const RuntimeFlags::ProbeFlags &probe);
 

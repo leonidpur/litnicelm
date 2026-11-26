@@ -4,6 +4,7 @@
 
 #include "fused_inplace_attention_core.hpp"
 #include "slice_views.hpp"
+#include <litnicelm_utils/checks.hpp>
 #include "training_diagnostics_controller.hpp"
 
 #include <cmath>
@@ -25,7 +26,10 @@ void FusedInplaceAttentionCore::set_diagnostics(
   diagnostics_ = diagnostics;
 }
 
-void FusedInplaceAttentionCore::forward(const TensorView &qkv, TensorView &context) {
+void FusedInplaceAttentionCore::forward(const TensorView &qkv, TensorView &context,
+                                         int64_t first_position) {
+  checker().check(CheckKind::Contract, first_position == 0, "FusedInplaceAttentionCore",
+                  "attends within the call only: first_position must be 0");
   const int64_t batch_size = qkv.dim(0);
   const int64_t seq_len = qkv.dim(1);
   const int64_t model_dim = context.dim(2);

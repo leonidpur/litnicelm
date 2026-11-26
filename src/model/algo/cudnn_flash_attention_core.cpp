@@ -4,6 +4,7 @@
 
 #include "cudnn_flash_attention_core.hpp"
 #include "slice_views.hpp"
+#include <litnicelm_utils/checks.hpp>
 
 #include <cmath>
 
@@ -30,7 +31,10 @@ void CudnnFlashAttentionCore::set_diagnostics(
   diagnostics_ = diagnostics;
 }
 
-void CudnnFlashAttentionCore::forward(const TensorView &qkv, TensorView &context) {
+void CudnnFlashAttentionCore::forward(const TensorView &qkv, TensorView &context,
+                                       int64_t first_position) {
+  checker().check(CheckKind::Contract, first_position == 0, "CudnnFlashAttentionCore",
+                  "attends within the call only: first_position must be 0");
   const int64_t H = static_cast<int64_t>(cfg_.model.n_heads);
   const int64_t dh = context.dim(2) / H;
   const float scale = 1.0f / std::sqrt(static_cast<float>(dh));

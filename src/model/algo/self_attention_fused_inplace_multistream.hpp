@@ -30,7 +30,8 @@ public:
   void set_observer(ITrainingObserver *observer) override;
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
-  void forward(const TensorView &x, TensorView &out) override;
+  void forward(const TensorView &x, TensorView &out,
+               int64_t first_position) override;
   void backward(const TensorView &dout, TensorView &dx) override;
 
 private:

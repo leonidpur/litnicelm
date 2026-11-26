@@ -31,13 +31,15 @@ public:
                     const Ops &ops) = 0;
   virtual void set_diagnostics(TrainingDiagnosticsController *diagnostics) = 0;
 
-  // x: [B, S, D] token embeddings, updated in place.
-  virtual void apply_to_input(TensorView &x) = 0;
+  // x: [B, S, D] token embeddings, updated in place; row s is at absolute
+  // position first_position + s (0 except when decoding with a KV cache).
+  virtual void apply_to_input(TensorView &x, int64_t first_position) = 0;
   // dx: [B, S, D] gradient reaching the input embeddings.
   virtual void backward_input(const TensorView &dx) = 0;
 
-  // qkv: [B, S, 3D] attention projections after bias; Q and K updated in place.
-  virtual void apply_to_qk(TensorView &qkv) = 0;
+  // qkv: [B, S, 3D] attention projections after bias; Q and K updated in
+  // place; row s is at absolute position first_position + s.
+  virtual void apply_to_qk(TensorView &qkv, int64_t first_position) = 0;
   // dqkv: [B, S, 3D]; turns dQ/dK w.r.t. the encoded Q/K into gradients
   // w.r.t. the projections, in place.
   virtual void backward_qk(TensorView &dqkv) = 0;

@@ -42,6 +42,14 @@ enum class PositionEncodingKind {
 
 enum class AttentionCoreKind;
 
+// What the model is built for. Training: forward and backward over the
+// training batch. Inference: forward only, decoding from FP32 logits, with a
+// KV cache under inference.kv_cache.
+enum class ModelRole {
+  Training,
+  Inference,
+};
+
 struct ModelAlgoConfig {
   AttentionImplKind attention_impl = AttentionImplKind::Unfused;
   FFNImplKind ffn_impl = FFNImplKind::Reference;

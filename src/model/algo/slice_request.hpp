@@ -23,6 +23,7 @@ enum class SliceRole : uint8_t {
 enum class SliceLifetime : uint8_t {
   Step,  // from forward to the matching backward
   Op,    // one forward or backward call; may share memory with other Op slices
+  Session,  // across forward calls of one inference session (the KV cache)
 };
 
 // One tensor a node needs, declared before memory is laid out. Never

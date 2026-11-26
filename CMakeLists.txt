@@ -152,6 +152,42 @@ foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backe
   endif()
 endforeach()
 
+# KV-cached attention (prefill + decode) against FP64 and the unfused core.
+add_executable(litnice_kv_cache_attention_test tests/kv_cache_attention_test.cpp)
+target_include_directories(litnice_kv_cache_attention_test PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+    src/observers
+    src/profiling
+    src/tracking)
+target_link_libraries(litnice_kv_cache_attention_test PRIVATE litnice_core)
+foreach(plugin litnice_backend_cpu litnice_backend_openblas_plugin litnice_backend_cublas_plugin)
+  if(TARGET ${plugin})
+    add_test(NAME kv_cache_attention_${plugin}
+             COMMAND litnice_kv_cache_attention_test $<TARGET_FILE:${plugin}>)
+  endif()
+endforeach()
+
+# Teacher-forced KV-cache check on a trained model (run by hand: needs a
+# checkpoint and a tokenized dataset).
+add_executable(litnice_kv_cache_teacher_forced tests/kv_cache_teacher_forced.cpp)
+target_include_directories(litnice_kv_cache_teacher_forced PRIVATE
+    include
+    src/config
+    src/utils
+    src/model
+    src/model/algo
+    src/model/memory
+    src/tokenizer
+    src/observers
+    src/profiling
+    src/tracking)
+target_link_libraries(litnice_kv_cache_teacher_forced PRIVATE litnice_core)
+
 # Attention-core node contracts: PyTorch goldens, finite differences (CPU),
 # variants against the unfused core.
 add_executable(litnice_attention_core_test tests/attention_core_contract_test.cpp)

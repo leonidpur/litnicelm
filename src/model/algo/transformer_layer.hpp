@@ -52,7 +52,8 @@ public:
 
   // x:   [B, S, D]
   // out: [B, S, D]
-  void forward(const TensorView &x, TensorView &out);
+  // Row s is at absolute position first_position + s.
+  void forward(const TensorView &x, TensorView &out, int64_t first_position);
   void backward(const TensorView &dout, TensorView &dx);
 
 private:

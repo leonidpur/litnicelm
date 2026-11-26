@@ -16,5 +16,6 @@ AttentionDims training_attention_dims(const Config &cfg) {
 AttentionDims inference_attention_dims(const Config &cfg) {
   return AttentionDims{1, static_cast<int64_t>(cfg.model.max_seq_len),
                        static_cast<int64_t>(cfg.model.d_model),
-                       static_cast<int64_t>(cfg.model.n_heads), false};
+                       static_cast<int64_t>(cfg.model.n_heads), false,
+                       cfg.inference.kv_cache};
 }

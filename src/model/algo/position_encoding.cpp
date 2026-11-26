@@ -36,12 +36,18 @@ void LearnedPositionEncoding::set_diagnostics(
   diagnostics_ = diagnostics;
 }
 
-void LearnedPositionEncoding::apply_to_input(TensorView &x) {
+void LearnedPositionEncoding::apply_to_input(TensorView &x,
+                                             int64_t first_position) {
   checker().check(CheckKind::Contract, x.device() == pos_emb_.device(),
                   "LearnedPositionEncoding",
                   "pos_emb/x device mismatch");
   const int64_t seq_len = x.dim(1);
-  TensorView pos_slice = pos_emb_.subrows(0, seq_len);
+  checker().check(CheckKind::Contract,
+                  first_position >= 0 &&
+                      first_position + seq_len <= pos_emb_.dim(0),
+                  "LearnedPositionEncoding",
+                  "positions beyond the position table");
+  TensorView pos_slice = pos_emb_.subrows(first_position, seq_len);
   ops_->add(x, pos_slice, x);
 }
 
@@ -83,22 +89,23 @@ void RopePositionEncoding::bind(TensorStore &, GradientStore *, const Ops &ops) 
   ops_ = &ops;
 }
 
-void RopePositionEncoding::apply_to_qk(TensorView &qkv) {
-  rotate_qk(qkv, /*inverse=*/false);
+void RopePositionEncoding::apply_to_qk(TensorView &qkv, int64_t first_position) {
+  rotate_qk(qkv, /*inverse=*/false, first_position);
 }
 
 // The rotation is orthogonal, so its gradient is the inverse rotation.
 void RopePositionEncoding::backward_qk(TensorView &dqkv) {
-  rotate_qk(dqkv, /*inverse=*/true);
+  rotate_qk(dqkv, /*inverse=*/true, /*first_position=*/0);
 }
 
-void RopePositionEncoding::rotate_qk(TensorView &qkv, bool inverse) {
+void RopePositionEncoding::rotate_qk(TensorView &qkv, bool inverse,
+                                     int64_t first_position) {
   const int64_t model_dim = static_cast<int64_t>(cfg_.model.d_model);
   const int64_t n_heads = static_cast<int64_t>(cfg_.model.n_heads);
   checker().check_bsd(qkv, -1, -1, 3 * model_dim,
                       "RopePositionEncoding qkv");
   TensorView q = qkv.subcols(0, model_dim);
   TensorView k = qkv.subcols(model_dim, model_dim);
-  ops_->rotary_embedding_inplace(q, n_heads, kBase, inverse);
-  ops_->rotary_embedding_inplace(k, n_heads, kBase, inverse);
+  ops_->rotary_embedding_inplace(q, n_heads, kBase, inverse, first_position);
+  ops_->rotary_embedding_inplace(k, n_heads, kBase, inverse, first_position);
 }

@@ -134,6 +134,9 @@ struct InferenceConfig {
   uint32_t seed;
   // Log the smallest top-1 minus top-2 probability over the generated tokens.
   bool report_margin = false;
+  // Keep each layer's K and V: the prompt is processed once (prefill), then
+  // one token per step (decode). false recomputes the whole window per token.
+  bool kv_cache = true;
 };
 
 struct LoggingConfig {

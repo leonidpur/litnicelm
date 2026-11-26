@@ -124,8 +124,10 @@ public:
                                             TensorView &dx) = 0;
   virtual void apply_causal_mask_inplace(TensorView &scores,
                                          float neg_inf = -1e9f) = 0;
+  // Row s of x [..., S, D] is at absolute position first_position + s.
   virtual void rotary_embedding_inplace(TensorView &x, int64_t n_heads,
-                                        float base, bool inverse) = 0;
+                                        float base, bool inverse,
+                                        int64_t first_position) = 0;
   // Optional fused ops (BackendApiV1 has their contracts): the
   // kFusedOp* bits; by default none, and the ops throw.
   virtual uint32_t fused_ops() const { return 0; }
@@ -265,7 +267,7 @@ public:
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override;
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                bool inverse) override;
+                                bool inverse, int64_t first_position) override;
   void adamw_step(TensorView &params, const TensorView &grads, TensorView &m,
                   TensorView &v, uint64_t step, float learning_rate,
                   float beta1, float beta2, float weight_decay,

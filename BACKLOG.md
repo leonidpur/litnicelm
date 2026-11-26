@@ -12,11 +12,9 @@ config (4 layers, d256, 4 batches per step) showed exact top-1/top-2 ties
 showed only near-ties (0.0006, 0.00008). On a tie, greedy decoding picks the
 lower token id. Training is unaffected: cross-entropy computes in FP32.
 
-Idea: give the logits their own item type in `PrecisionPolicy`, F32 in both
-presets like `Loss`, and have the LM-head GEMM write F32 output (BF16 inputs,
-F32 output via `cublasGemmEx`). Cost on that config: about 2 MiB more temp
-memory. Needs a plan first: it changes the precision table and the LM-head
-and cross-entropy operand roles.
+Done for inference (Wave A step 1, 2026-11-26): `Fp32LogitsOutputHead` casts
+the final hidden states to FP32 and multiplies by the FP32 `lm_head_w`. Still
+open: training and validation logits (deliberately not changed).
 
 ## Found during the PyTorch comparison (docs/COMPARISON.md)
 
@@ -73,10 +71,16 @@ and cross-entropy operand roles.
   absolute SSD paths in `run.py`, the 12-epoch FP32 parity export, and an
   unpinned Python environment. TRY_CUDA.md does not cover cuDNN (needed by
   `max_fused`). docs/COMPARISON.md "Reproduce" states this.
-- **Inference re-selects cuDNN plans for every new length.** `litnicelm infer`
-  recomputes the full context each step, so each token is a new sequence length
-  and a new cuDNN SDPA graph: ~111 ms of plan selection per generated token in
-  bf16 `max_fused` (TinyStories ts10, 2026-11-24). No KV cache either.
+- **Inference re-selects cuDNN plans for every new length.** Done (Wave A
+  step 1, 2026-11-26): inference builds only the heuristic's first plan,
+  untimed, and decodes through a KV cache. Still built once per new prompt
+  length: one SDPA graph (prefill), and past the context every step
+  re-prefills (no rolling cache yet).
+- **CPU `copy` handles strided views only at rank 2.** `DefaultCpuBackend::copy`
+  falls back to a `dims[0] x dims[1]` loop for non-contiguous views, so a
+  strided rank-3 view (e.g. `[1, S, D]` columns of qkv) is copied wrongly with
+  no error; CUDA copies such views correctly. `KvCacheAttention` passes rank-2
+  views to stay clear of it (found 2026-11-26).
 - **`reference_torch.py` can't read the val loss from a hand-written model card.**
   It looks for the exporter's `| best val loss | …` row; the TinyStories card
   (2026-11-25) labels it differently, so the comparison needs `--litnicelm-loss`.

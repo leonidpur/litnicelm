@@ -266,9 +266,10 @@ void ObservedBackend::apply_causal_mask_inplace(TensorView &scores, float neg_in
   wrapped_->apply_causal_mask_inplace(scores, neg_inf);
 }
 void ObservedBackend::rotary_embedding_inplace(TensorView &x, int64_t n_heads,
-                                               float base, bool inverse) {
+                                               float base, bool inverse,
+                                               int64_t first_position) {
   ObserverScope observed(observers_, OpId::RotaryEmbeddingInplace);
-  wrapped_->rotary_embedding_inplace(x, n_heads, base, inverse);
+  wrapped_->rotary_embedding_inplace(x, n_heads, base, inverse, first_position);
 }
 uint32_t ObservedBackend::fused_ops() const { return wrapped_->fused_ops(); }
 void ObservedBackend::causal_attention_forward(const TensorView &qkv,

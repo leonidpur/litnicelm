@@ -41,6 +41,7 @@ public:
   bool has_inference_io_temps() const;
   TensorView temp_infer_ids(int64_t rows) const;
   TensorView temp_infer_logits(int64_t rows) const;
+  TensorView temp_infer_xn_f32(int64_t rows) const;
   TensorView temp_tr_logits(int64_t rows) const;
   TensorView temp_tr_logits(int64_t batch_size, int64_t seq_len) const;
   TensorView temp_tr_loss() const;
@@ -108,6 +109,7 @@ protected:
   TensorView ds_targets_;
   TensorView infer_ids_;
   TensorView infer_logits_;
+  TensorView infer_xn_f32_;
   TensorView tr_logits_;
   TensorView tr_loss_;
   TensorView tr_X_;
@@ -500,6 +502,8 @@ InferenceTempTensorSubStore::InferenceTempTensorSubStore(
                          Shape{1, max_seq_len, model_dim});
   tr_Xn_ = make_temp_view(cursor.next("infer.Xn"),
                           Shape{1, max_seq_len, model_dim});
+  infer_xn_f32_ = make_temp_view(cursor.next("infer.Xn_f32"),
+                                 Shape{1, max_seq_len, model_dim});
 
   // Attention slices: see the training constructor.
   const std::vector<SliceRequest> attention_requests =
@@ -697,6 +701,14 @@ TensorView TensorStore::TempTensorSubStore::temp_infer_logits(int64_t rows) cons
   v.check_prefix(infer_logits_, Shape{1, rows},
                  "TensorStore temp_infer_logits");
   return infer_logits_.slice(1, 0, rows);
+}
+
+TensorView TensorStore::TempTensorSubStore::temp_infer_xn_f32(int64_t rows) const {
+  const Checker &v = checker();
+  v.check(CheckKind::Capability, infer_xn_f32_.data() != nullptr,
+          "TensorStore temp_infer_xn_f32", "unavailable for this temp layout");
+  v.check_prefix(infer_xn_f32_, Shape{1, rows}, "TensorStore temp_infer_xn_f32");
+  return infer_xn_f32_.slice(1, 0, rows);
 }
 
 TensorView TensorStore::TempTensorSubStore::temp_tr_logits(int64_t rows) const {
@@ -1156,6 +1168,9 @@ TensorView TensorStore::temp_infer_ids(int64_t rows) const {
 }
 TensorView TensorStore::temp_infer_logits(int64_t rows) const {
   return temp_tensor_substore_->temp_infer_logits(rows);
+}
+TensorView TensorStore::temp_infer_xn_f32(int64_t rows) const {
+  return temp_tensor_substore_->temp_infer_xn_f32(rows);
 }
 TensorView TensorStore::temp_tr_logits(int64_t rows) const {
   return temp_tensor_substore_->temp_tr_logits(rows);

@@ -17,10 +17,13 @@ struct AttentionDims {
   int64_t model_dim = 0;
   int64_t n_heads = 0;
   bool with_backward = true;
+  // Inference only: each layer keeps K and V of every earlier position.
+  bool with_kv_cache = false;
 
   int64_t head_dim() const { return model_dim / n_heads; }
 };
 
-// The training batch with backward, and one inference window without.
+// The training batch with backward, and one inference window without (with
+// a KV cache under inference.kv_cache).
 AttentionDims training_attention_dims(const Config &cfg);
 AttentionDims inference_attention_dims(const Config &cfg);

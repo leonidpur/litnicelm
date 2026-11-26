@@ -4,7 +4,6 @@
 
 #include <inference.hpp>
 
-#include "host_tensor_stage.hpp"
 #include "backend/device_backend.hpp"
 #include "checkpoint.hpp"
 #include <config.hpp>
@@ -15,10 +14,12 @@
 #include "algo/transformer.hpp"
 #include <litnicelm_utils/log.hpp>
 #include "model_events.hpp"
+#include "next_token_logits.hpp"
 #include "program_terminal.hpp"
 #include "runtime_config.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
@@ -63,7 +64,7 @@ struct InferRuntime {
         backend(DeviceBackend::create_instance(cfg)),
         precision(PrecisionPolicy::create(cfg, backend->precision_variants())),
         tokenizer(TokenizerFactory::create(cfg)),
-        algo(ModelAlgoConfig::from_config(cfg)),
+        algo(ModelAlgoConfig::from_config(cfg), ModelRole::Inference),
         ops(*backend) {
     cfg = with_tokenizer_vocab_size(cfg, *tokenizer);
     validate_vocab_contract_or_throw(cfg, *tokenizer);
@@ -82,31 +83,6 @@ void load_weights_or_throw(InferRuntime &rt) {
   rt.memory_manager->sync_compute_weights();
 }
 
-std::vector<float> read_last_row_logits(DeviceBackend &backend,
-                                        const TensorView &logits) {
-  Tensor logits_host =
-      host_tensor_stage::stage_to_cpu_f32(backend, logits, "Inference::argmax_last_row");
-  TensorView logits_view = logits_host.view();
-  if (logits_view.rank() == 3) {
-    if (logits_view.dim(0) != 1) {
-      throw std::runtime_error(
-          "read_last_row_logits expects inference logits with batch_size == 1");
-    }
-    logits_view = logits_view.select(0, 0);
-  }
-  if (logits_view.rank() != 2) {
-    throw std::runtime_error("read_last_row_logits expects rank-2 or rank-3 logits");
-  }
-
-  const int64_t r = logits_view.dim(0) - 1;
-  const int64_t C = logits_view.dim(1);
-  std::vector<float> row_logits(static_cast<size_t>(C), 0.0f);
-  for (int64_t c = 0; c < C; ++c) {
-    row_logits[static_cast<size_t>(c)] = logits_view.at_f32(r, c);
-  }
-  return row_logits;
-}
-
 std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
                                 const std::string &prompt) {
   std::vector<int32_t> ids = tokenizer.encode(prompt);
@@ -118,35 +94,6 @@ std::vector<int32_t> prompt_ids(const Tokenizer &tokenizer,
 
 uint32_t trained_context(const InferRuntime &rt) {
   return std::min(rt.cfg.model.max_seq_len, rt.cfg.training.train_seq_len);
-}
-
-// The model only sees the last `context` tokens: generation slides this
-// window forward instead of stopping once the text reaches the context size.
-std::vector<int32_t> context_window(const std::vector<int32_t> &ids,
-                                    uint32_t context) {
-  if (ids.size() <= static_cast<size_t>(context)) {
-    return ids;
-  }
-  return std::vector<int32_t>(ids.end() - static_cast<std::ptrdiff_t>(context),
-                              ids.end());
-}
-
-TensorView forward_prompt(InferRuntime &rt, const std::vector<int32_t> &ids) {
-  const int64_t prompt_token_rows = static_cast<int64_t>(ids.size());
-  TensorView ids_t =
-      rt.memory_manager->tensor_store().temp_infer_ids(prompt_token_rows);
-  Tensor ids_host = Tensor::make_cpu(DType::I32, ids_t.shape());
-  auto *p = reinterpret_cast<int32_t *>(ids_host.view().data());
-  for (size_t i = 0; i < ids.size(); ++i) {
-    p[i] = ids[i];
-  }
-  host_tensor_stage::copy_from_cpu(*rt.backend, ids_host.view(), ids_t,
-                                   "Inference::forward_prompt(ids)");
-
-  TensorView logits =
-      rt.memory_manager->tensor_store().temp_infer_logits(prompt_token_rows);
-  rt.model->forward(ids_t, logits);
-  return logits;
 }
 
 std::string decode_token_safe(const Tokenizer &tokenizer, int32_t id) {
@@ -293,6 +240,40 @@ TopTwo top_two_probabilities(const std::vector<float> &row_logits) {
   return {first / sum, second / sum};
 }
 
+// Wall time of the first step (prefill: the prompt) and of the later steps
+// (decode: one new token each). Each step ends with the host read of the
+// logits, which waits for the device.
+class GenerationTimer {
+public:
+  void start_step() { start_ = std::chrono::steady_clock::now(); }
+  void end_step(uint32_t step) {
+    const double ms = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - start_)
+                          .count();
+    if (step == 0) {
+      prefill_ms_ = ms;
+    } else {
+      decode_ms_ += ms;
+      ++decode_steps_;
+    }
+  }
+  std::string report(size_t prompt_tokens) const {
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(3) << "prefill: " << prompt_tokens
+        << " tokens " << prefill_ms_ << " ms; decode: " << decode_steps_
+        << " tokens "
+        << (decode_steps_ > 0 ? decode_ms_ / decode_steps_ : 0.0)
+        << " ms/token";
+    return out.str();
+  }
+
+private:
+  std::chrono::steady_clock::time_point start_{};
+  double prefill_ms_ = 0.0;
+  double decode_ms_ = 0.0;
+  uint32_t decode_steps_ = 0;
+};
+
 std::string generate_text(InferRuntime &rt, const std::string &prompt) {
   std::vector<int32_t> ids = prompt_ids(*rt.tokenizer, prompt);
   std::mt19937 rng(rt.cfg.inference.seed);
@@ -305,7 +286,8 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
         << " top_k=" << rt.cfg.inference.top_k
         << " top_p=" << rt.cfg.inference.top_p
         << " seed=" << rt.cfg.inference.seed
-        << " trained_context=" << max_seq;
+        << " trained_context=" << max_seq
+        << " kv_cache=" << (rt.cfg.inference.kv_cache ? "true" : "false");
   if (ids.size() > static_cast<size_t>(max_seq)) {
     start << " (prompt_tokens=" << ids.size() << ", model sees the last "
           << max_seq << ")";
@@ -313,10 +295,14 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
   logger().log(model_events::kInferenceStart, start.str());
   TopTwo least_margin{1.0, 0.0};
   uint32_t least_margin_step = 0;
+  GenerationTimer timer;
+  const std::unique_ptr<INextTokenLogits> next = make_next_token_logits(
+      rt.cfg, *rt.model, rt.memory_manager->tensor_store(), *rt.backend, max_seq);
+  const size_t prompt_tokens = std::min(ids.size(), static_cast<size_t>(max_seq));
   for (uint32_t step = 0; step < max_new; ++step) {
-    TensorView logits = forward_prompt(rt, context_window(ids, max_seq));
-    const std::vector<float> row_logits =
-        read_last_row_logits(*rt.backend, logits);
+    timer.start_step();
+    const std::vector<float> row_logits = next->next_logits(ids);
+    timer.end_step(step);
     if (rt.cfg.inference.report_margin) {
       const TopTwo top = top_two_probabilities(row_logits);
       if (top.first - top.second < least_margin.first - least_margin.second) {
@@ -338,6 +324,7 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
     logger().log(model_events::kInferenceMargin, margin.str());
   }
 
+  logger().log(model_events::kInferenceTiming, timer.report(prompt_tokens));
   logger().log(model_events::kInferenceEnd, "Inference complete: tokens=" +
                                           std::to_string(ids.size()));
   return rt.tokenizer->decode(ids);
@@ -346,10 +333,10 @@ std::string generate_text(InferRuntime &rt, const std::string &prompt) {
 std::string inspect_distribution(InferRuntime &rt, const std::string &prompt) {
   constexpr size_t kTopK = 5;
 
-  const std::vector<int32_t> ids = context_window(
-      prompt_ids(*rt.tokenizer, prompt), trained_context(rt));
-  const TensorView logits = forward_prompt(rt, ids);
-  const std::vector<float> row_logits = read_last_row_logits(*rt.backend, logits);
+  FullWindowLogits window(*rt.model, rt.memory_manager->tensor_store(),
+                          *rt.backend, trained_context(rt));
+  const std::vector<float> row_logits =
+      window.next_logits(prompt_ids(*rt.tokenizer, prompt));
   const int64_t cols = static_cast<int64_t>(row_logits.size());
   float max_logit = row_logits.at(0);
   for (int64_t c = 1; c < cols; ++c) {

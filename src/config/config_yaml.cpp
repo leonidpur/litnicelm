@@ -204,7 +204,8 @@ std::string config_to_yaml(const Config &cfg) {
     << "  top_k: " << cfg.inference.top_k << "\n"
     << "  top_p: " << format_utils::float_text(cfg.inference.top_p) << "\n"
     << "  seed: " << cfg.inference.seed << "\n"
-    << "  report_margin: " << boolean(cfg.inference.report_margin) << "\n\n";
+    << "  report_margin: " << boolean(cfg.inference.report_margin) << "\n"
+    << "  kv_cache: " << boolean(cfg.inference.kv_cache) << "\n\n";
 
   y << "logging:\n"
     << "  show_bpe: " << boolean(cfg.logging.show_bpe) << "\n"

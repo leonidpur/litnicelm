@@ -9,6 +9,7 @@
 #include "cudnn_flash_attention_core.hpp"
 #include "ffn.hpp"
 #include "fused_inplace_attention_core.hpp"
+#include "fp32_logits_output_head.hpp"
 #include "fused_bias_relu_ffn.hpp"
 #include "fused_linear_ffn.hpp"
 #include "fused_linear_output_projection.hpp"
@@ -17,6 +18,8 @@
 #include "gemm_qkv_projection.hpp"
 #include "guarded_self_attention.hpp"
 #include "inplace_fused_bias_relu_ffn.hpp"
+#include "kv_cache_attention.hpp"
+#include "kv_cached_attention_core.hpp"
 #include "linear_params.hpp"
 #include "position_encoding.hpp"
 #include "unfused_attention_core.hpp"
@@ -44,7 +47,39 @@ void check_fused_attention_supported(const Ops &ops, const NodeSlices &slices) {
 
 } // namespace
 
-ModelAlgoFactory::ModelAlgoFactory(ModelAlgoConfig cfg) : cfg_(cfg) {}
+ModelAlgoFactory::ModelAlgoFactory(ModelAlgoConfig cfg, ModelRole role)
+    : cfg_(cfg), role_(role) {}
+
+std::unique_ptr<IAttentionCore>
+ModelAlgoFactory::make_core(int layer_index, const Config &cfg, const Ops &ops,
+                            const NodeSlices &slices) const {
+  switch (cfg_.attention_impl) {
+  case AttentionImplKind::Unfused:
+    return std::make_unique<UnfusedAttentionCore>(layer_index, cfg, ops, slices);
+  case AttentionImplKind::FusedInplace:
+    return std::make_unique<FusedInplaceAttentionCore>(layer_index, cfg, ops,
+                                                       slices);
+  case AttentionImplKind::CudnnFlash:
+    check_fused_attention_supported(ops, slices);
+    return std::make_unique<CudnnFlashAttentionCore>(layer_index, cfg, ops,
+                                                     slices);
+  default:
+    throw std::runtime_error("ModelAlgoFactory: no attention core for this "
+                             "attention implementation");
+  }
+}
+
+std::unique_ptr<IAttentionCore>
+ModelAlgoFactory::for_role(std::unique_ptr<IAttentionCore> core, int layer_index,
+                           const Config &cfg, const Ops &ops,
+                           const NodeSlices &slices) const {
+  if (role_ == ModelRole::Training || !cfg.inference.kv_cache) {
+    return core;
+  }
+  return std::make_unique<KvCachedAttentionCore>(
+      std::move(core),
+      std::make_unique<KvCacheAttention>(layer_index, cfg, ops, slices));
+}
 
 std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
     int layer_index, const Config &cfg, TensorStore &tensor_store,
@@ -54,47 +89,25 @@ std::unique_ptr<ISelfAttention> ModelAlgoFactory::create_attention(
   const AttentionParams params =
       attention_params(layer_index, tensor_store, gradient_store);
   std::unique_ptr<ISelfAttention> attention;
-  switch (cfg_.attention_impl) {
-  case AttentionImplKind::Unfused:
-    attention = std::make_unique<ComposedSelfAttention>(
-        layer_index, cfg, params, position_encoding, slices,
-        make_qkv_projection(layer_index, params.qkv, ops),
-        std::make_unique<UnfusedAttentionCore>(layer_index, cfg, ops, slices),
-        make_output_projection(layer_index, params.out, ops));
-    break;
-  case AttentionImplKind::FusedInplace:
-    attention = std::make_unique<ComposedSelfAttention>(
-        layer_index, cfg, params, position_encoding, slices,
-        make_qkv_projection(layer_index, params.qkv, ops),
-        std::make_unique<FusedInplaceAttentionCore>(layer_index, cfg, ops,
-                                                    slices),
-        make_output_projection(layer_index, params.out, ops));
-    break;
-  case AttentionImplKind::CudnnFlash:
-    check_fused_attention_supported(ops, slices);
-    attention = std::make_unique<ComposedSelfAttention>(
-        layer_index, cfg, params, position_encoding, slices,
-        make_qkv_projection(layer_index, params.qkv, ops),
-        std::make_unique<CudnnFlashAttentionCore>(layer_index, cfg, ops,
-                                                  slices),
-        make_output_projection(layer_index, params.out, ops));
-    break;
-  case AttentionImplKind::FusedInplaceMultistream:
+  if (cfg_.attention_impl == AttentionImplKind::FusedInplaceMultistream) {
     attention = std::make_unique<SelfAttentionFusedInplaceMultistream>(
         layer_index, cfg, params, ops, position_encoding, slices);
-    break;
-  default:
-    throw std::runtime_error("ModelAlgoFactory: unknown attention implementation");
+  } else {
+    attention = std::make_unique<ComposedSelfAttention>(
+        layer_index, cfg, params, position_encoding, slices,
+        make_qkv_projection(layer_index, params.qkv, ops),
+        for_role(make_core(layer_index, cfg, ops, slices), layer_index, cfg,
+                 ops, slices),
+        make_output_projection(layer_index, params.out, ops));
   }
   if (!cfg_.debug_guards) {
     return attention;
   }
-  // Only the training layout has a gradient store (inference passes none).
-  const bool training = gradient_store != nullptr;
   return std::make_unique<GuardedSelfAttention>(
       layer_index, std::move(attention),
-      unguarded_attention_slice_requests(training ? training_attention_dims(cfg)
-                                                  : inference_attention_dims(cfg)),
+      unguarded_attention_slice_requests(role_ == ModelRole::Training
+                                             ? training_attention_dims(cfg)
+                                             : inference_attention_dims(cfg)),
       slices, ops.backend());
 }
 
@@ -141,6 +154,12 @@ std::unique_ptr<IFFN> ModelAlgoFactory::create_ffn(
 std::unique_ptr<IOutputHead> ModelAlgoFactory::create_output_head(
     const Config &cfg, TensorStore &tensor_store, GradientStore *gradient_store,
     const Ops &ops) const {
+  // Inference decodes from FP32 logits: under BF16 activations the head
+  // casts the hidden states; under FP32 the configured head's logits are FP32.
+  if (role_ == ModelRole::Inference &&
+      tensor_store.compute_lm_head_w().dtype() == DType::BF16) {
+    return std::make_unique<Fp32LogitsOutputHead>(cfg, tensor_store, ops);
+  }
   switch (cfg_.output_head) {
   case OutputHeadKind::Unfused:
     return std::make_unique<UnfusedOutputHead>(cfg, tensor_store,
@@ -178,23 +197,33 @@ std::vector<SliceRequest> ModelAlgoFactory::unguarded_attention_slice_requests(
     for (SliceRequest &request : UnfusedAttentionCore::slice_requests(dims)) {
       requests.push_back(std::move(request));
     }
-    return requests;
+    break;
   case AttentionImplKind::FusedInplace:
     requests = ComposedSelfAttention::slice_requests(dims);
     for (SliceRequest &request : FusedInplaceAttentionCore::slice_requests(dims)) {
       requests.push_back(std::move(request));
     }
-    return requests;
+    break;
   case AttentionImplKind::CudnnFlash:
     requests = ComposedSelfAttention::slice_requests(dims);
     for (SliceRequest &request : CudnnFlashAttentionCore::slice_requests(dims)) {
       requests.push_back(std::move(request));
     }
-    return requests;
+    break;
   case AttentionImplKind::FusedInplaceMultistream:
+    if (dims.with_kv_cache) {
+      throw std::runtime_error(
+          "ModelAlgoFactory: inference.kv_cache needs a composed attention "
+          "(not fused_inplace_multistream); set inference.kv_cache: false");
+    }
     return SelfAttentionFusedInplaceMultistream::slice_requests(dims);
+  default:
+    throw std::runtime_error("ModelAlgoFactory: unknown attention implementation");
   }
-  throw std::runtime_error("ModelAlgoFactory: unknown attention implementation");
+  for (SliceRequest &request : KvCacheAttention::slice_requests(dims)) {
+    requests.push_back(std::move(request));
+  }
+  return requests;
 }
 
 bool ModelAlgoFactory::ffn_needs_activation_buffers() const {

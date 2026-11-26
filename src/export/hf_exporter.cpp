@@ -55,7 +55,7 @@ public:
       : tokenizer_(TokenizerFactory::create(cpu_fp32_config(run_cfg))),
         cfg_(with_tokenizer_vocab_size(cpu_fp32_config(run_cfg), *tokenizer_)),
         backend_(DeviceBackend::create_instance(cfg_)),
-        algo_(ModelAlgoConfig::from_config(cfg_)),
+        algo_(ModelAlgoConfig::from_config(cfg_), ModelRole::Inference),
         precision_(PrecisionPolicy::create(cfg_, backend_->precision_variants())),
         memory_(cfg_, algo_, *backend_, precision_) {
     const LoadedCheckpointState state =

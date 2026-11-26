@@ -219,7 +219,8 @@ __global__ void apply_causal_mask_inplace_f32(KernelTensorView scores,
 __global__ void rotary_embedding_inplace_f32(KernelTensorView x,
                                              int64_t seq_len, int64_t n_heads,
                                              int64_t head_dim, float base,
-                                             float sign) {
+                                             float sign,
+                                             int64_t first_position) {
   const int half = static_cast<int>(head_dim / 2);
   const int pair = blockIdx.x * blockDim.x + threadIdx.x;
   if (pair >= static_cast<int>(n_heads) * half) {
@@ -235,7 +236,8 @@ __global__ void rotary_embedding_inplace_f32(KernelTensorView x,
   if (row >= x.rows) {
     return;
   }
-  const float pos = static_cast<float>(row % static_cast<int>(seq_len));
+  const float pos = static_cast<float>(
+      first_position + static_cast<int64_t>(row % static_cast<int>(seq_len)));
   float s = 0.0f;
   float c = 0.0f;
   sincosf(pos * inv_freq, &s, &c);
@@ -478,7 +480,8 @@ __global__ void rotary_embedding_inplace_bf16act(KernelTensorView x,
                                                  int64_t seq_len,
                                                  int64_t n_heads,
                                                  int64_t head_dim, float base,
-                                                 float sign) {
+                                                 float sign,
+                                                 int64_t first_position) {
   const int half = static_cast<int>(head_dim / 2);
   const int pair = blockIdx.x * blockDim.x + threadIdx.x;
   if (pair >= static_cast<int>(n_heads) * half) {
@@ -494,7 +497,8 @@ __global__ void rotary_embedding_inplace_bf16act(KernelTensorView x,
   if (row >= x.rows) {
     return;
   }
-  const float pos = static_cast<float>(row % static_cast<int>(seq_len));
+  const float pos = static_cast<float>(
+      first_position + static_cast<int64_t>(row % static_cast<int>(seq_len)));
   float s = 0.0f;
   float c = 0.0f;
   sincosf(pos * inv_freq, &s, &c);
@@ -628,7 +632,8 @@ void launch_apply_causal_mask_inplace_f32(TensorView &scores, float neg_inf) {
 }
 
 void launch_rotary_embedding_inplace_f32(TensorView &x, int64_t n_heads,
-                                         float base, bool inverse) {
+                                         float base, bool inverse,
+                                         int64_t first_position) {
   const int64_t seq_len = x.dim(x.rank() - 2);
   const int64_t head_dim = tensor_cols(x) / n_heads;
   const int64_t pairs = n_heads * (head_dim / 2);
@@ -638,7 +643,7 @@ void launch_rotary_embedding_inplace_f32(TensorView &x, int64_t n_heads,
   const RowsColsLaunch launch = rows_cols_launch(tensor_rows(x), pairs);
   rotary_embedding_inplace_f32<<<launch.grid, launch.block>>>(
       to_kernel_tensor_view(x), seq_len, n_heads, head_dim, base,
-      inverse ? -1.0f : 1.0f);
+      inverse ? -1.0f : 1.0f, first_position);
   check_kernel_launch("rotary_embedding_inplace_f32");
 }
 
@@ -756,7 +761,8 @@ void launch_apply_causal_mask_inplace_bf16act(TensorView &scores,
 }
 
 void launch_rotary_embedding_inplace_bf16act(TensorView &x, int64_t n_heads,
-                                             float base, bool inverse) {
+                                             float base, bool inverse,
+                                             int64_t first_position) {
   const int64_t seq_len = x.dim(x.rank() - 2);
   const int64_t head_dim = tensor_cols(x) / n_heads;
   const int64_t pairs = n_heads * (head_dim / 2);
@@ -766,7 +772,7 @@ void launch_rotary_embedding_inplace_bf16act(TensorView &x, int64_t n_heads,
   const RowsColsLaunch launch = rows_cols_launch(tensor_rows(x), pairs);
   rotary_embedding_inplace_bf16act<<<launch.grid, launch.block>>>(
       to_kernel_tensor_view(x), seq_len, n_heads, head_dim, base,
-      inverse ? -1.0f : 1.0f);
+      inverse ? -1.0f : 1.0f, first_position);
   check_kernel_launch("rotary_embedding_inplace_bf16act");
 }
 

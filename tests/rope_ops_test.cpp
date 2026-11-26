@@ -6,7 +6,9 @@
 //   1. matches a double-precision host reference (Q/K rotated, V untouched),
 //   2. inverse undoes forward,
 //   3. inverse is the adjoint of forward (so it is the correct gradient),
-//   4. Q.K scores depend only on the relative position i - j.
+//   4. Q.K scores depend only on the relative position i - j,
+//   5. rotating row ranges at their absolute first_position (as a KV-cached
+//      decode does) equals rotating the whole sequence, bit for bit.
 //
 // Usage: litnice_rope_test <path to backend plugin .so>
 
@@ -88,8 +90,8 @@ void rotate_qk(const Ops &ops, DeviceQkv &qkv, bool inverse) {
   TensorView full = qkv.view();
   TensorView q = full.subcols(0, kModel);
   TensorView k = full.subcols(kModel, kModel);
-  ops.rotary_embedding_inplace(q, kHeads, kBase, inverse);
-  ops.rotary_embedding_inplace(k, kHeads, kBase, inverse);
+  ops.rotary_embedding_inplace(q, kHeads, kBase, inverse, 0);
+  ops.rotary_embedding_inplace(k, kHeads, kBase, inverse, 0);
 }
 
 std::vector<float> random_qkv(uint32_t seed) {
@@ -225,6 +227,32 @@ void test_relative_position(const Ops &ops, DeviceBackend &backend) {
                           sci(worst) + ")");
 }
 
+// Rows [first, first + n) rotated with first_position = first, chunk by
+// chunk (a prompt, single decode tokens, a longer tail), against one call
+// over the whole sequence.
+void test_first_position_chunks(const Ops &ops, DeviceBackend &backend) {
+  const std::vector<float> input = random_qkv(6);
+  DeviceQkv whole(backend);
+  DeviceQkv chunked(backend);
+  whole.upload(input);
+  chunked.upload(input);
+  rotate_qk(ops, whole, /*inverse=*/false);
+  const std::vector<std::pair<int64_t, int64_t>> chunks{
+      {0, 10}, {10, 1}, {11, 1}, {12, 37}, {49, 1}, {50, kSeq - 50}};
+  for (int64_t b = 0; b < kBatch; ++b) {
+    for (const auto &[first, rows] : chunks) {
+      TensorView part = chunked.view().slice(0, b, 1).slice(1, first, rows);
+      TensorView q = part.subcols(0, kModel);
+      TensorView k = part.subcols(kModel, kModel);
+      ops.rotary_embedding_inplace(q, kHeads, kBase, false, first);
+      ops.rotary_embedding_inplace(k, kHeads, kBase, false, first);
+    }
+  }
+  const float diff = max_abs_diff(chunked.download(), whole.download());
+  check(diff == 0.0f, "row ranges at their first_position == whole sequence "
+                      "(max abs diff " + sci(diff) + ")");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -242,6 +270,7 @@ int main(int argc, char **argv) {
   test_inverse_roundtrip(ops, *backend);
   test_inverse_is_adjoint(ops, *backend);
   test_relative_position(ops, *backend);
+  test_first_position_chunks(ops, *backend);
 
   std::cout << (g_failures == 0 ? "All RoPE op tests passed.\n"
                                 : "RoPE op tests FAILED.\n");

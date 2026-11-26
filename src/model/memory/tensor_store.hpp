@@ -158,7 +158,10 @@ public:
   TensorView temp_ds_targets(int64_t batch_size, int64_t seq_len) const;
   bool has_inference_io_temps() const;
   TensorView temp_infer_ids(int64_t rows) const;
+  // F32 in every precision (decoding reads them).
   TensorView temp_infer_logits(int64_t rows) const;
+  // [1, rows, D] F32: the final hidden states cast for the FP32 LM head.
+  TensorView temp_infer_xn_f32(int64_t rows) const;
   TensorView temp_tr_logits(int64_t rows) const;
   TensorView temp_tr_logits(int64_t batch_size, int64_t seq_len) const;
   TensorView temp_tr_loss() const;

@@ -15,6 +15,9 @@ public:
 
   virtual void set_observer(ITrainingObserver *observer) = 0;
   virtual void set_diagnostics(TrainingDiagnosticsController *diagnostics) = 0;
-  virtual void forward(const TensorView &x, TensorView &out) = 0;
+  // x, out [B, S, D]; row s is at absolute position first_position + s
+  // (nonzero only for a KV-cached decode step).
+  virtual void forward(const TensorView &x, TensorView &out,
+                       int64_t first_position) = 0;
   virtual void backward(const TensorView &dout, TensorView &dx) = 0;
 };

@@ -19,8 +19,11 @@ public:
   virtual void set_diagnostics(TrainingDiagnosticsController *diagnostics) = 0;
 
   // qkv [B, S, 3D] (Q | K | V) -> context [B, S, D], heads side by side.
-  // Keeps qkv and whatever its backward needs in its Saved slices.
-  virtual void forward(const TensorView &qkv, TensorView &context) = 0;
+  // Keeps qkv and whatever its backward needs in its Saved slices. Row s is
+  // at absolute position first_position + s; cores that attend only within
+  // the call require 0, the KV-cached core decodes at later positions.
+  virtual void forward(const TensorView &qkv, TensorView &context,
+                       int64_t first_position) = 0;
   // dcontext [B, S, D] -> dqkv [B, S, 3D] w.r.t. the qkv given to forward.
   virtual void backward(const TensorView &dcontext, TensorView &dqkv) = 0;
 };

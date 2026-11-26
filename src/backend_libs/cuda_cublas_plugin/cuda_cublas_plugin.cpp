@@ -370,9 +370,10 @@ void plugin_apply_causal_mask_inplace(void *backend,
 
 void plugin_rotary_embedding_inplace(void *backend, const TensorViewStruct *x,
                                      int64_t n_heads, float base,
-                                     uint32_t inverse) {
+                                     uint32_t inverse, int64_t first_position) {
   TensorView x_view = to_tensor_view(*x);
-  backend_from_opaque(backend).rotary_embedding_inplace(x_view, n_heads, base, inverse != 0);
+  backend_from_opaque(backend).rotary_embedding_inplace(x_view, n_heads, base, inverse != 0,
+                                                       first_position);
 }
 
 void plugin_adamw_step(void *backend, const TensorViewStruct *params,

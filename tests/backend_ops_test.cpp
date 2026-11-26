@@ -529,7 +529,16 @@ std::vector<OpCase> op_cases() {
     cases.push_back({std::string("rotary_embedding_inplace") + (inverse ? " (inverse)" : ""),
                      {random_f32(Shape{3, 17, 24}, inverse ? 98 : 97)},
                      [inverse](DeviceBackend &b, Views &v) {
-                       b.rotary_embedding_inplace(v[0], 3, 10000.0f, inverse);
+                       b.rotary_embedding_inplace(v[0], 3, 10000.0f, inverse, 0);
+                       return Scalars{};
+                     },
+                     {0}, kReduce, kReduce});
+    // Rows at absolute positions 37.. (a KV-cached decode).
+    cases.push_back({std::string("rotary_embedding_inplace at first_position 37") +
+                         (inverse ? " (inverse)" : ""),
+                     {random_f32(Shape{3, 17, 24}, inverse ? 96 : 95)},
+                     [inverse](DeviceBackend &b, Views &v) {
+                       b.rotary_embedding_inplace(v[0], 3, 10000.0f, inverse, 37);
                        return Scalars{};
                      },
                      {0}, kReduce, kReduce});
@@ -652,6 +661,8 @@ const std::vector<VariantCase> &bf16act_cases() {
       {"apply_causal_mask_inplace", "A", C::Exact},
       {"rotary_embedding_inplace", "A", C::Exact},
       {"rotary_embedding_inplace (inverse)", "A", C::Exact},
+      {"rotary_embedding_inplace at first_position 37", "A", C::Exact},
+      {"rotary_embedding_inplace at first_position 37 (inverse)", "A", C::Exact},
       // Same reduction order in both variants: the F32 sums match exactly.
       {"row_sum", "AP", C::Exact},
       // Same FP32 reductions in both; each BF16 output is rounded once.

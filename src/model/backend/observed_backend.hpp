@@ -107,7 +107,7 @@ public:
   void apply_causal_mask_inplace(TensorView &scores,
                                  float neg_inf = -1e9f) override;
   void rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                bool inverse) override;
+                                bool inverse, int64_t first_position) override;
   uint32_t fused_ops() const override;
   void causal_attention_forward(const TensorView &qkv, int64_t n_heads,
                                 float scale, TensorView &out,

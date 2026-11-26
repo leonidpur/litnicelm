@@ -367,7 +367,7 @@ void Ops::apply_causal_mask_inplace(TensorView &scores, float neg_inf) const {
   device_backend_.apply_causal_mask_inplace(scores, neg_inf);
 }
 void Ops::rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
-                                   bool inverse) const {
+                                   bool inverse, int64_t first_position) const {
   checker().check_rank(x, 3, "Ops rotary_embedding_inplace x");
   checker().check(CheckKind::Contract, n_heads > 0 && x.dim(2) % n_heads == 0,
                   "Ops rotary_embedding_inplace",
@@ -376,7 +376,10 @@ void Ops::rotary_embedding_inplace(TensorView &x, int64_t n_heads, float base,
                   "Ops rotary_embedding_inplace", "head_dim must be even");
   checker().check(CheckKind::Contract, base > 1.0f,
                   "Ops rotary_embedding_inplace", "base must be > 1");
-  device_backend_.rotary_embedding_inplace(x, n_heads, base, inverse);
+  checker().check(CheckKind::Contract, first_position >= 0,
+                  "Ops rotary_embedding_inplace", "first_position must be >= 0");
+  device_backend_.rotary_embedding_inplace(x, n_heads, base, inverse,
+                                           first_position);
 }
 
 uint32_t Ops::fused_ops() const { return device_backend_.fused_ops(); }

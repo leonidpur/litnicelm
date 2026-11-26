@@ -268,7 +268,8 @@ int Trainer::train_entry_point(const Config &cfg, const Command &cmd) {
   TrainerValidationUtils::validate_config_tokenizer_and_dataset(runtime_cfg,
                                                                 *tokenizer);
   ReportRenderer report_renderer;
-  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(runtime_cfg));
+  const ModelAlgoFactory algo(ModelAlgoConfig::from_config(runtime_cfg),
+                              ModelRole::Training);
   TrainingSessionController session_controller(runtime_cfg, cmd, algo,
                                                report_renderer);
 

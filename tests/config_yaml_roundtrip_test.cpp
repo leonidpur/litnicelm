@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
                             "./build/liblitnice_tracking_runs.so"};
       cfg.tracking.metrics_every_n_steps = 50;
       cfg.inference.report_margin = true;
+      cfg.inference.kv_cache = false;
       cfg.tracking.options = {{"runs.dir", "runs"},
                               {"journal.path", "journal/x.txt"}};
       const std::string first = config_to_yaml(cfg);

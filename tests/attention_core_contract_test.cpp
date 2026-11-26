@@ -170,7 +170,7 @@ CoreResult run_core(DeviceBackend &backend, const Ops &ops, CoreKind kind,
   dcontext_buf.upload(dcontext);
   TensorView context = context_buf.view();
   TensorView dqkv = dqkv_buf.view();
-  core->forward(qkv_buf.view(), context);
+  core->forward(qkv_buf.view(), context, 0);
   core->backward(dcontext_buf.view(), dqkv);
   return {context_buf.download(), dqkv_buf.download()};
 }
@@ -546,9 +546,9 @@ public:
   bool needs_position_table() const override { return false; }
   void bind(TensorStore &, GradientStore *, const Ops &) override {}
   void set_diagnostics(TrainingDiagnosticsController *) override {}
-  void apply_to_input(TensorView &) override {}
+  void apply_to_input(TensorView &, int64_t) override {}
   void backward_input(const TensorView &) override {}
-  void apply_to_qk(TensorView &qkv) override { ops_.mul_scalar(qkv, 0.75f, qkv); }
+  void apply_to_qk(TensorView &qkv, int64_t) override { ops_.mul_scalar(qkv, 0.75f, qkv); }
   void backward_qk(TensorView &dqkv) override { ops_.mul_scalar(dqkv, 0.75f, dqkv); }
   void report_probes() const override {}
 
@@ -615,7 +615,7 @@ AttentionResult run_attention(DeviceBackend &backend, const Ops &ops, bool multi
   dy_buf.upload(random_values(tokens * static_cast<size_t>(D), seed + 5, bf16));
   TensorView y = y_buf.view();
   TensorView dx = dx_buf.view();
-  attention->forward(x_buf.view(), y);
+  attention->forward(x_buf.view(), y, 0);
   attention->backward(dy_buf.view(), dx);
   return {y_buf.download(),          dx_buf.download(),
           qkv.dweight.download(),    qkv.dbias.download(),
@@ -653,7 +653,7 @@ public:
       : backend_(backend), w_(w), count_(count) {}
   void set_observer(ITrainingObserver *) override {}
   void set_diagnostics(TrainingDiagnosticsController *) override {}
-  void forward(const TensorView &, TensorView &) override { write(); }
+  void forward(const TensorView &, TensorView &, int64_t) override { write(); }
   void backward(const TensorView &, TensorView &) override { write(); }
 
 private:
@@ -696,7 +696,7 @@ std::string run_guarded(DeviceBackend &backend, size_t write_count, bool change_
       0, std::make_unique<OverrunningAttention>(backend, slices.at("attn.w"), write_count),
       requests, slices, backend);
   try {
-    attention.forward(x_buf.view(), y);
+    attention.forward(x_buf.view(), y, 0);
     if (change_saved) {
       const float changed = 2.0f;
       backend.copy_host2device(slices.at("attn.saved").data(), &changed, sizeof(float));

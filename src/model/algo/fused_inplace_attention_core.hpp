@@ -26,7 +26,8 @@ public:
   const char *name() const override { return "fused_inplace"; }
   void set_diagnostics(TrainingDiagnosticsController *diagnostics) override;
 
-  void forward(const TensorView &qkv, TensorView &context) override;
+  void forward(const TensorView &qkv, TensorView &context,
+               int64_t first_position) override;
   void backward(const TensorView &dcontext, TensorView &dqkv) override;
 
 private:
